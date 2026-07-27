@@ -1,0 +1,720 @@
+package httpapi
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/pdparchitect/launcher/internal/agent"
+	"github.com/pdparchitect/launcher/internal/domain"
+	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
+)
+
+const testCatalogID = "370a2228-322d-4089-846b-62fb8c15d154"
+
+func TestIndexPreservesDesignAndInjectsSessionToken(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+
+	New(&fakeService{}, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	body := response.Body.String()
+	for _, expected := range []string{
+		`name="launcher-token" content="test-token"`,
+		`<launcher-app></launcher-app>`,
+		`rel="modulepreload" href="/desktop-window.js"`,
+		`rel="modulepreload" href="/components/deploy-dialog.js"`,
+		`<script type="module" src="/main.js">`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("body missing %q", expected)
+		}
+	}
+	for _, loadingScreen := range []string{
+		"boot-screen",
+		"Starting your local agent orchestrator",
+	} {
+		if strings.Contains(body, loadingScreen) {
+			t.Fatalf("body still contains loading screen %q", loadingScreen)
+		}
+	}
+	if strings.Contains(body, "fonts.googleapis.com") {
+		t.Fatal("index still contains a render-blocking remote font stylesheet")
+	}
+}
+
+func TestWindowChromeUsesDesktopRuntimeAdapter(t *testing.T) {
+	source := readWebSources(
+		t,
+		"desktop-window.js",
+		"components/launcher-app.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		"WindowMinimise",
+		"WindowToggleMaximise",
+		"invoke('Quit')",
+		`data-window-action="close"`,
+		"border: 1px solid transparent",
+		"border-color: var(--line-bright)",
+		"--wails-draggable: drag",
+		"--wails-draggable: no-drag",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing desktop window behavior %q", expected)
+		}
+	}
+	controls := readWebSources(t, "components/launcher-app.js")
+	minimise := strings.Index(controls, `data-window-action="minimise"`)
+	maximise := strings.Index(controls, `data-window-action="maximise"`)
+	closeWindow := strings.Index(controls, `data-window-action="close"`)
+	if minimise < 0 || maximise < minimise || closeWindow < maximise {
+		t.Fatal("window controls must be ordered minimise, maximise, close")
+	}
+}
+
+func TestLauncherWindowUsesDialogBorder(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+	start := strings.Index(styles, "body::after {")
+	if start < 0 {
+		t.Fatal("interface missing Launcher window frame")
+	}
+	end := strings.Index(styles[start:], "}")
+	if end < 0 {
+		t.Fatal("Launcher window frame style is incomplete")
+	}
+	frame := styles[start : start+end]
+	for _, expected := range []string{
+		"position: fixed",
+		"inset: 0",
+		"border: 1px solid var(--line-bright)",
+		"pointer-events: none",
+	} {
+		if !strings.Contains(frame, expected) {
+			t.Fatalf("Launcher window frame missing %q", expected)
+		}
+	}
+}
+
+func TestInterfaceDisablesElasticDocumentScrolling(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+
+	documentStart := strings.Index(styles, "html,\nbody {")
+	if documentStart < 0 {
+		t.Fatal("interface missing document viewport styles")
+	}
+	documentEnd := strings.Index(styles[documentStart:], "}")
+	if documentEnd < 0 {
+		t.Fatal("document viewport styles are incomplete")
+	}
+	documentRule := styles[documentStart : documentStart+documentEnd]
+	for _, expected := range []string{
+		"height: 100%",
+		"overflow: hidden",
+		"overscroll-behavior: none",
+	} {
+		if !strings.Contains(documentRule, expected) {
+			t.Fatalf("document viewport styles missing %q", expected)
+		}
+	}
+
+	panelStart := strings.Index(styles, ".main-panel {")
+	if panelStart < 0 {
+		t.Fatal("interface missing main panel styles")
+	}
+	panelEnd := strings.Index(styles[panelStart:], "}")
+	if panelEnd < 0 {
+		t.Fatal("main panel styles are incomplete")
+	}
+	panelRule := styles[panelStart : panelStart+panelEnd]
+	for _, expected := range []string{
+		"height: 100%",
+		"overflow-y: auto",
+		"overscroll-behavior: none",
+	} {
+		if !strings.Contains(panelRule, expected) {
+			t.Fatalf("main panel styles missing %q", expected)
+		}
+	}
+}
+
+func TestSettingsScreenRemainsImplementedButHiddenFromNavigation(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/launcher-app.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		`data-screen="settings"`,
+		"LAUNCHER SETTINGS",
+		"Settings are intentionally hidden from the main navigation",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing Settings implementation %q", expected)
+		}
+	}
+	if strings.Contains(source, "['settings',") {
+		t.Fatal("Settings remains visible in the navigation")
+	}
+}
+
+func TestDeploymentUsesNativeDialogInsteadOfBrowserPrompt(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/deploy-dialog.js",
+		"components/launcher-app.js",
+	)
+	for _, expected := range []string{
+		"<dialog",
+		"data-launcher-deploy-dialog",
+		"showModal()",
+		"DEPLOY AGENT",
+		"'install-agent'",
+		"setProgress(progress)",
+		`data-close type="button"`,
+		`data-cancel type="button"`,
+		"if (!this.busy)",
+		"this.close()",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing deployment dialog behavior %q", expected)
+		}
+	}
+	if strings.Contains(source, "window.prompt") {
+		t.Fatal("deployment still uses the browser prompt")
+	}
+	if strings.Contains(source, `src="{{`) {
+		t.Fatal("dynamic image source triggers a raw template URL request")
+	}
+}
+
+func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/agent-card.js",
+		"components/launcher-app.js",
+	)
+	for _, expected := range []string{
+		"metrics?.cpuPercent",
+		"metrics?.memoryPercent",
+		"metrics?.uptimeSeconds",
+		"item.id === agent.catalogId",
+		"setInterval(() => this.refreshAgents(), 5000)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing runtime behavior %q", expected)
+		}
+	}
+	for _, placeholder := range []string{"cpu: 0", "mem: 0"} {
+		if strings.Contains(source, placeholder) {
+			t.Fatalf("interface still contains placeholder %q", placeholder)
+		}
+	}
+}
+
+func TestAgentActionsUseNativeDialogAndFunctionalButtons(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/agent-actions-dialog.js",
+		"components/launcher-app.js",
+	)
+	for _, expected := range []string{
+		"data-launcher-actions-dialog",
+		"RENAME AGENT",
+		"VIEW LOGS",
+		"DELETE AGENT",
+		"'rename-agent'",
+		"'load-agent-logs'",
+		"'delete-agent'",
+		"this.renameAgent(event.detail)",
+		"this.loadAgentLogs(event.detail.agent)",
+		"this.deleteAgent(event.detail.agent)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing agent action behavior %q", expected)
+		}
+	}
+	if strings.Contains(source, ">⚙</button>") {
+		t.Fatal("agent card still contains the placeholder settings button")
+	}
+}
+
+func TestBackgroundRefreshDoesNotShowBlockingAlert(t *testing.T) {
+	source := readWebSources(
+		t,
+		"api.js",
+		"components/launcher-app.js",
+	)
+	for _, expected := range []string{
+		"async refreshAgents()",
+		"console.warn('Agent refresh failed:'",
+		"Launcher request failed (${response.status})",
+		"new AbortController()",
+		"Launcher request timed out",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing refresh behavior %q", expected)
+		}
+	}
+	if strings.Contains(source, "window.alert") {
+		t.Fatal("background refresh can still show a blocking alert")
+	}
+}
+
+func TestAgentPaginationReflectsActualResultCount(t *testing.T) {
+	source := readWebSources(t, "components/launcher-app.js")
+	for _, expected := range []string{
+		"Math.ceil(matchingAgents.length / pageSize)",
+		"{ length: pageCount }",
+		"pageStart + pageSize",
+		"this.page = 1",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing dynamic pagination %q", expected)
+		}
+	}
+	if strings.Contains(source, "const pages = [1, 2, 3, 4]") {
+		t.Fatal("interface still contains hard-coded page buttons")
+	}
+}
+
+func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
+	source := readWebSources(
+		t,
+		"index.html",
+		"main.js",
+		"api.js",
+		"components/launcher-app.js",
+		"components/agent-card.js",
+		"components/marketplace-card.js",
+		"components/deploy-dialog.js",
+		"components/agent-actions-dialog.js",
+	)
+	for _, expected := range []string{
+		`customElements.define('launcher-app'`,
+		`customElements.define('agent-card'`,
+		`customElements.define('marketplace-card'`,
+		`customElements.define('deploy-dialog'`,
+		`customElements.define('agent-actions-dialog'`,
+		`<script type="module" src="/main.js">`,
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing Web Component %q", expected)
+		}
+	}
+	for _, generated := range []string{
+		"<sc-for",
+		"<sc-if",
+		"<x-dc",
+		"DCLogic",
+		"text/x-dc",
+		"support.js",
+		"{{",
+	} {
+		if strings.Contains(source, generated) {
+			t.Fatalf("interface still contains generated runtime syntax %q", generated)
+		}
+	}
+}
+
+func TestDesignAssetsAreServed(t *testing.T) {
+	handler := New(&fakeService{}, "test-token")
+	tests := []struct {
+		path         string
+		contentType  string
+		body         string
+		cacheControl string
+	}{
+		{
+			path:         "/main.js",
+			contentType:  "text/javascript",
+			body:         "components/launcher-app.js",
+			cacheControl: "no-store",
+		},
+		{
+			path:         "/styles.css",
+			contentType:  "text/css",
+			body:         "/assets/hero.png",
+			cacheControl: "no-store",
+		},
+		{
+			path:         "/components/agent-card.js",
+			contentType:  "text/javascript",
+			body:         "customElements.define('agent-card'",
+			cacheControl: "no-store",
+		},
+		{
+			path:         "/assets/logo.png",
+			contentType:  "image/png",
+			cacheControl: "public, max-age=3600",
+		},
+		{
+			path:        "/catalog-assets/pantalk-ghost/icon.svg",
+			contentType: "image/svg+xml",
+		},
+		{
+			path:        "/catalog-assets/pantalk-ghost/screenshot.png",
+			contentType: "image/png",
+		},
+		{
+			path:        "/catalog-assets/buzznode/screenshot.png",
+			contentType: "image/png",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf(
+					"status = %d, body = %q",
+					response.Code,
+					response.Body.String(),
+				)
+			}
+			if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(
+				contentType,
+				test.contentType,
+			) {
+				t.Fatalf("Content-Type = %q", contentType)
+			}
+			if test.body != "" && !strings.Contains(response.Body.String(), test.body) {
+				t.Fatalf("body missing %q", test.body)
+			}
+			if cacheControl := response.Header().Get("Cache-Control"); cacheControl !=
+				test.cacheControl {
+				t.Fatalf(
+					"Cache-Control = %q, want %q",
+					cacheControl,
+					test.cacheControl,
+				)
+			}
+		})
+	}
+	request := httptest.NewRequest(http.MethodGet, "/support.js", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("obsolete support.js status = %d, want 404", response.Code)
+	}
+}
+
+func readWebSources(t *testing.T, names ...string) string {
+	t.Helper()
+	var source strings.Builder
+	for _, name := range names {
+		data, err := webFiles.ReadFile("web/" + name)
+		if err != nil {
+			t.Fatalf("read embedded interface %q: %v", name, err)
+		}
+		source.Write(data)
+		source.WriteByte('\n')
+	}
+	return source.String()
+}
+
+func TestAPIRequiresSessionToken(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	response := httptest.NewRecorder()
+
+	New(&fakeService{}, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestListInstancesReturnsDesktopURL(t *testing.T) {
+	service := &fakeService{views: []agent.View{{
+		Instance: testInstance(),
+		State:    launchruntime.StatusRunning,
+		Metrics: launchruntime.Metrics{
+			CPUPercent:       0.22,
+			CPUAvailable:     true,
+			MemoryPercent:    0.34,
+			MemoryAvailable:  true,
+			MemoryUsageBytes: 169764454,
+			MemoryLimitBytes: 50541021716,
+		},
+		Uptime: 5 * time.Minute,
+	}}}
+	request := apiRequest(http.MethodGet, "/api/instances", nil)
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var body struct {
+		Instances []instanceResponse `json:"instances"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Instances) != 1 ||
+		body.Instances[0].URL != "http://127.0.0.1:16902" ||
+		body.Instances[0].Metrics == nil ||
+		*body.Instances[0].Metrics.CPUPercent != 0.22 ||
+		*body.Instances[0].Metrics.MemoryPercent != 0.34 ||
+		body.Instances[0].Metrics.UptimeSeconds != 300 {
+		t.Fatalf("instances = %#v", body.Instances)
+	}
+}
+
+func TestCreateInstanceStartsByDefault(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances",
+		[]byte(`{"catalogId":"370a2228-322d-4089-846b-62fb8c15d154","name":"Ada"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if !service.createOptions.Start ||
+		service.createOptions.CatalogID != testCatalogID ||
+		service.createOptions.Name != "Ada" {
+		t.Fatalf("CreateOptions = %#v", service.createOptions)
+	}
+}
+
+func TestInstallInstanceStreamsProgress(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/install",
+		[]byte(`{"catalogId":"370a2228-322d-4089-846b-62fb8c15d154","name":"Ada"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(
+		contentType,
+		"application/x-ndjson",
+	) {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	for _, expected := range []string{
+		`"type":"progress"`,
+		`"stage":"pulling"`,
+		`"stage":"starting"`,
+		`"type":"complete"`,
+		`"name":"Ada"`,
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("stream missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestServerLogsRequests(t *testing.T) {
+	var logs bytes.Buffer
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+
+	New(&fakeService{}, "test-token", WithLogger(&logs)).ServeHTTP(response, request)
+
+	for _, expected := range []string{"GET", "/", "200"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs missing %q: %q", expected, logs.String())
+		}
+	}
+}
+
+func TestAPIAllowsHTTPSOriginForForwardedDevelopmentURL(t *testing.T) {
+	request := apiRequest(http.MethodGet, "/api/instances", nil)
+	request.Host = "launcher.example.test"
+	request.Header.Set("Origin", "https://launcher.example.test")
+	response := httptest.NewRecorder()
+
+	New(&fakeService{}, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+}
+
+func TestStartInstanceInvokesLifecycleService(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/start",
+		[]byte(`{}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if service.started != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("started = %q", service.started)
+	}
+}
+
+func TestRenameInstanceUpdatesDisplayName(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPatch,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		[]byte(`{"name":"Grace"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if service.renamedReference != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
+		service.renamedName != "Grace" {
+		t.Fatalf(
+			"Rename() = %q, %q",
+			service.renamedReference,
+			service.renamedName,
+		)
+	}
+}
+
+func TestRecentInstanceLogsReturnsJSON(t *testing.T) {
+	service := &fakeService{logs: "agent ready\n"}
+	request := apiRequest(
+		http.MethodGet,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/logs",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"logs":"agent ready\n"`) ||
+		service.logLines != 200 {
+		t.Fatalf("logs response = %q", response.Body.String())
+	}
+}
+
+func apiRequest(method string, target string, body []byte) *http.Request {
+	request := httptest.NewRequest(method, target, bytes.NewReader(body))
+	request.Header.Set("X-Launcher-Token", "test-token")
+	return request
+}
+
+type fakeService struct {
+	views            []agent.View
+	created          domain.Instance
+	createOptions    agent.CreateOptions
+	started          string
+	renamedReference string
+	renamedName      string
+	logs             string
+	logLines         int
+}
+
+func (*fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
+	return agent.DoctorReport{
+		Runtime: "docker", Version: "test", DataRoot: "/tmp/launcher",
+		DefaultImage: "pantalk/ghost:test",
+	}, nil
+}
+func (*fakeService) Catalog() []agent.CatalogEntry {
+	return []agent.CatalogEntry{{
+		ID: testCatalogID, Slug: "pantalk-ghost",
+		Name: "Pantalk Ghost", Publisher: "Pantalk",
+		Image: "pantalk/ghost:test",
+	}}
+}
+func (service *fakeService) Create(
+	_ context.Context,
+	options agent.CreateOptions,
+) (domain.Instance, error) {
+	service.createOptions = options
+	if options.Progress != nil {
+		options.Progress(agent.CreateProgress{
+			Stage: "pulling", Message: "Pulling agent image",
+		})
+		options.Progress(agent.CreateProgress{
+			Stage: "starting", Message: "Starting agent",
+		})
+	}
+	return service.created, nil
+}
+func (service *fakeService) List(context.Context) ([]agent.View, error) {
+	return service.views, nil
+}
+func (service *fakeService) Get(context.Context, string) (agent.View, error) {
+	return agent.View{Instance: testInstance()}, nil
+}
+func (service *fakeService) Start(
+	_ context.Context,
+	reference string,
+) (domain.Instance, error) {
+	service.started = reference
+	return testInstance(), nil
+}
+func (*fakeService) Stop(context.Context, string) (domain.Instance, error) {
+	return testInstance(), nil
+}
+func (*fakeService) Delete(context.Context, string) error { return nil }
+func (service *fakeService) Rename(
+	_ context.Context,
+	reference string,
+	name string,
+) (domain.Instance, error) {
+	service.renamedReference = reference
+	service.renamedName = name
+	instance := testInstance()
+	instance.Name = name
+	return instance, nil
+}
+func (service *fakeService) RecentLogs(
+	_ context.Context,
+	_ string,
+	lines int,
+) (string, error) {
+	service.logLines = lines
+	return service.logs, nil
+}
+func (*fakeService) Logs(context.Context, string, bool) error {
+	return nil
+}
+
+func testInstance() domain.Instance {
+	return domain.Instance{
+		ID:            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		CatalogID:     testCatalogID,
+		Name:          "Ada",
+		Image:         "pantalk/ghost:test",
+		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
+		Port:          16902,
+		DesiredState:  domain.DesiredRunning,
+		CreatedAt:     time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+	}
+}

@@ -1,0 +1,148 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.actor != 'github-actions[bot]'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check
+        run: make check
+
+  linux:
+    if: github.actor != 'github-actions[bot]'
+    needs: check
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev
+
+      - name: Build Linux desktop application
+        run: make build-desktop
+
+      - name: Verify Linux executable
+        run: |
+          test -x dist/launcher-desktop
+          file dist/launcher-desktop
+          file dist/launcher-desktop | grep --quiet 'ELF 64-bit.*x86-64'
+
+      - name: Package Linux application
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          package_dir="dist/Agent Launcher"
+          archive="Agent-Launcher-${version}-Linux-x86_64.tar.gz"
+
+          mkdir -p "${package_dir}"
+          cp dist/launcher-desktop "${package_dir}/launcher"
+          cp README.md "${package_dir}/README.md"
+          tar -C dist -czf "dist/${archive}" "Agent Launcher"
+
+      - name: Upload Linux application
+        uses: actions/upload-artifact@v6
+        with:
+          name: Agent-Launcher-Linux-x86_64
+          path: dist/Agent-Launcher-*-Linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    if: github.actor != 'github-actions[bot]'
+    needs: check
+
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build universal macOS application
+        run: make build-macos
+
+      - name: Verify macOS application bundle
+        run: |
+          app_path="build/bin/Agent Launcher.app"
+          executable_path="${app_path}/Contents/MacOS/launcher"
+
+          test -d "${app_path}"
+          plutil -lint "${app_path}/Contents/Info.plist"
+          codesign --verify --deep --strict "${app_path}"
+          file "${executable_path}"
+
+          architectures="$(lipo -archs "${executable_path}")"
+          case " ${architectures} " in
+            *" arm64 "*) ;;
+            *) echo "The application is missing its arm64 executable"; exit 1 ;;
+          esac
+          case " ${architectures} " in
+            *" x86_64 "*) ;;
+            *) echo "The application is missing its x86_64 executable"; exit 1 ;;
+          esac
+
+      - name: Package macOS application
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          archive="Agent-Launcher-${version}-macOS-universal.zip"
+
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/bin/Agent Launcher.app" \
+            "dist/${archive}"
+
+      - name: Upload macOS application
+        uses: actions/upload-artifact@v6
+        with:
+          name: Agent-Launcher-macOS-universal
+          path: dist/Agent-Launcher-*-macOS-universal.zip
+          if-no-files-found: error
+          retention-days: 14
