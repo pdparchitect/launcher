@@ -1,0 +1,473 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/pdparchitect/launcher/internal/agent"
+	"github.com/pdparchitect/launcher/internal/domain"
+	"github.com/pdparchitect/launcher/internal/store"
+)
+
+type Service interface {
+	Doctor(context.Context) (agent.DoctorReport, error)
+	Catalog() []agent.CatalogEntry
+	Create(context.Context, agent.CreateOptions) (domain.Instance, error)
+	List(context.Context) ([]agent.View, error)
+	Get(context.Context, string) (agent.View, error)
+	Start(context.Context, string) (domain.Instance, error)
+	Stop(context.Context, string) (domain.Instance, error)
+	Delete(context.Context, string) error
+	Logs(context.Context, string, bool) error
+}
+
+type App struct {
+	service Service
+	opener  Opener
+	stdout  io.Writer
+	stderr  io.Writer
+	version string
+	input   io.Reader
+	serve   ServeFunc
+	desktop DesktopFunc
+}
+
+type Option func(*App)
+
+type ServeOptions struct {
+	Listen string
+	Open   bool
+}
+
+type ServeFunc func(context.Context, ServeOptions) error
+type DesktopFunc func(context.Context) error
+
+func WithInput(input io.Reader) Option {
+	return func(app *App) { app.input = input }
+}
+
+func WithServer(serve ServeFunc) Option {
+	return func(app *App) { app.serve = serve }
+}
+
+func WithDesktop(desktop DesktopFunc) Option {
+	return func(app *App) { app.desktop = desktop }
+}
+
+func New(
+	service Service,
+	opener Opener,
+	stdout io.Writer,
+	stderr io.Writer,
+	version string,
+	options ...Option,
+) *App {
+	app := &App{
+		service: service, opener: opener, stdout: stdout, stderr: stderr,
+		version: version,
+	}
+	for _, option := range options {
+		option(app)
+	}
+	return app
+}
+
+func (app *App) Run(ctx context.Context, args []string) int {
+	if len(args) == 0 {
+		if app.desktop == nil {
+			app.printHelp()
+			return 0
+		}
+		args = []string{"desktop"}
+	}
+	var err error
+	switch args[0] {
+	case "help", "-h", "--help":
+		app.printHelp()
+	case "version", "--version":
+		fmt.Fprintf(app.stdout, "launcher %s\n", app.version)
+	case "doctor":
+		err = app.doctor(ctx, args[1:])
+	case "serve":
+		err = app.serveUI(ctx, args[1:])
+	case "desktop":
+		err = app.desktopUI(ctx, args[1:])
+	case "catalog", "catalogue":
+		err = app.catalog(args[1:])
+	case "create":
+		err = app.create(ctx, args[1:])
+	case "list", "library", "ls":
+		err = app.list(ctx, args[1:])
+	case "status":
+		err = app.status(ctx, args[1:])
+	case "start":
+		err = app.start(ctx, args[1:])
+	case "stop":
+		err = app.stop(ctx, args[1:])
+	case "open":
+		err = app.open(ctx, args[1:])
+	case "logs":
+		err = app.logs(ctx, args[1:])
+	case "delete", "rm":
+		err = app.delete(ctx, args[1:])
+	default:
+		err = fmt.Errorf("unknown command %q; run \"launcher help\"", args[0])
+	}
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		fmt.Fprintln(app.stderr, "error: agent not found")
+	} else {
+		fmt.Fprintf(app.stderr, "error: %v\n", err)
+	}
+	return 1
+}
+
+func (app *App) desktopUI(ctx context.Context, args []string) error {
+	flags := app.flags("desktop", "Open Launcher as a desktop application.")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("desktop does not accept arguments")
+	}
+	if app.desktop == nil {
+		return errors.New("desktop interface is not available in this build")
+	}
+	return app.desktop(ctx)
+}
+
+func (app *App) doctor(ctx context.Context, args []string) error {
+	flags := app.flags("doctor", "Check the local container runtime.")
+	noPrompt := flags.Bool("no-prompt", false, "do not offer runtime setup")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("doctor does not accept arguments")
+	}
+	report, err := app.service.Doctor(ctx)
+	if err != nil {
+		if *noPrompt || app.input == nil {
+			return err
+		}
+		var starter runtimeServiceStarter
+		if errors.As(err, &starter) {
+			confirmed, confirmErr := app.confirm(
+				fmt.Sprintf("Start %s service now?", starter.RuntimeName()),
+			)
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if !confirmed {
+				return err
+			}
+			if startErr := starter.StartService(ctx); startErr != nil {
+				return startErr
+			}
+			report, err = app.service.Doctor(ctx)
+			if err != nil {
+				return err
+			}
+		} else {
+			var installer runtimeInstaller
+			if !errors.As(err, &installer) {
+				return err
+			}
+			confirmed, confirmErr := app.confirm(
+				fmt.Sprintf(
+					"Open the official %s installation page?",
+					installer.RuntimeName(),
+				),
+			)
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if confirmed {
+				fmt.Fprintln(app.stdout, installer.InstallURL())
+				if openErr := app.opener.Open(installer.InstallURL()); openErr != nil {
+					return openErr
+				}
+			}
+			fmt.Fprintln(app.stdout, installer.InstallGuidance())
+			return err
+		}
+	}
+	fmt.Fprintf(app.stdout, "Runtime:       %s %s\n", report.Runtime, report.Version)
+	fmt.Fprintf(app.stdout, "Executable:    %s\n", report.Executable)
+	fmt.Fprintf(app.stdout, "Data root:     %s\n", report.DataRoot)
+	fmt.Fprintf(app.stdout, "Default image: %s\n", report.DefaultImage)
+	fmt.Fprintln(app.stdout, "Status:        ready")
+	return nil
+}
+
+func (app *App) serveUI(ctx context.Context, args []string) error {
+	flags := app.flags("serve", "Run the local Launcher interface.")
+	listen := flags.String("listen", "127.0.0.1:16900", "local address to listen on")
+	noOpen := flags.Bool("no-open", false, "do not open a browser")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("serve does not accept arguments")
+	}
+	if app.serve == nil {
+		return errors.New("web interface is not available in this build")
+	}
+	return app.serve(ctx, ServeOptions{Listen: *listen, Open: !*noOpen})
+}
+
+func (app *App) catalog(args []string) error {
+	flags := app.flags("catalog", "List available agent applications.")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("catalog does not accept arguments")
+	}
+	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(table, "SLUG\tAPPLICATION\tPUBLISHER")
+	for _, entry := range app.service.Catalog() {
+		fmt.Fprintf(table, "%s\t%s\t%s\n", entry.Slug, entry.Name, entry.Publisher)
+	}
+	return table.Flush()
+}
+
+func (app *App) create(ctx context.Context, args []string) error {
+	flags := app.flags("create", "Create an agent application.")
+	name := flags.String("name", "", "agent name")
+	appID := flags.String(
+		"app",
+		"pantalk-ghost",
+		"catalogue application slug or ID",
+	)
+	image := flags.String("image", "", "container image override")
+	port := flags.Int("port", 0, "local desktop port")
+	stopped := flags.Bool("stopped", false, "create without starting")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" && flags.NArg() == 1 {
+		*name = flags.Arg(0)
+	} else if flags.NArg() != 0 {
+		return errors.New("create accepts one name, positional or with --name")
+	}
+	instance, err := app.service.Create(ctx, agent.CreateOptions{
+		CatalogID: *appID, Name: *name, Image: *image,
+		Port: *port, Start: !*stopped,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Created %s\n", instance.Name)
+	if instance.DesiredState == domain.DesiredRunning {
+		fmt.Fprintf(app.stdout, "Open: %s\n", instance.URL())
+	} else {
+		fmt.Fprintf(app.stdout, "Start with: launcher start %q\n", instance.Name)
+	}
+	return nil
+}
+
+func (app *App) list(ctx context.Context, args []string) error {
+	flags := app.flags("list", "List installed agents.")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("list does not accept arguments")
+	}
+	views, err := app.service.List(ctx)
+	if err != nil {
+		return err
+	}
+	if len(views) == 0 {
+		fmt.Fprintln(app.stdout, "Library is empty. Create one with: launcher create NAME")
+		return nil
+	}
+	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(table, "NAME\tAPP\tSTATE\tPORT\tIMAGE")
+	for _, view := range views {
+		application := view.CatalogSlug
+		if application == "" {
+			application = view.CatalogID
+		}
+		fmt.Fprintf(
+			table, "%s\t%s\t%s\t%d\t%s\n",
+			view.Name, application, view.State, view.Port, view.Image,
+		)
+	}
+	return table.Flush()
+}
+
+func (app *App) status(ctx context.Context, args []string) error {
+	reference, err := oneReference(app.flags("status", "Show an agent."), args)
+	if err != nil {
+		return err
+	}
+	view, err := app.service.Get(ctx, reference)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Name:          %s\n", view.Name)
+	application := view.CatalogSlug
+	if application == "" {
+		application = view.CatalogID
+	}
+	fmt.Fprintf(app.stdout, "Application:   %s\n", application)
+	fmt.Fprintf(app.stdout, "State:         %s\n", view.State)
+	fmt.Fprintf(app.stdout, "Open:          %s\n", view.URL())
+	fmt.Fprintf(app.stdout, "Image:         %s\n", view.Image)
+	fmt.Fprintf(app.stdout, "Container:     %s\n", view.ContainerName)
+	fmt.Fprintf(app.stdout, "ID:            %s\n", view.ID)
+	return nil
+}
+
+func (app *App) start(ctx context.Context, args []string) error {
+	reference, err := oneReference(app.flags("start", "Start an agent."), args)
+	if err != nil {
+		return err
+	}
+	instance, err := app.service.Start(ctx, reference)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Started %s\nOpen: %s\n", instance.Name, instance.URL())
+	return nil
+}
+
+func (app *App) stop(ctx context.Context, args []string) error {
+	reference, err := oneReference(app.flags("stop", "Stop an agent."), args)
+	if err != nil {
+		return err
+	}
+	instance, err := app.service.Stop(ctx, reference)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Stopped %s\n", instance.Name)
+	return nil
+}
+
+func (app *App) open(ctx context.Context, args []string) error {
+	reference, err := oneReference(app.flags("open", "Open an agent."), args)
+	if err != nil {
+		return err
+	}
+	view, err := app.service.Get(ctx, reference)
+	if err != nil {
+		return err
+	}
+	url := view.URL()
+	fmt.Fprintln(app.stdout, url)
+	return app.opener.Open(url)
+}
+
+func (app *App) logs(ctx context.Context, args []string) error {
+	flags := app.flags("logs", "Show agent logs.")
+	follow := flags.Bool("follow", false, "follow log output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: launcher logs [--follow] NAME")
+	}
+	return app.service.Logs(ctx, flags.Arg(0), *follow)
+}
+
+func (app *App) delete(ctx context.Context, args []string) error {
+	flags := app.flags("delete", "Delete an agent and all of its local files.")
+	force := flags.Bool("force", false, "confirm permanent deletion")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: launcher delete --force NAME")
+	}
+	if !*force {
+		return errors.New("deletion is permanent; repeat with --force")
+	}
+	if err := app.service.Delete(ctx, flags.Arg(0)); err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Deleted %s\n", flags.Arg(0))
+	return nil
+}
+
+type runtimeInstaller interface {
+	error
+	RuntimeName() string
+	InstallURL() string
+	InstallGuidance() string
+}
+type runtimeServiceStarter interface {
+	error
+	RuntimeName() string
+	StartService(context.Context) error
+}
+
+func (app *App) confirm(question string) (bool, error) {
+	fmt.Fprintf(app.stdout, "%s [y/N] ", question)
+	answer, err := bufio.NewReader(app.input).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("read confirmation: %w", err)
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes", nil
+}
+
+func (app *App) flags(name string, description string) *flag.FlagSet {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(app.stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(app.stderr, description)
+		fmt.Fprintln(app.stderr)
+		fmt.Fprintf(app.stderr, "Usage: launcher %s [options]\n", name)
+		flags.PrintDefaults()
+	}
+	return flags
+}
+
+func oneReference(flags *flag.FlagSet, args []string) (string, error) {
+	if err := flags.Parse(args); err != nil {
+		return "", err
+	}
+	if flags.NArg() != 1 || strings.TrimSpace(flags.Arg(0)) == "" {
+		return "", fmt.Errorf("usage: launcher %s NAME", flags.Name())
+	}
+	return flags.Arg(0), nil
+}
+
+func (app *App) printHelp() {
+	fmt.Fprintln(app.stdout, `Launcher installs and runs friendly local agents.
+
+Usage:
+  launcher COMMAND [options]
+
+Commands:
+  desktop             Open the frameless desktop application
+  serve               Open the local graphical interface
+  catalog             Browse available applications
+  create NAME         Create and start an agent
+  list                Show the agent library
+  status NAME         Show one agent
+  start NAME          Start an agent
+  stop NAME           Stop an agent
+  open NAME           Open its desktop or dashboard
+  logs NAME           Show its logs
+  delete --force NAME Permanently delete an agent
+  doctor              Check the local runtime
+  version             Print the version
+
+Set PDPARCHITECT_LAUNCHER_HOME to override the data folder.
+Set PDPARCHITECT_LAUNCHER_RUNTIME to auto, container, or docker.`)
+}

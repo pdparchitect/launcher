@@ -1,0 +1,6 @@
+dist/
+!build/
+build/*
+!build/darwin/
+build/darwin/*
+!build/darwin/Info.plist
