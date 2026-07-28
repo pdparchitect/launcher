@@ -30,6 +30,8 @@ func TestWailsContextMenuPatchUsesCapturePhase(t *testing.T) {
 		"- (NSMenu *)menuForEvent:(NSEvent *)event",
 		"if ( !defaultContextMenuEnabled )",
 		"return nil;",
+		`setValue:@YES forKey:@"javaScriptCanAccessClipboard"`,
+		`setValue:@YES forKey:@"DOMPasteAllowed"`,
 	} {
 		if !strings.Contains(string(content), expected) {
 			t.Fatalf("Wails context-menu patch missing %q", expected)
