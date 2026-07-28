@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -300,6 +302,83 @@ func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
 	}
 	if updated.DesiredState != domain.DesiredStopped {
 		t.Fatalf("DesiredState = %q", updated.DesiredState)
+	}
+}
+
+func TestUpdateReportsLifecycleAndPullProgress(t *testing.T) {
+	containerRuntime := &fakeRuntime{
+		pullProgress: []string{
+			"downloading updated layer",
+			"extracting updated layer",
+		},
+	}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name:  "Ada",
+		Image: "pantalk/ghost:old",
+		Start: true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	var updates []UpdateProgress
+
+	_, err = service.UpdateWithProgress(
+		t.Context(),
+		instance.ID,
+		func(progress UpdateProgress) {
+			updates = append(updates, progress)
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("UpdateWithProgress() error = %v", err)
+	}
+	for _, expected := range []string{
+		"preparing:Checking the current agent",
+		"pulling:Pulling the updated agent image",
+		"pulling:downloading updated layer",
+		"pulling:extracting updated layer",
+		"stopping:Stopping the current agent",
+		"replacing:Replacing the runtime container",
+		"starting:Starting the updated agent",
+		"ready:Agent update is ready",
+	} {
+		found := false
+		for _, update := range updates {
+			if string(update.Stage)+":"+update.Message == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("update progress = %#v, missing %q", updates, expected)
+		}
+	}
+}
+
+func TestAgentFilesReturnsManagedAgentRoot(t *testing.T) {
+	service := newTestService(t, &fakeRuntime{})
+	instance, err := service.Create(
+		t.Context(),
+		CreateOptions{Name: "Ada"},
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	root, err := service.AgentFiles(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("AgentFiles() error = %v", err)
+	}
+	if filepath.Base(root) != instance.ID ||
+		filepath.Base(filepath.Dir(root)) != "agents" {
+		t.Fatalf("AgentFiles() = %q", root)
+	}
+	if _, err := os.Stat(filepath.Join(root, "workspace")); err != nil {
+		t.Fatalf("workspace mount is unavailable: %v", err)
 	}
 }
 

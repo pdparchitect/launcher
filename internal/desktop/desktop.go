@@ -8,7 +8,8 @@ import (
 )
 
 type Options struct {
-	Stdout io.Writer
+	Stdout   io.Writer
+	OpenPath func(string) error
 }
 
 func Run(

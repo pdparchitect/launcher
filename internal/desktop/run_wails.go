@@ -38,11 +38,16 @@ func run(
 	finished := make(chan struct{})
 	defer close(finished)
 
-	handler := httpapi.New(
-		service,
-		token,
+	serverOptions := []httpapi.Option{
 		httpapi.WithLogger(runOptions.Stdout),
-	)
+	}
+	if runOptions.OpenPath != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithPathOpener(runOptions.OpenPath),
+		)
+	}
+	handler := httpapi.New(service, token, serverOptions...)
 	err = wails.Run(&options.App{
 		Title:         "Agent Launcher",
 		Width:         windowWidth,

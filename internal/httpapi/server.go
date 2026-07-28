@@ -35,17 +35,24 @@ type Service interface {
 	Start(context.Context, string) (domain.Instance, error)
 	Stop(context.Context, string) (domain.Instance, error)
 	Update(context.Context, string) (domain.Instance, error)
+	UpdateWithProgress(
+		context.Context,
+		string,
+		func(agent.UpdateProgress),
+	) (domain.Instance, error)
 	Rename(context.Context, string, string) (domain.Instance, error)
 	RecentLogs(context.Context, string, int) (string, error)
+	AgentFiles(context.Context, string) (string, error)
 	Delete(context.Context, string) error
 }
 
 type Server struct {
-	service Service
-	token   string
-	handler http.Handler
-	index   []byte
-	logger  *log.Logger
+	service  Service
+	token    string
+	handler  http.Handler
+	index    []byte
+	logger   *log.Logger
+	openPath func(string) error
 }
 
 type Option func(*Server)
@@ -55,6 +62,12 @@ func WithLogger(output io.Writer) Option {
 		if output != nil {
 			server.logger = log.New(output, "[launcher] ", log.LstdFlags)
 		}
+	}
+}
+
+func WithPathOpener(opener func(string) error) Option {
+	return func(server *Server) {
+		server.openPath = opener
 	}
 }
 
@@ -102,6 +115,36 @@ type installEvent struct {
 	Error    string            `json:"error,omitempty"`
 }
 
+type updateEvent struct {
+	Type     string            `json:"type"`
+	Stage    agent.UpdateStage `json:"stage,omitempty"`
+	Message  string            `json:"message,omitempty"`
+	Instance *instanceResponse `json:"instance,omitempty"`
+	Error    string            `json:"error,omitempty"`
+}
+
+type runtimeSetupResponse struct {
+	State      string `json:"state"`
+	Runtime    string `json:"runtime"`
+	Message    string `json:"message"`
+	Guidance   string `json:"guidance,omitempty"`
+	InstallURL string `json:"installUrl,omitempty"`
+	CanStart   bool   `json:"canStart"`
+}
+
+type runtimeInstaller interface {
+	error
+	RuntimeName() string
+	InstallURL() string
+	InstallGuidance() string
+}
+
+type runtimeServiceStarter interface {
+	error
+	RuntimeName() string
+	StartService(context.Context) error
+}
+
 func New(service Service, token string, options ...Option) *Server {
 	index, err := webFiles.ReadFile("web/index.html")
 	if err != nil {
@@ -122,6 +165,7 @@ func New(service Service, token string, options ...Option) *Server {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/doctor", server.doctor)
+	mux.HandleFunc("POST /api/runtime/start", server.startRuntime)
 	mux.HandleFunc("GET /api/catalog", server.catalog)
 	mux.HandleFunc("GET /api/instances", server.listInstances)
 	mux.HandleFunc("POST /api/instances", server.createInstance)
@@ -230,6 +274,7 @@ func (server *Server) doctor(
 		writeJSON(response, http.StatusOK, map[string]any{
 			"ready": false,
 			"error": err.Error(),
+			"setup": runtimeSetupFromError(err),
 		})
 		return
 	}
@@ -237,6 +282,63 @@ func (server *Server) doctor(
 		"ready":  true,
 		"report": report,
 	})
+}
+
+func (server *Server) startRuntime(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	report, err := server.service.Doctor(request.Context())
+	if err == nil {
+		writeJSON(response, http.StatusOK, map[string]any{
+			"ready": true, "report": report,
+		})
+		return
+	}
+	var starter runtimeServiceStarter
+	if !errors.As(err, &starter) {
+		writeError(
+			response,
+			http.StatusConflict,
+			"the container runtime must be installed before it can be started",
+		)
+		return
+	}
+	if err := starter.StartService(request.Context()); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	report, err = server.service.Doctor(request.Context())
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{
+		"ready": true, "report": report,
+	})
+}
+
+func runtimeSetupFromError(err error) runtimeSetupResponse {
+	setup := runtimeSetupResponse{
+		State:   "error",
+		Runtime: "Container runtime",
+		Message: err.Error(),
+	}
+	var installer runtimeInstaller
+	if errors.As(err, &installer) {
+		setup.State = "missing"
+		setup.Runtime = installer.RuntimeName()
+		setup.Guidance = installer.InstallGuidance()
+		setup.InstallURL = installer.InstallURL()
+		return setup
+	}
+	var starter runtimeServiceStarter
+	if errors.As(err, &starter) {
+		setup.State = "stopped"
+		setup.Runtime = starter.RuntimeName()
+		setup.CanStart = true
+	}
+	return setup
 }
 
 func (server *Server) catalog(
@@ -435,11 +537,11 @@ func (server *Server) changeInstance(
 		instance, err = server.service.Stop(request.Context(), reference)
 		state = launchruntime.StatusStopped
 	case "update":
-		instance, err = server.service.Update(request.Context(), reference)
-		state = launchruntime.StatusStopped
-		if instance.DesiredState == domain.DesiredRunning {
-			state = launchruntime.StatusRunning
-		}
+		server.updateInstance(response, request, reference)
+		return
+	case "files":
+		server.openInstanceFiles(response, request, reference)
+		return
 	default:
 		http.NotFound(response, request)
 		return
@@ -449,6 +551,76 @@ func (server *Server) changeInstance(
 		return
 	}
 	writeJSON(response, http.StatusOK, responseFromInstance(instance, state))
+}
+
+func (server *Server) updateInstance(
+	response http.ResponseWriter,
+	request *http.Request,
+	reference string,
+) {
+	response.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(response)
+	_ = controller.Flush()
+
+	var sendMu sync.Mutex
+	send := func(event updateEvent) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		_ = json.NewEncoder(response).Encode(event)
+		_ = controller.Flush()
+	}
+	instance, err := server.service.UpdateWithProgress(
+		request.Context(),
+		reference,
+		func(progress agent.UpdateProgress) {
+			server.logger.Printf(
+				"update %q: %s",
+				reference,
+				progress.Message,
+			)
+			send(updateEvent{
+				Type: "progress", Stage: progress.Stage, Message: progress.Message,
+			})
+		},
+	)
+	if err != nil {
+		server.logger.Printf("update %q failed: %v", reference, err)
+		send(updateEvent{Type: "error", Error: err.Error()})
+		return
+	}
+	state := launchruntime.StatusStopped
+	if instance.DesiredState == domain.DesiredRunning {
+		state = launchruntime.StatusRunning
+	}
+	result := responseFromInstance(instance, state)
+	send(updateEvent{Type: "complete", Instance: &result})
+}
+
+func (server *Server) openInstanceFiles(
+	response http.ResponseWriter,
+	request *http.Request,
+	reference string,
+) {
+	path, err := server.service.AgentFiles(request.Context(), reference)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if server.openPath == nil {
+		writeError(
+			response,
+			http.StatusNotImplemented,
+			"opening local files is unavailable in this Launcher build",
+		)
+		return
+	}
+	if err := server.openPath(path); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"path": path})
 }
 
 func (server *Server) deleteInstance(

@@ -19,6 +19,10 @@ type Opener interface {
 	Open(string) error
 }
 
+type pathOpener interface {
+	OpenPath(string) error
+}
+
 type Options struct {
 	Listen string
 	Open   bool
@@ -49,12 +53,15 @@ func Run(
 	url := "http://" + listener.Addr().String()
 	fmt.Fprintf(options.Stdout, "Starting Launcher web interface on %s\n", url)
 
+	serverOptions := []httpapi.Option{httpapi.WithLogger(options.Stdout)}
+	if opener, ok := opener.(pathOpener); ok {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithPathOpener(opener.OpenPath),
+		)
+	}
 	server := &http.Server{
-		Handler: httpapi.New(
-			service,
-			token,
-			httpapi.WithLogger(options.Stdout),
-		),
+		Handler:           httpapi.New(service, token, serverOptions...),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

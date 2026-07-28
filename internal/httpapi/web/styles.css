@@ -255,13 +255,21 @@ mark {
 }
 
 .sidebar__footer {
+  width: 100%;
   margin-top: auto;
   min-height: 84px;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 18px 26px;
+  border: 0;
   border-top: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+}
+
+.sidebar__footer:hover {
+  background: rgba(234, 255, 0, 0.035);
 }
 
 .sidebar__footer > span:last-child {
@@ -293,6 +301,15 @@ mark {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 10px rgba(234, 255, 0, 0.55);
+}
+
+.sidebar__footer--unavailable .runtime-light {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(255, 88, 77, 0.48);
+}
+
+.sidebar__footer--unavailable small {
+  color: #d98b84;
 }
 
 .main-panel {
@@ -1735,6 +1752,97 @@ mark {
   color: #c0aaa6;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.runtime-setup-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.runtime-setup__status {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 17px;
+  border: 1px solid rgba(234, 255, 0, 0.3);
+  background: var(--accent-soft);
+}
+
+.runtime-setup__status > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-technical);
+  font-size: 20px;
+}
+
+.runtime-setup__status > div {
+  min-width: 0;
+}
+
+.runtime-setup__status small {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font: 9px/1.3 var(--font-technical);
+  letter-spacing: 0.16em;
+}
+
+.runtime-setup__status strong {
+  display: block;
+  font-family: var(--font-interface);
+  font-size: 19px;
+  letter-spacing: 0.05em;
+}
+
+.runtime-setup__status p {
+  margin: 7px 0 0;
+  color: #b8bcaf;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.runtime-setup__steps {
+  display: grid;
+  gap: 1px;
+  margin: 17px 0 0;
+  padding: 0;
+  counter-reset: runtime-step;
+  list-style: none;
+}
+
+.runtime-setup__steps li {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  color: #c5cabd;
+  font-size: 12px;
+  line-height: 1.45;
+  counter-increment: runtime-step;
+}
+
+.runtime-setup__steps li::before {
+  content: counter(runtime-step, decimal-leading-zero);
+  color: var(--accent);
+  font: 10px/1 var(--font-technical);
+  letter-spacing: 0.08em;
+}
+
+.runtime-setup__guidance {
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border-left: 2px solid var(--accent);
+  background: rgba(234, 255, 0, 0.045);
+  color: #b8bcaf;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .toast {

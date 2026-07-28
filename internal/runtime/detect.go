@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type Kind string
@@ -76,19 +77,19 @@ func Detect(options DetectOptions) (Selection, error) {
 		if selection, found := findKind(KindDocker, options); found {
 			return selection, nil
 		}
-		return missingSelection(KindApple, options.GOOS), nil
+		return missingSelection(KindApple, options), nil
 	}
 	if selection, found := findKind(KindDocker, options); found {
 		return selection, nil
 	}
-	return missingSelection(KindDocker, options.GOOS), nil
+	return missingSelection(KindDocker, options), nil
 }
 
 func detectKind(kind Kind, options DetectOptions) Selection {
 	if selection, found := findKind(kind, options); found {
 		return selection
 	}
-	return missingSelection(kind, options.GOOS)
+	return missingSelection(kind, options)
 }
 
 func findKind(kind Kind, options DetectOptions) (Selection, bool) {
@@ -141,12 +142,13 @@ func commandCandidates(kind Kind, goos string) []string {
 	}
 }
 
-func missingSelection(kind Kind, goos string) Selection {
+func missingSelection(kind Kind, options DetectOptions) Selection {
 	return Selection{
 		Name: kind,
 		Runtime: &Missing{
-			kind: kind, goos: goos,
-			searched: commandCandidates(kind, goos),
+			kind: kind, goos: options.GOOS,
+			searched: commandCandidates(kind, options.GOOS),
+			options:  options,
 		},
 	}
 }
@@ -155,6 +157,10 @@ type Missing struct {
 	kind     Kind
 	goos     string
 	searched []string
+	options  DetectOptions
+	mu       sync.RWMutex
+	resolved Lifecycle
+	path     string
 }
 
 func (missing *Missing) runtimeError() error {
@@ -163,35 +169,129 @@ func (missing *Missing) runtimeError() error {
 		searched: append([]string(nil), missing.searched...),
 	}
 }
-func (missing *Missing) Doctor(context.Context) (string, error) {
-	return "", missing.runtimeError()
+func (missing *Missing) resolve() (Lifecycle, error) {
+	missing.mu.RLock()
+	resolved := missing.resolved
+	missing.mu.RUnlock()
+	if resolved != nil {
+		return resolved, nil
+	}
+
+	missing.mu.Lock()
+	defer missing.mu.Unlock()
+	if missing.resolved != nil {
+		return missing.resolved, nil
+	}
+	selection, found := findKind(missing.kind, missing.options)
+	if !found {
+		return nil, missing.runtimeError()
+	}
+	missing.resolved = selection.Runtime
+	missing.path = selection.Path
+	return missing.resolved, nil
 }
-func (missing *Missing) Pull(context.Context, string) error {
-	return missing.runtimeError()
+func (missing *Missing) RuntimePath() string {
+	missing.mu.RLock()
+	defer missing.mu.RUnlock()
+	return missing.path
 }
-func (missing *Missing) Create(context.Context, CreateRequest) error {
-	return missing.runtimeError()
+func (missing *Missing) Doctor(ctx context.Context) (string, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return "", err
+	}
+	return resolved.Doctor(ctx)
 }
-func (missing *Missing) Start(context.Context, string) error {
-	return missing.runtimeError()
+func (missing *Missing) Pull(ctx context.Context, image string) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Pull(ctx, image)
 }
-func (missing *Missing) Stop(context.Context, string) error {
-	return missing.runtimeError()
+func (missing *Missing) PullWithProgress(
+	ctx context.Context,
+	image string,
+	progress func(string),
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	if progressRuntime, ok := resolved.(interface {
+		PullWithProgress(context.Context, string, func(string)) error
+	}); ok {
+		return progressRuntime.PullWithProgress(ctx, image, progress)
+	}
+	return resolved.Pull(ctx, image)
 }
-func (missing *Missing) Remove(context.Context, string, string) error {
-	return missing.runtimeError()
+func (missing *Missing) Create(ctx context.Context, request CreateRequest) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Create(ctx, request)
 }
-func (missing *Missing) Status(context.Context, string) (Status, error) {
-	return StatusMissing, missing.runtimeError()
+func (missing *Missing) Start(ctx context.Context, name string) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Start(ctx, name)
 }
-func (missing *Missing) Stats(context.Context, string) (Metrics, error) {
-	return Metrics{}, missing.runtimeError()
+func (missing *Missing) Stop(ctx context.Context, name string) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Stop(ctx, name)
 }
-func (missing *Missing) RecentLogs(context.Context, string, int) (string, error) {
-	return "", missing.runtimeError()
+func (missing *Missing) Remove(
+	ctx context.Context,
+	name string,
+	instanceID string,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Remove(ctx, name, instanceID)
 }
-func (missing *Missing) Logs(context.Context, string, bool) error {
-	return missing.runtimeError()
+func (missing *Missing) Status(ctx context.Context, name string) (Status, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return StatusMissing, err
+	}
+	return resolved.Status(ctx, name)
+}
+func (missing *Missing) Stats(ctx context.Context, name string) (Metrics, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return Metrics{}, err
+	}
+	return resolved.Stats(ctx, name)
+}
+func (missing *Missing) RecentLogs(
+	ctx context.Context,
+	name string,
+	lines int,
+) (string, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return "", err
+	}
+	return resolved.RecentLogs(ctx, name, lines)
+}
+func (missing *Missing) Logs(
+	ctx context.Context,
+	name string,
+	follow bool,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Logs(ctx, name, follow)
 }
 
 type MissingRuntimeError struct {
@@ -224,10 +324,10 @@ func (runtimeError *MissingRuntimeError) InstallURL() string {
 }
 func (runtimeError *MissingRuntimeError) InstallGuidance() string {
 	if runtimeError.kind == KindApple {
-		return "On an Apple silicon Mac with macOS 26 or later, download and run the signed installer package, then run launcher doctor again."
+		return "On an Apple silicon Mac with macOS 26 or later, download and run the signed installer package, then return to Launcher and check the runtime again."
 	}
 	if runtimeError.goos == "darwin" {
-		return "Install Docker Desktop, start it, then run launcher doctor again."
+		return "Install Docker Desktop, start it, then return to Launcher and check the runtime again."
 	}
-	return "Install and start Docker, then run launcher doctor again."
+	return "Install and start Docker, then return to Launcher and check the runtime again."
 }

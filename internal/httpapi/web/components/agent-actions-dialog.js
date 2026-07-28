@@ -33,6 +33,9 @@ export class AgentActionsDialog extends HTMLElement {
               <button type="button" data-action="logs">
                 <span>⌘</span><strong>VIEW LOGS</strong><i>›</i>
               </button>
+              <button type="button" data-open-files>
+                <span>▰</span><strong>OPEN LOCAL FILES</strong><i>›</i>
+              </button>
               <button type="button" data-action="delete"
                 class="action-menu__danger">
                 <span>×</span><strong>DELETE AGENT</strong><i>›</i>
@@ -74,6 +77,24 @@ export class AgentActionsDialog extends HTMLElement {
                 <div><dt>CURRENT</dt><dd data-current-image></dd></div>
                 <div><dt>AVAILABLE</dt><dd data-available-image></dd></div>
               </dl>
+            </div>
+            <div class="install-progress update-progress"
+              data-update-progress hidden>
+              <div class="install-progress__heading">
+                <strong data-update-progress-stage>PREPARING</strong>
+                <span data-update-progress-value>5%</span>
+              </div>
+              <div class="progress-track">
+                <i data-update-progress-bar></i>
+              </div>
+              <p data-update-progress-message>Preparing the update…</p>
+              <details class="install-log" data-update-log>
+                <summary>
+                  <span>UPDATE LOG</span>
+                  <span data-update-log-count>0 ENTRIES</span>
+                </summary>
+                <pre data-update-log-output></pre>
+              </details>
             </div>
             <p class="form-error" data-update-error hidden></p>
             <footer class="dialog-footer">
@@ -142,6 +163,12 @@ export class AgentActionsDialog extends HTMLElement {
     this.querySelector('[data-refresh-logs]').addEventListener('click', () => {
       if (!this.busy) {
         this.dispatch('load-agent-logs')
+      }
+    })
+
+    this.querySelector('[data-open-files]').addEventListener('click', () => {
+      if (!this.busy) {
+        this.dispatch('open-agent-files')
       }
     })
 
@@ -219,6 +246,10 @@ export class AgentActionsDialog extends HTMLElement {
     if (mode === 'logs') {
       this.dispatch('load-agent-logs')
     }
+
+    if (mode === 'update') {
+      this.resetUpdateProgress()
+    }
   }
 
   setBusy(busy) {
@@ -246,6 +277,11 @@ export class AgentActionsDialog extends HTMLElement {
 
     error.textContent = message
     error.hidden = !message
+
+    if (mode === 'update' && message) {
+      this.appendUpdateLog('error', message)
+      this.querySelector('[data-update-log]').open = true
+    }
   }
 
   setLogs(logs) {
@@ -258,6 +294,82 @@ export class AgentActionsDialog extends HTMLElement {
       error.textContent = ''
       error.hidden = true
     })
+  }
+
+  resetUpdateProgress() {
+    this.updateLogLines = []
+    this.lastUpdateLogLine = ''
+    this.querySelector('[data-update-progress]').hidden = true
+    this.querySelector('[data-update-log]').open = false
+    this.querySelector('[data-update-log-output]').textContent = ''
+    this.updateUpdateLogCount()
+  }
+
+  setUpdateProgress(update) {
+    const progress = this.querySelector('[data-update-progress]')
+    const values = {
+      preparing: 8,
+      stopping: 62,
+      replacing: 78,
+      starting: 92,
+      ready: 100,
+    }
+    const indeterminate =
+      update.stage === 'pulling' || update.stage === 'restoring'
+    const value = values[update.stage] || 28
+    const track = progress.querySelector('.progress-track')
+
+    progress.hidden = false
+    track.classList.toggle('progress-track--indeterminate', indeterminate)
+    this.querySelector('[data-update-progress-stage]').textContent = String(
+      update.stage || 'UPDATING'
+    ).toUpperCase()
+    this.querySelector('[data-update-progress-value]').textContent =
+      update.stage === 'pulling'
+        ? 'DOWNLOADING'
+        : update.stage === 'restoring'
+          ? 'RECOVERING'
+          : `${value}%`
+    this.querySelector('[data-update-progress-bar]').style.width =
+      indeterminate ? '32%' : `${value}%`
+    this.querySelector('[data-update-progress-message]').textContent =
+      update.message || 'Updating the agent…'
+    this.appendUpdateLog(update.stage, update.message)
+  }
+
+  appendUpdateLog(stage, message) {
+    const cleanMessage = String(message || '').trim()
+
+    if (!cleanMessage) {
+      return
+    }
+
+    const line = `[${String(stage || 'updating').toUpperCase()}] ${cleanMessage}`
+
+    if (line === this.lastUpdateLogLine) {
+      return
+    }
+
+    this.lastUpdateLogLine = line
+    this.updateLogLines ??= []
+    this.updateLogLines.push(line)
+
+    if (this.updateLogLines.length > 300) {
+      this.updateLogLines.shift()
+    }
+
+    const output = this.querySelector('[data-update-log-output]')
+
+    output.textContent = this.updateLogLines.join('\n')
+    output.scrollTop = output.scrollHeight
+    this.updateUpdateLogCount()
+  }
+
+  updateUpdateLogCount() {
+    const count = this.updateLogLines?.length || 0
+
+    this.querySelector('[data-update-log-count]').textContent =
+      `${count} ${count === 1 ? 'ENTRY' : 'ENTRIES'}`
   }
 
   dispatch(name, detail = {}) {
