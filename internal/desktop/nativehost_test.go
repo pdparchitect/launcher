@@ -29,6 +29,8 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"NavigationSplitView(",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
+		"container.layer?.masksToBounds = true",
+		"container.addSubview(webView)",
 		"NSHostingSceneRepresentation",
 		"WindowGroup(id: Self.identifier)",
 		"NSApplication.shared.addSceneRepresentation(representation)",
@@ -41,6 +43,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		".defaultSize(width: 1180, height: 760)",
 		".windowToolbarStyle(.unified(showsTitle: false))",
 		`name: "launcherNative"`,
+		"launcher.setScreen(",
 		"let windowAddress = UInt(bitPattern: windowPointer)",
 		"let webViewAddress = UInt(bitPattern: webViewPointer)",
 	} {
@@ -50,9 +53,9 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	}
 
 	rootStart := strings.Index(swift, "private struct RootView: View")
-	rootEnd := strings.Index(swift, "private struct LegacyRootView: View")
+	rootEnd := strings.Index(swift, "private struct NativeWindowScene: Scene")
 	if rootStart < 0 || rootEnd <= rootStart {
-		t.Fatal("locate macOS 26 RootView")
+		t.Fatal("locate native RootView")
 	}
 	root := swift[rootStart:rootEnd]
 	for _, expected := range []string{
@@ -72,7 +75,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"if #available",
 	} {
 		if strings.Contains(root, unwanted) {
-			t.Fatalf("macOS 26 RootView must directly match the reference, found %q", unwanted)
+			t.Fatalf("RootView must directly match the reference, found %q", unwanted)
 		}
 	}
 
@@ -83,9 +86,12 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"Button(action: toggleSidebar)",
 		"ToolbarDefaultItemKind.sidebarToggle",
 		`systemImage: "sidebar.leading"`,
+		"LegacyRootView",
+		"NSHostingController",
+		"#available(macOS",
 	} {
 		if strings.Contains(swift, unwanted) {
-			t.Fatalf("native scene must use SwiftUI's automatic sidebar toggle, found %q", unwanted)
+			t.Fatalf("native scene contains a competing or compatibility implementation %q", unwanted)
 		}
 	}
 
@@ -182,6 +188,9 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 		"--product LauncherNative",
 		"-extld $(SWIFT_LINKER)",
 		"build-macos: native-macos",
+		"MACOS_DEPLOYMENT_TARGET ?= 26.0",
+		"SWIFT_ARCHIVE_HASH = $(shell shasum -a 256",
+		"-X main.swiftArchiveHash=$(SWIFT_ARCHIVE_HASH)",
 	} {
 		if !strings.Contains(makefile, expected) {
 			t.Fatalf("single-binary macOS build missing %q", expected)
@@ -196,6 +205,11 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 		}
 	}
 
+	mainSource := readNativeHostSource(t, filepath.Join(launcher, "main.go"))
+	if !strings.Contains(mainSource, `swiftArchiveHash = "none"`) {
+		t.Fatal("macOS build lacks the Swift archive cache-key variable")
+	}
+
 	manifest := readNativeHostSource(
 		t,
 		filepath.Join(launcher, "macos", "Package.swift"),
@@ -203,8 +217,25 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 	if !strings.Contains(manifest, "type: .static") {
 		t.Fatal("LauncherNative must be a static Swift library")
 	}
+	if !strings.Contains(manifest, "platforms: [.macOS(.v26)]") {
+		t.Fatal("LauncherNative must target macOS 26 for Liquid Glass")
+	}
 	if strings.Contains(manifest, ".executableTarget(") {
 		t.Fatal("LauncherNative must not build a second executable")
+	}
+
+	infoPlist := readNativeHostSource(
+		t,
+		filepath.Join(launcher, "build", "darwin", "Info.plist"),
+	)
+	if !strings.Contains(
+		infoPlist,
+		"<key>LSMinimumSystemVersion</key>\n    <string>26.0</string>",
+	) {
+		t.Fatal("application bundle must require macOS 26")
+	}
+	if strings.Contains(infoPlist, "UIDesignRequiresCompatibility") {
+		t.Fatal("application bundle must not opt out of the current design")
 	}
 
 	linkage := readNativeHostSource(
@@ -228,6 +259,7 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 	for _, expected := range []string{
 		"libLauncherNative.a",
 		`swiftc_path="$(xcrun --find swiftc)"`,
+		`deployment_target="${MACOSX_DEPLOYMENT_TARGET:-26.0}"`,
 		`-target "${target_arch}-apple-macosx${deployment_target}"`,
 		`-sdk "$sdk_path"`,
 		`swift_link_args+=("-Xlinker" "$linker_option")`,

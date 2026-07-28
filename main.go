@@ -19,7 +19,10 @@ import (
 	"github.com/pdparchitect/launcher/internal/webapp"
 )
 
-var version = "dev"
+var (
+	version          = "dev"
+	swiftArchiveHash = "none"
+)
 
 func main() {
 	root, err := config.DataRoot()

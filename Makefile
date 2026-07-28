@@ -5,16 +5,20 @@ VERSION ?= $(shell tr -d '[:space:]' < VERSION)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 WEB_LISTEN ?= 127.0.0.1:16900
 HOST_OS := $(shell go env GOOS)
-# Built against whatever SDK the toolchain has (macOS 26 in CI, so the app gets
-# the current design system), but still runnable on the oldest macOS Launcher
-# supports. Without this, clang defaults the target to the build host and the
-# binary refuses to launch on anything older.
-MACOS_DEPLOYMENT_TARGET ?= 15.0
+# The native shell deliberately uses macOS 26-only SwiftUI scene and background
+# extension APIs. Keeping the deployment target aligned prevents a compatibility
+# path from silently restoring the old attached sidebar.
+MACOS_DEPLOYMENT_TARGET ?= 26.0
 DESKTOP_TAGS := desktop
 PATCHED_GO := ./scripts/with-go-module-patches.sh
 SWIFT_LINKER := $(abspath scripts/swift-linker.sh)
+SWIFT_ARCHIVE := $(abspath macos/.build/arm64-apple-macosx/release/libLauncherNative.a)
+# Go's cache cannot see changes inside an external static archive. Expanding
+# its digest after native-macos completes makes every Swift revision a distinct
+# final-link action instead of copying a previously linked executable.
+SWIFT_ARCHIVE_HASH = $(shell shasum -a 256 "$(SWIFT_ARCHIVE)" 2>/dev/null | cut -d ' ' -f 1)
 NATIVE_MACOS_TARGET :=
-DESKTOP_LDFLAGS := $(LDFLAGS)
+DESKTOP_LDFLAGS = $(LDFLAGS)
 ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
 endif
@@ -22,7 +26,7 @@ ifeq ($(HOST_OS),darwin)
 NATIVE_MACOS_TARGET := native-macos
 # The wrapper delegates the final Mach-O link to the Swift driver so it adds
 # the statically linked Swift object's runtime and autolink dependencies.
-DESKTOP_LDFLAGS := $(LDFLAGS) -linkmode external -extld $(SWIFT_LINKER)
+DESKTOP_LDFLAGS = $(LDFLAGS) -X main.swiftArchiveHash=$(SWIFT_ARCHIVE_HASH) -linkmode external -extld $(SWIFT_LINKER)
 endif
 # Every binary we mint ships with the Web Inspector: Cmd+Option+I on macOS,
 # and the WebKitGTK inspector on Linux. Build with DEVTOOLS=0 to leave it out —
