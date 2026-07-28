@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pdparchitect/launcher/internal/agent"
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	"github.com/pdparchitect/launcher/internal/webapp"
 	"github.com/wailsapp/wails/v2"
@@ -40,6 +41,7 @@ func run(
 
 	serverOptions := []httpapi.Option{
 		httpapi.WithLogger(runOptions.Stdout),
+		httpapi.WithViewerOpener(SpawnViewer),
 	}
 	if runOptions.OpenPath != nil {
 		serverOptions = append(
@@ -76,6 +78,42 @@ func run(
 	})
 	if err != nil {
 		return fmt.Errorf("run Launcher desktop application: %w", err)
+	}
+	return nil
+}
+
+func runViewer(ctx context.Context, view agent.View) error {
+	finished := make(chan struct{})
+	defer close(finished)
+
+	err := wails.Run(&options.App{
+		Title:         fmt.Sprintf("%s — Agent Launcher", view.Name),
+		Width:         1280,
+		Height:        800,
+		MinWidth:      720,
+		MinHeight:     480,
+		Frameless:     false,
+		DisableResize: false,
+		BackgroundColour: options.NewRGB(
+			5,
+			6,
+			4,
+		),
+		AssetServer: &assetserver.Options{
+			Handler: viewerHandler(view),
+		},
+		OnStartup: func(wailsContext context.Context) {
+			go func() {
+				select {
+				case <-ctx.Done():
+					wailsruntime.Quit(wailsContext)
+				case <-finished:
+				}
+			}()
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("run agent viewer window: %w", err)
 	}
 	return nil
 }

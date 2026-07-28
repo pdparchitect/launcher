@@ -293,7 +293,8 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		t,
 		"components/agent-card.js",
 		"components/launcher-app.js",
-		"desktop-window.js",
+		"components/agent-viewer-dialog.js",
+		"api.js",
 	)
 	for _, expected := range []string{
 		"metrics?.cpuPercent",
@@ -301,9 +302,12 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"metrics?.uptimeSeconds",
 		"item.id === agent.catalogId",
 		"setInterval(() => this.refreshAgents(), 5000)",
-		"desktopWindow.openExternal(agent.url)",
-		"`Could not open ${agent.name}`",
-		"BrowserOpenURL",
+		"<agent-viewer-dialog></agent-viewer-dialog>",
+		"this.querySelector('agent-viewer-dialog').open(agent)",
+		"OPEN IN WINDOW",
+		"data-viewer-frame",
+		"this.api.openViewer(agent.id)",
+		"`/api/instances/${encodeURIComponent(id)}/viewer`",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("interface missing runtime behavior %q", expected)
@@ -906,6 +910,67 @@ func TestOpenInstanceFilesUsesManagedAgentPath(t *testing.T) {
 	}
 }
 
+func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
+	instance := testInstance()
+	service := &fakeService{
+		view: agent.View{
+			Instance: instance,
+			State:    launchruntime.StatusRunning,
+		},
+	}
+	var opened string
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/viewer",
+		[]byte(`{}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(
+		service,
+		"test-token",
+		WithViewerOpener(func(reference string) error {
+			opened = reference
+			return nil
+		}),
+	).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if opened != instance.ID {
+		t.Fatalf("opened = %q", opened)
+	}
+}
+
+func TestOpenInstanceViewerRejectsStoppedAgent(t *testing.T) {
+	instance := testInstance()
+	service := &fakeService{
+		view: agent.View{
+			Instance: instance,
+			State:    launchruntime.StatusStopped,
+		},
+	}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/viewer",
+		[]byte(`{}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(
+		service,
+		"test-token",
+		WithViewerOpener(func(string) error { return nil }),
+	).ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+}
+
 func TestRecentInstanceLogsReturnsJSON(t *testing.T) {
 	service := &fakeService{logs: "agent ready\n"}
 	request := apiRequest(
@@ -934,6 +999,7 @@ func apiRequest(method string, target string, body []byte) *http.Request {
 
 type fakeService struct {
 	views            []agent.View
+	view             agent.View
 	created          domain.Instance
 	createOptions    agent.CreateOptions
 	started          string
@@ -981,6 +1047,9 @@ func (service *fakeService) List(context.Context) ([]agent.View, error) {
 	return service.views, nil
 }
 func (service *fakeService) Get(context.Context, string) (agent.View, error) {
+	if service.view.ID != "" {
+		return service.view, nil
+	}
 	return agent.View{Instance: testInstance()}, nil
 }
 func (service *fakeService) Start(

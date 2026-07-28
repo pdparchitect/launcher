@@ -36,6 +36,7 @@ type App struct {
 	input   io.Reader
 	serve   ServeFunc
 	desktop DesktopFunc
+	viewer  ViewerFunc
 }
 
 type Option func(*App)
@@ -47,6 +48,7 @@ type ServeOptions struct {
 
 type ServeFunc func(context.Context, ServeOptions) error
 type DesktopFunc func(context.Context) error
+type ViewerFunc func(context.Context, string) error
 
 func WithInput(input io.Reader) Option {
 	return func(app *App) { app.input = input }
@@ -58,6 +60,10 @@ func WithServer(serve ServeFunc) Option {
 
 func WithDesktop(desktop DesktopFunc) Option {
 	return func(app *App) { app.desktop = desktop }
+}
+
+func WithViewer(viewer ViewerFunc) Option {
+	return func(app *App) { app.viewer = viewer }
 }
 
 func New(
@@ -98,6 +104,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		err = app.serveUI(ctx, args[1:])
 	case "desktop":
 		err = app.desktopUI(ctx, args[1:])
+	case "viewer":
+		err = app.viewerUI(ctx, args[1:])
 	case "catalog", "catalogue":
 		err = app.catalog(args[1:])
 	case "create":
@@ -145,6 +153,18 @@ func (app *App) desktopUI(ctx context.Context, args []string) error {
 		return errors.New("desktop interface is not available in this build")
 	}
 	return app.desktop(ctx)
+}
+
+func (app *App) viewerUI(ctx context.Context, args []string) error {
+	flags := app.flags("viewer", "Open an agent in a framed desktop window.")
+	reference, err := oneReference(flags, args)
+	if err != nil {
+		return err
+	}
+	if app.viewer == nil {
+		return errors.New("desktop agent viewer is not available in this build")
+	}
+	return app.viewer(ctx, reference)
 }
 
 func (app *App) doctor(ctx context.Context, args []string) error {
@@ -455,6 +475,7 @@ Usage:
 
 Commands:
   desktop             Open the frameless desktop application
+  viewer NAME         Open an agent in a framed desktop window
   serve               Open the local graphical interface
   catalog             Browse available applications
   create NAME         Create and start an agent

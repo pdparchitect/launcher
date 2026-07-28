@@ -47,12 +47,13 @@ type Service interface {
 }
 
 type Server struct {
-	service  Service
-	token    string
-	handler  http.Handler
-	index    []byte
-	logger   *log.Logger
-	openPath func(string) error
+	service    Service
+	token      string
+	handler    http.Handler
+	index      []byte
+	logger     *log.Logger
+	openPath   func(string) error
+	openViewer func(string) error
 }
 
 type Option func(*Server)
@@ -68,6 +69,12 @@ func WithLogger(output io.Writer) Option {
 func WithPathOpener(opener func(string) error) Option {
 	return func(server *Server) {
 		server.openPath = opener
+	}
+}
+
+func WithViewerOpener(opener func(string) error) Option {
+	return func(server *Server) {
+		server.openViewer = opener
 	}
 }
 
@@ -542,6 +549,9 @@ func (server *Server) changeInstance(
 	case "files":
 		server.openInstanceFiles(response, request, reference)
 		return
+	case "viewer":
+		server.openInstanceViewer(response, request, reference)
+		return
 	default:
 		http.NotFound(response, request)
 		return
@@ -551,6 +561,39 @@ func (server *Server) changeInstance(
 		return
 	}
 	writeJSON(response, http.StatusOK, responseFromInstance(instance, state))
+}
+
+func (server *Server) openInstanceViewer(
+	response http.ResponseWriter,
+	request *http.Request,
+	reference string,
+) {
+	view, err := server.service.Get(request.Context(), reference)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if view.State != launchruntime.StatusRunning {
+		writeError(
+			response,
+			http.StatusConflict,
+			fmt.Sprintf("start %s before opening it in a window", view.Name),
+		)
+		return
+	}
+	if server.openViewer == nil {
+		writeError(
+			response,
+			http.StatusNotImplemented,
+			"agent windows are unavailable in this Launcher build",
+		)
+		return
+	}
+	if err := server.openViewer(view.ID); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"id": view.ID})
 }
 
 func (server *Server) updateInstance(

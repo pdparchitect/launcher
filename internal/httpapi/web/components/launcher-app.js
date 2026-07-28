@@ -2,6 +2,7 @@ import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
+import './agent-viewer-dialog.js'
 import './deploy-dialog.js'
 import './marketplace-card.js'
 import './runtime-setup-dialog.js'
@@ -149,6 +150,7 @@ export class LauncherApp extends HTMLElement {
       </div>
       <deploy-dialog></deploy-dialog>
       <agent-actions-dialog></agent-actions-dialog>
+      <agent-viewer-dialog></agent-viewer-dialog>
       <runtime-setup-dialog></runtime-setup-dialog>
       <div class="toast" role="status" aria-live="polite" data-toast hidden></div>
     `
@@ -216,6 +218,9 @@ export class LauncherApp extends HTMLElement {
     })
     this.addEventListener('open-agent', (event) => {
       this.openAgent(event.detail.agent)
+    })
+    this.addEventListener('pop-out-agent', (event) => {
+      this.popOutAgent(event.detail.agent)
     })
     this.addEventListener('agent-actions', (event) => {
       this.querySelector('agent-actions-dialog').open(event.detail.agent)
@@ -1043,17 +1048,55 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    if (!desktopWindow.openExternal(agent.url)) {
-      this.showToast(`Could not open ${agent.name}`, true)
-
-      return
-    }
+    this.querySelector('agent-viewer-dialog').open(agent)
     this.recordActivity(
       'open',
       `Opened ${agent.name}`,
       agent.name,
-      'Agent desktop opened in a new tab'
+      'Agent desktop opened inside Launcher'
     )
+  }
+
+  async popOutAgent(agent) {
+    const dialog = this.querySelector('agent-viewer-dialog')
+
+    dialog.showError('')
+
+    if (!desktopWindow.available()) {
+      if (!desktopWindow.openExternal(agent.url)) {
+        dialog.showError(`Could not open ${agent.name} in a browser window`)
+
+        return
+      }
+      dialog.close()
+      this.recordActivity(
+        'open',
+        `Opened ${agent.name} in a browser`,
+        agent.name,
+        'Desktop windows require the packaged Launcher'
+      )
+      this.showToast(`${agent.name} opened in a browser window`)
+
+      return
+    }
+
+    dialog.setBusy(true)
+
+    try {
+      await this.api.openViewer(agent.id)
+      dialog.close()
+      this.recordActivity(
+        'open',
+        `Opened ${agent.name} in a window`,
+        agent.name,
+        'Independent framed agent window opened'
+      )
+      this.showToast(`${agent.name} opened in its own window`)
+    } catch (error) {
+      dialog.showError(error.message)
+    } finally {
+      dialog.setBusy(false)
+    }
   }
 
   async installAgent({ entry, name }) {
