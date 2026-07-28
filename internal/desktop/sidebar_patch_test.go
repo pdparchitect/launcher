@@ -37,12 +37,14 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		// Dragging the window by the traffic-light strip.
 		"mouseDownCanMoveWindow",
 		// Floating inset panel rather than a full-height column.
-		"applyWindowCornerRadius",
 		"setCornerRadius",
 		"setBorderWidth",
-		// Squircle corners, and Liquid Glass where the system provides it.
+		// Squircle corners.
 		`forKey:@"cornerCurve"`,
-		`NSClassFromString(@"NSGlassEffectView")`,
+		// The panel must BE the effect view: nesting one inside another
+		// layer-backed view breaks within-window backdrop sampling, and the
+		// sidebar shows the desktop instead of the page.
+		"@interface WailsSidebar : NSVisualEffectView",
 		// Traffic lights placed by hand, since there is no toolbar to inset them.
 		"layoutTrafficLights",
 		"standardWindowButton:NSWindowCloseButton",
