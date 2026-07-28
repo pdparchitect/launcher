@@ -15,7 +15,15 @@ var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
   <title>{{.Name}} — Agent Launcher</title>
 </head>
 <body>
-  <script>window.location.replace({{.Target}});</script>
+  <script>
+    // Asks the native side to badge this process's Dock tile, so an agent
+    // window is distinguishable from the launcher. Must happen here: once we
+    // navigate to the agent the page is a remote origin with no Wails runtime.
+    try {
+      window.webkit.messageHandlers.external.postMessage('dockbadge');
+    } catch (error) {}
+    window.location.replace({{.Target}});
+  </script>
   <p><a href="{{.Target}}">Open {{.Name}}</a></p>
 </body>
 </html>`))
