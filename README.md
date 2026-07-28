@@ -135,6 +135,13 @@ make build-macos
 open "build/bin/Agent Launcher.app"
 ```
 
+The desktop targets run Go through
+`scripts/with-wails-context-menu-fix.sh`. On macOS, this creates a temporary
+copy of the pinned Wails module and corrects its cross-frame context-menu
+injection so embedded KasmVNC pages do not receive a script error. The wrapper
+does not modify the Go module cache, and its temporary copy is removed after
+the command exits. On other platforms it executes Go unchanged.
+
 This target must run on macOS because Wails links Apple's native Cocoa and
 WebKit frameworks. The project's multi-stage `Build` workflow first checks the
 code, then builds Linux and macOS desktop applications in parallel on
