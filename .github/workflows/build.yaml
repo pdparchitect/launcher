@@ -108,6 +108,18 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      # macOS grants an app the current design system only when it links
+      # against the matching SDK. Building against an older SDK renders in
+      # legacy appearance on newer systems: smaller window corners, no Liquid
+      # Glass. Report what we actually get so a stale runner is visible.
+      - name: Report build toolchain
+        run: |
+          sw_vers
+          xcodebuild -version || true
+          echo "SDK path: $(xcrun --show-sdk-path)"
+          echo "SDK version: $(xcrun --show-sdk-version)"
+          xcodebuild -showsdks 2>/dev/null | grep -i macosx || true
+
       - name: Build Apple silicon macOS application
         run: make build-macos
 
