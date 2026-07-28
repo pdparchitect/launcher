@@ -137,6 +137,9 @@ jobs:
           plutil -lint "${app_path}/Contents/Info.plist"
           codesign --verify --deep --strict "${app_path}"
           file "${executable_path}"
+          test "$(find "${app_path}/Contents/MacOS" -type f | wc -l | tr -d ' ')" = "1"
+          test ! -e "${app_path}/Contents/Resources/launcher"
+          ! otool -L "${executable_path}" | grep -q 'LauncherNative'
 
           architectures="$(lipo -archs "${executable_path}")"
           test "${architectures}" = "arm64" || {

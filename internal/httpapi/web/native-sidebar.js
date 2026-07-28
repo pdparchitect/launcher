@@ -1,8 +1,8 @@
-// Bridge to the native macOS sidebar added by patches/wails/002-macos-native-sidebar.patch.
+// Bridge to the SwiftUI NavigationSplitView that hosts Wails' own WKWebView.
 //
-// The native side only exists in patched macOS builds. Everywhere else the
-// configure call is a no-op and the HTML sidebar stays in place, so callers
-// must wait for onReady before hiding their own navigation.
+// The message handler is installed directly on the existing WKWebView before
+// this page loads. Everywhere else configure is a no-op and the HTML sidebar
+// remains, so callers must wait for onReady before hiding their navigation.
 
 // The panel floats inside the window rather than filling its height, so the
 // interface must reserve inset + width + inset for it.
@@ -35,7 +35,7 @@ export const SIDEBAR_METRICS = {
 }
 
 function messageHandler() {
-  return globalThis.webkit?.messageHandlers?.external
+  return globalThis.webkit?.messageHandlers?.launcherNative
 }
 
 function isMac() {
@@ -46,8 +46,7 @@ function isMac() {
 }
 
 export const nativeSidebar = {
-  // True only once the native side has confirmed itself. Never true on Linux,
-  // Windows, the browser, or an unpatched macOS build.
+  // True only once SwiftUI has accepted the page's configuration.
   get ready() {
     return globalThis.wailsNativeSidebar === true
   },
@@ -64,21 +63,19 @@ export const nativeSidebar = {
       return false
     }
 
-    handler.postMessage(
-      `sidebar:${JSON.stringify({
-        width: SIDEBAR_WIDTH,
-        inset: SIDEBAR_INSET,
-        cornerRadius: SIDEBAR_CORNER_RADIUS,
-        topInset: SIDEBAR_TOP_INSET,
-        selected,
-        items,
-      })}`
-    )
+    handler.postMessage({
+      width: SIDEBAR_WIDTH,
+      inset: SIDEBAR_INSET,
+      cornerRadius: SIDEBAR_CORNER_RADIUS,
+      topInset: SIDEBAR_TOP_INSET,
+      selected,
+      items,
+    })
 
     return true
   },
 
-  // Re-sends the config purely to move the native selection.
+  // Re-sends the configuration purely to move the native selection.
   select(items, selected) {
     return this.configure(items, selected)
   },

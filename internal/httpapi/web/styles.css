@@ -2083,6 +2083,13 @@ mark {
   overflow: hidden;
 }
 
+/* SwiftUI clips the complete NavigationSplitView to the window. Its embedded
+   WKWebView is only the detail column, so rounding that view independently
+   would also round the internal edge where it meets the native sidebar. */
+.is-macos-desktop.is-swiftui-host launcher-app {
+  border-radius: 0;
+}
+
 /* The native title bar is hidden and the webview covers the whole window, so
    without this there is nothing left to drag the window by. The bar keeps no
    height in the layout — it is a fixed, transparent strip acting purely as a
@@ -2112,15 +2119,9 @@ mark {
   padding-top: 22px;
 }
 
-/* Native macOS sidebar (patches/wails/002-macos-native-sidebar.patch) replaces
-   the HTML one. The grid column stays so the main panel keeps its offset.
-
-   The native sidebar is a fixed-width AppKit view that cannot follow media
-   queries, so the responsive collapse is switched off here: the layout must
-   keep reserving the full width at every window size or the main panel would
-   slide underneath it. Declared after the breakpoints so it always wins. */
-/* --sidebar-width is set from JS to the native panel's inset + width + inset.
-   The layout itself is the same one every platform uses. */
+/* The native SwiftUI sidebar replaces the HTML one. In the packaged app the
+   WKWebView is the NavigationSplitView detail column, and JS sets
+   --sidebar-width to zero because SwiftUI has already positioned it. */
 .launcher-shell.has-native-sidebar .sidebar {
   display: none;
 }
@@ -2186,4 +2187,3 @@ mark {
 .launcher-shell.is-sidebar-preview .sidebar__footer {
   display: none;
 }
-

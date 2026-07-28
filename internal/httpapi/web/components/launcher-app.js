@@ -471,15 +471,19 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    // The reserved column has to match the native panel exactly or content
-    // slides under its floating edge.
-    shell.style.setProperty('--sidebar-width', `${SIDEBAR_COLUMN_WIDTH}px`)
+    // Browser preview draws the panel inside the page and still needs its
+    // column. In the packaged app, SwiftUI owns that column and the web view
+    // is already the NavigationSplitView detail, so reserving it again would
+    // double-inset the content.
+    const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0
+    shell.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
     shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
     shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
     shell.style.setProperty('--panel-radius', `${SIDEBAR_METRICS.radius}px`)
     shell.style.setProperty('--panel-top-inset', `${SIDEBAR_METRICS.topInset}px`)
     shell.classList.add('has-native-sidebar')
     shell.classList.toggle('is-sidebar-preview', preview)
+    document.documentElement.classList.toggle('is-swiftui-host', !preview)
 
     if (!preview) {
       return
@@ -508,6 +512,11 @@ export class LauncherApp extends HTMLElement {
     if (requestedChrome() || !nativeSidebar.available()) {
       return
     }
+
+    if (this.nativeSidebarSetup) {
+      return
+    }
+    this.nativeSidebarSetup = true
 
     nativeSidebar.onSelect((id) => this.setScreen(id))
 

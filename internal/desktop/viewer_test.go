@@ -34,8 +34,6 @@ func TestViewerPageNavigatesToRunningAgentURL(t *testing.T) {
 	body := response.Body.String()
 	for _, expected := range []string{
 		"window.location.replace(",
-		// Badges the Dock tile before the page becomes a remote origin.
-		"postMessage('dockbadge')",
 		"http://127.0.0.1:16902",
 		"resize=remote",
 		"show_control_bar=true",

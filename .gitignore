@@ -1,4 +1,5 @@
 dist/
+macos/.build/
 !build/
 build/*
 !build/darwin/

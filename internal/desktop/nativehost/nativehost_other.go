@@ -1,0 +1,9 @@
+//go:build !darwin || !cgo
+
+package nativehost
+
+// Install is a no-op outside a cgo-enabled macOS build.
+func Install() bool { return false }
+
+// BadgeDockIcon is a no-op outside macOS.
+func BadgeDockIcon() {}
