@@ -58,10 +58,10 @@ index f3e49bf..624fe73 100644
  
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.h b/internal/frontend/desktop/darwin/WailsSidebar.h
 new file mode 100644
-index 0000000..d310b43
+index 0000000..520dc92
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.h
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,65 @@
 +//
 +//  WailsSidebar.h
 +//
@@ -81,8 +81,8 @@ index 0000000..d310b43
 +//        cornerRadius: 14,
 +//        windowCornerRadius: 26,  // Tahoe toolbar-window shape
 +//        topInset: 44,            // clearance for the traffic lights
-+//        trafficLightX: 22,       // repositions the traffic lights
-+//        trafficLightY: 26,
++//        trafficLightX: 22,       // OPTIONAL. Omit to leave the traffic
++//        trafficLightY: 26,       // lights where AppKit puts them.
 +//        material: "glass",       // or "vibrancy" to force the fallback
 +//        selected: "home",
 +//        items: [
@@ -118,6 +118,7 @@ index 0000000..d310b43
 +@property CGFloat topInset;
 +@property CGFloat trafficLightX;
 +@property CGFloat trafficLightY;
++@property bool placeTrafficLights;
 +@property bool suppressSelectionEvent;
 +
 ++ (WailsSidebar*) attachTo:(WailsContext*)context;
@@ -128,10 +129,10 @@ index 0000000..d310b43
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..5101fc4
+index 0000000..1ee5611
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,503 @@
+@@ -0,0 +1,517 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -206,6 +207,7 @@ index 0000000..5101fc4
 +@synthesize topInset;
 +@synthesize trafficLightX;
 +@synthesize trafficLightY;
++@synthesize placeTrafficLights;
 +@synthesize suppressSelectionEvent;
 +
 ++ (WailsSidebar*) attachTo:(WailsContext*)ctx {
@@ -227,6 +229,7 @@ index 0000000..5101fc4
 +    sidebar.topInset = WailsSidebarDefaultTopInset;
 +    sidebar.trafficLightX = WailsSidebarDefaultTrafficLightX;
 +    sidebar.trafficLightY = WailsSidebarDefaultTrafficLightY;
++    sidebar.placeTrafficLights = false;
 +    sidebar.suppressSelectionEvent = false;
 +    // Fixed margins top and bottom keep it floating as the window resizes.
 +    [sidebar setAutoresizingMask:NSViewHeightSizable | NSViewMaxXMargin];
@@ -244,6 +247,9 @@ index 0000000..5101fc4
 +    [scroller setHasVerticalScroller:YES];
 +    [scroller setAutohidesScrollers:YES];
 +    [scroller setBorderType:NSNoBorder];
++    [scroller setAutomaticallyAdjustsContentInsets:NO];
++    [scroller setContentInsets:NSEdgeInsetsMake(0, 0, 8, 0)];
++    [scroller setScrollerInsets:NSEdgeInsetsMake(0, 0, 0, 4)];
 +    sidebar.scrollView = scroller;
 +
 +    NSTableView *table = [[[NSTableView alloc] initWithFrame:NSZeroRect] autorelease];
@@ -350,6 +356,9 @@ index 0000000..5101fc4
 +// toolbar's own glass backing showing through the panel. Without a toolbar the
 +// traffic lights sit high in the corner, so they are placed by hand instead.
 +- (void) layoutTrafficLights {
++    if (!self.placeTrafficLights) {
++        return;
++    }
 +    NSWindow *window = [self window];
 +    if (window == nil) {
 +        return;
@@ -370,8 +379,15 @@ index 0000000..5101fc4
 +        spacing = 20.0;
 +    }
 +    NSRect closeFrame = [close frame];
-+    CGFloat top = NSHeight([container bounds]) - self.trafficLightY
-+        - NSHeight(closeFrame);
++    CGFloat containerHeight = NSHeight([container bounds]);
++    CGFloat top = containerHeight - self.trafficLightY - NSHeight(closeFrame);
++    // Outside the container the buttons still draw but stop hit-testing.
++    if (top < 0) {
++        top = 0;
++    }
++    if (top > containerHeight - NSHeight(closeFrame)) {
++        top = containerHeight - NSHeight(closeFrame);
++    }
 +
 +    closeFrame.origin = NSMakePoint(self.trafficLightX, top);
 +    [close setFrame:closeFrame];
@@ -461,13 +477,12 @@ index 0000000..5101fc4
 +    }
 +
 +    id lightX = [config objectForKey:@"trafficLightX"];
-+    if ([lightX isKindOfClass:[NSNumber class]]) {
-+        self.trafficLightX = [lightX doubleValue];
-+    }
-+
 +    id lightY = [config objectForKey:@"trafficLightY"];
-+    if ([lightY isKindOfClass:[NSNumber class]]) {
++    if ([lightX isKindOfClass:[NSNumber class]] &&
++        [lightY isKindOfClass:[NSNumber class]]) {
++        self.trafficLightX = [lightX doubleValue];
 +        self.trafficLightY = [lightY doubleValue];
++        self.placeTrafficLights = true;
 +    }
 +    [self applyMetrics];
 +

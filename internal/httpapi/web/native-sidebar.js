@@ -16,11 +16,11 @@ const SIDEBAR_TOP_INSET = 44
 // Tahoe toolbar-window corner, not a published Apple value.
 const WINDOW_CORNER_RADIUS = 26
 
-// Clipping the window ourselves means a non-opaque window with a masked
-// content layer, which can cost native shadow and resize behaviour and will
-// not follow future macOS design changes. Set false to let the system own the
-// shape and check whether it already looks right.
-const SELF_CLIP_WINDOW = true
+// Off: built against the macOS 26 SDK the system rounds the window itself, so
+// clipping it here only added a non-opaque window with a masked content layer
+// — which showed as a seam along the top edge and let the desktop through
+// behind the sidebar instead of the page. Apple advises against it anyway.
+const SELF_CLIP_WINDOW = false
 
 // Concentric corners: an inner shape nests inside an outer one when its radius
 // is the outer radius minus the gap between them. Nesting a fixed radius
