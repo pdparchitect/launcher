@@ -18,7 +18,8 @@ wails_dir="$(
 )"
 wails_context="$wails_dir/internal/frontend/desktop/darwin/WailsContext.m"
 old_source='window.wails.flags.disableDefaultContextMenu = true;'
-new_source="if (window.wails && window.wails.flags) { window.wails.flags.disableDefaultContextMenu = true; } window.addEventListener('contextmenu', function(event) { event.preventDefault(); });"
+# Capture the event before an embedded page can stop it from bubbling.
+new_source="if (window.wails && window.wails.flags) { window.wails.flags.disableDefaultContextMenu = true; } window.addEventListener('contextmenu', function(event) { event.preventDefault(); }, true);"
 
 if [[ ! -f "$wails_context" ]]; then
     echo "Wails context-menu source was not found: $wails_context" >&2
