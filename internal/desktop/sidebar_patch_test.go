@@ -1,0 +1,44 @@
+package desktop
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate sidebar patch test")
+	}
+	patchPath := filepath.Join(
+		filepath.Dir(filename),
+		"..",
+		"..",
+		"patches",
+		"wails",
+		"002-macos-native-sidebar.patch",
+	)
+	content, err := os.ReadFile(patchPath)
+	if err != nil {
+		t.Fatalf("read Wails sidebar patch: %v", err)
+	}
+	for _, expected := range []string{
+		// The sidebar must sit above the webview or it cannot blur the page.
+		"addSubview:sidebar positioned:NSWindowAbove relativeTo:nil",
+		"NSVisualEffectBlendingModeWithinWindow",
+		"NSVisualEffectMaterialSidebar",
+		// Driven from JS so no Go-side Wails options need patching.
+		`[m hasPrefix:@"sidebar:"]`,
+		"configureWithJSON",
+		"wails:sidebar",
+		// Dragging the window by the traffic-light strip.
+		"mouseDownCanMoveWindow",
+	} {
+		if !strings.Contains(string(content), expected) {
+			t.Fatalf("Wails sidebar patch missing %q", expected)
+		}
+	}
+}
