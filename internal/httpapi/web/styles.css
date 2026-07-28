@@ -2120,16 +2120,15 @@ mark {
 }
 
 /* The native SwiftUI sidebar replaces the HTML one. Keep the original element
-   and its reserved layout width, but make it fully inert and invisible. This
-   stops foreground content being mirrored beneath the glass panel while the
-   page background remains available to backgroundExtensionEffect. */
+   available to the navigation bridge, but make it fully inert and invisible.
+   NavigationSplitView already offsets the WKWebView, so native mode reserves
+   no additional HTML sidebar width. */
 .launcher-shell.has-native-sidebar .sidebar {
   visibility: hidden;
   pointer-events: none;
 }
 
-/* The reserved content offset must not shorten the native window drag strip.
-   The WKWebView already starts at the detail column's leading edge. */
+/* The WKWebView starts at the detail column's leading edge. */
 .is-swiftui-host .topbar {
   left: 0;
 }

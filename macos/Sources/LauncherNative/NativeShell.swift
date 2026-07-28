@@ -50,8 +50,16 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
         }
         webView.evaluateJavaScript(
             """
-            (() => {
+            customElements.whenDefined('launcher-app').then(() => {
                 const launcher = document.querySelector('launcher-app');
+                const link = launcher?.querySelector(
+                    `[data-screen-link=\(encoded)]`
+                );
+
+                if (link instanceof HTMLElement) {
+                    link.click();
+                    return;
+                }
 
                 if (typeof launcher?.setScreen === 'function') {
                     launcher.setScreen(\(encoded));
@@ -64,7 +72,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
                         { detail: { id: \(encoded) } }
                     )
                 );
-            })();
+            });
             """
         )
     }
@@ -144,6 +152,28 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     }
 }
 
+private final class WailsWebViewContainer: NSView {
+    /*
+     NavigationSplitView's sidebar is permanently visible and is at most 280
+     points wide. AppKit-backed views can otherwise win hit testing even where
+     SwiftUI is visually compositing the sidebar above them.
+     */
+    private let nativeSidebarInteractionWidth: CGFloat = 280
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else {
+            return super.hitTest(point)
+        }
+
+        let pointInWindow = superview.convert(point, to: nil)
+        guard pointInWindow.x >= nativeSidebarInteractionWidth else {
+            return nil
+        }
+
+        return super.hitTest(point)
+    }
+}
+
 private struct WailsWebView: NSViewRepresentable {
     let webView: WKWebView
 
@@ -154,7 +184,7 @@ private struct WailsWebView: NSViewRepresentable {
          retain the old window geometry and cover the sidebar's hit-test area.
          SwiftUI owns the container's frame; the web view can only fill it.
          */
-        let container = NSView()
+        let container = WailsWebViewContainer()
         container.wantsLayer = true
         container.layer?.masksToBounds = true
 
@@ -181,9 +211,6 @@ private struct WailsWebView: NSViewRepresentable {
 private struct RootView: View {
     @Bindable var model: NativeShellModel
 
-    @State private var columnVisibility:
-        NavigationSplitViewVisibility = .all
-
     private var selection: Binding<String?> {
         Binding(
             get: { model.selection },
@@ -191,15 +218,33 @@ private struct RootView: View {
         )
     }
 
+    private var lockedColumnVisibility:
+        Binding<NavigationSplitViewVisibility>
+    {
+        Binding.constant(
+            NavigationSplitViewVisibility.all
+        )
+    }
+
     var body: some View {
         NavigationSplitView(
-            columnVisibility: $columnVisibility
+            columnVisibility: lockedColumnVisibility
         ) {
             List(model.items, selection: selection) { item in
-                Label(
-                    item.title,
-                    systemImage: item.symbol
-                )
+                Button {
+                    model.select(item.id)
+                } label: {
+                    Label(
+                        item.title,
+                        systemImage: item.symbol
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .tag(item.id)
             }
             .listStyle(.sidebar)
@@ -224,6 +269,10 @@ private struct RootView: View {
         }
         .navigationSplitViewStyle(
             .prominentDetail
+        )
+        .toolbar(
+            removing:
+                ToolbarDefaultItemKind.sidebarToggle
         )
         .toolbarBackgroundVisibility(
             Visibility.hidden,
@@ -318,7 +367,11 @@ private final class NativeShell {
          */
         webView.evaluateJavaScript(
             """
-            document.querySelector('launcher-app')?.setUpNativeSidebar();
+            customElements.whenDefined('launcher-app').then(() => {
+                document
+                    .querySelector('launcher-app')
+                    ?.setUpNativeSidebar?.();
+            });
             """
         )
     }
