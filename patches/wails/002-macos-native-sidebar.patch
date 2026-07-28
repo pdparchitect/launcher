@@ -1,0 +1,421 @@
+diff --git a/internal/frontend/desktop/darwin/WailsContext.h b/internal/frontend/desktop/darwin/WailsContext.h
+index 1a2d53d..846b773 100644
+--- a/internal/frontend/desktop/darwin/WailsContext.h
++++ b/internal/frontend/desktop/darwin/WailsContext.h
+@@ -31,6 +31,8 @@
+ - (void) disableWindowConstraints;
+ @end
+ 
++@class WailsSidebar;
++
+ @interface WailsContext : NSObject <WKURLSchemeHandler,WKScriptMessageHandler,WKNavigationDelegate,WKUIDelegate>
+ 
+ @property (retain) WailsWindow* mainWindow;
+@@ -56,6 +58,8 @@
+ 
+ @property (retain) NSMenu* applicationMenu;
+ 
++@property (retain) WailsSidebar* sidebar;
++
+ @property (retain) NSImage* aboutImage;
+ @property (retain) NSString* aboutTitle;
+ @property (retain) NSString* aboutDescription;
+diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
+index f3e49bf..624fe73 100644
+--- a/internal/frontend/desktop/darwin/WailsContext.m
++++ b/internal/frontend/desktop/darwin/WailsContext.m
+@@ -12,6 +12,7 @@
+ #import "WailsAlert.h"
+ #import "WailsMenu.h"
+ #import "WailsWebView.h"
++#import "WailsSidebar.h"
+ #import "WindowDelegate.h"
+ #import "message.h"
+ #import "Role.h"
+@@ -124,6 +125,7 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+     [self.appdelegate release];
+     [self.mainWindow release];
+     [self.mouseEvent release];
++    [self.sidebar release];
+     [self.userContentController release];
+     [self.applicationMenu release];
+     [super dealloc];
+@@ -534,6 +536,15 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+         return;
+     }
+ 
++    // Check for the native sidebar
++    if ( [m hasPrefix:@"sidebar:"] ) {
++        if ( self.sidebar == nil ) {
++            self.sidebar = [WailsSidebar attachTo:self];
++        }
++        [self.sidebar configureWithJSON:[m substringFromIndex:8]];
++        return;
++    }
++
+     const char *_m = [m UTF8String];
+     const char *_origin = [origin UTF8String];
+ 
+diff --git a/internal/frontend/desktop/darwin/WailsSidebar.h b/internal/frontend/desktop/darwin/WailsSidebar.h
+new file mode 100644
+index 0000000..aea1e78
+--- /dev/null
++++ b/internal/frontend/desktop/darwin/WailsSidebar.h
+@@ -0,0 +1,50 @@
++//
++//  WailsSidebar.h
++//
++//  A native translucent sidebar layered on top of the webview. The webview
++//  keeps the full content rect, so the sidebar blurs whatever the page draws
++//  underneath it.
++//
++//  Driven entirely from JavaScript, so no Go-side options are involved:
++//
++//    window.webkit.messageHandlers.external.postMessage(
++//      "sidebar:" + JSON.stringify({
++//        width: 260,
++//        topInset: 52,
++//        selected: "home",
++//        items: [
++//          {id: "search", title: "Search", symbol: "magnifyingglass"},
++//          {id: "home",   title: "Home",   symbol: "house.fill"},
++//          {group: "Library"},
++//          {id: "movies", title: "Movies", symbol: "film"}
++//        ]
++//      })
++//    )
++//
++//  Selecting a row dispatches a DOM event back into the page:
++//
++//    window.addEventListener("wails:sidebar", (e) => console.log(e.detail.id))
++//
++
++#ifndef WailsSidebar_h
++#define WailsSidebar_h
++
++#import <Cocoa/Cocoa.h>
++
++@class WailsContext;
++
++@interface WailsSidebar : NSVisualEffectView <NSTableViewDataSource, NSTableViewDelegate>
++
++@property (assign) WailsContext* context;
++@property (retain) NSScrollView* scrollView;
++@property (retain) NSTableView* tableView;
++@property (retain) NSArray* items;
++@property CGFloat topInset;
++@property bool suppressSelectionEvent;
++
+++ (WailsSidebar*) attachTo:(WailsContext*)context;
++- (void) configureWithJSON:(NSString*)json;
++
++@end
++
++#endif /* WailsSidebar_h */
+diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
+new file mode 100644
+index 0000000..7a157b5
+--- /dev/null
++++ b/internal/frontend/desktop/darwin/WailsSidebar.m
+@@ -0,0 +1,301 @@
++//
++//  WailsSidebar.m
++//
++
++#import "WailsSidebar.h"
++#import "WailsContext.h"
++
++static const CGFloat WailsSidebarDefaultWidth = 260.0;
++static const CGFloat WailsSidebarDefaultTopInset = 52.0;
++static const CGFloat WailsSidebarItemHeight = 28.0;
++static const CGFloat WailsSidebarGroupHeight = 34.0;
++
++@interface WailsSidebar ()
++- (void) applyMetrics;
++- (NSColor*) colorFromHex:(NSString*)hex;
++- (void) selectItemWithID:(NSString*)itemID notify:(bool)notify;
++- (NSDictionary*) entryAtRow:(NSInteger)row;
++@end
++
++@implementation WailsSidebar
++
++@synthesize context;
++@synthesize scrollView;
++@synthesize tableView;
++@synthesize items;
++@synthesize topInset;
++@synthesize suppressSelectionEvent;
++
+++ (WailsSidebar*) attachTo:(WailsContext*)ctx {
++    NSView *contentView = [ctx.mainWindow contentView];
++    NSRect contentBounds = [contentView bounds];
++
++    NSRect sidebarFrame = NSMakeRect(0, 0, WailsSidebarDefaultWidth, contentBounds.size.height);
++    WailsSidebar *sidebar = [[[WailsSidebar alloc] initWithFrame:sidebarFrame] autorelease];
++    sidebar.context = ctx;
++    sidebar.items = [NSArray array];
++    sidebar.topInset = WailsSidebarDefaultTopInset;
++    sidebar.suppressSelectionEvent = false;
++    [sidebar setAutoresizingMask:NSViewHeightSizable | NSViewMaxXMargin];
++    [sidebar setMaterial:NSVisualEffectMaterialSidebar];
++    [sidebar setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
++    [sidebar setState:NSVisualEffectStateFollowsWindowActiveState];
++
++    NSRect scrollFrame = NSMakeRect(0, 0, WailsSidebarDefaultWidth,
++                                    contentBounds.size.height - WailsSidebarDefaultTopInset);
++    NSScrollView *scroller = [[[NSScrollView alloc] initWithFrame:scrollFrame] autorelease];
++    [scroller setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
++    [scroller setDrawsBackground:NO];
++    [scroller setHasVerticalScroller:YES];
++    [scroller setAutohidesScrollers:YES];
++    [scroller setBorderType:NSNoBorder];
++    sidebar.scrollView = scroller;
++
++    NSTableView *table = [[[NSTableView alloc] initWithFrame:NSZeroRect] autorelease];
++    NSTableColumn *column = [[[NSTableColumn alloc] initWithIdentifier:@"wails.sidebar.item"] autorelease];
++    [column setResizingMask:NSTableColumnAutoresizingMask];
++    [table addTableColumn:column];
++    [table setHeaderView:nil];
++    [table setBackgroundColor:[NSColor clearColor]];
++    [table setFocusRingType:NSFocusRingTypeNone];
++    [table setAllowsEmptySelection:YES];
++    [table setAllowsMultipleSelection:NO];
++    [table setFloatsGroupRows:NO];
++    [table setIntercellSpacing:NSMakeSize(0, 2)];
++    [table setSelectionHighlightStyle:NSTableViewSelectionHighlightStyleSourceList];
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
++    if (@available(macOS 11.0, *)) {
++        [table setStyle:NSTableViewStyleSourceList];
++    }
++#endif
++    [table setDataSource:sidebar];
++    [table setDelegate:sidebar];
++    sidebar.tableView = table;
++
++    [scroller setDocumentView:table];
++    [sidebar addSubview:scroller];
++
++    // Layered above the webview so the vibrancy samples the page beneath it.
++    [contentView addSubview:sidebar positioned:NSWindowAbove relativeTo:nil];
++
++    return sidebar;
++}
++
++- (void) dealloc {
++    [self.scrollView release];
++    [self.tableView release];
++    [self.items release];
++    [super dealloc];
++}
++
++// Lets the window be dragged by the empty strip that holds the traffic lights.
++- (BOOL) mouseDownCanMoveWindow {
++    return YES;
++}
++
++- (void) applyMetrics {
++    NSRect bounds = [self bounds];
++    CGFloat height = bounds.size.height - self.topInset;
++    if (height < 0) {
++        height = 0;
++    }
++    [self.scrollView setFrame:NSMakeRect(0, 0, bounds.size.width, height)];
++}
++
++- (NSColor*) colorFromHex:(NSString*)hex {
++    if (hex == nil) {
++        return nil;
++    }
++    NSString *cleaned = [hex hasPrefix:@"#"] ? [hex substringFromIndex:1] : hex;
++    if ([cleaned length] != 6) {
++        return nil;
++    }
++    unsigned int value = 0;
++    NSScanner *scanner = [NSScanner scannerWithString:cleaned];
++    if (![scanner scanHexInt:&value]) {
++        return nil;
++    }
++    return [NSColor colorWithSRGBRed:((value >> 16) & 0xFF) / 255.0
++                               green:((value >> 8) & 0xFF) / 255.0
++                                blue:(value & 0xFF) / 255.0
++                               alpha:1.0];
++}
++
++- (void) configureWithJSON:(NSString*)json {
++    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
++    if (data == nil) {
++        return;
++    }
++    id parsed = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
++    if (![parsed isKindOfClass:[NSDictionary class]]) {
++        return;
++    }
++    NSDictionary *config = (NSDictionary *)parsed;
++
++    id width = [config objectForKey:@"width"];
++    if ([width isKindOfClass:[NSNumber class]]) {
++        NSRect frame = [self frame];
++        frame.size.width = [width doubleValue];
++        [self setFrame:frame];
++    }
++
++    id inset = [config objectForKey:@"topInset"];
++    if ([inset isKindOfClass:[NSNumber class]]) {
++        self.topInset = [inset doubleValue];
++    }
++    [self applyMetrics];
++
++    id newItems = [config objectForKey:@"items"];
++    if ([newItems isKindOfClass:[NSArray class]]) {
++        self.items = newItems;
++        [self.tableView reloadData];
++    }
++
++    id selected = [config objectForKey:@"selected"];
++    if ([selected isKindOfClass:[NSString class]]) {
++        [self selectItemWithID:(NSString *)selected notify:false];
++    }
++}
++
++- (void) selectItemWithID:(NSString*)itemID notify:(bool)notify {
++    NSUInteger count = [self.items count];
++    for (NSUInteger index = 0; index < count; index++) {
++        id entry = [self.items objectAtIndex:index];
++        if (![entry isKindOfClass:[NSDictionary class]]) {
++            continue;
++        }
++        if (![itemID isEqualToString:[(NSDictionary *)entry objectForKey:@"id"]]) {
++            continue;
++        }
++        self.suppressSelectionEvent = !notify;
++        [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:index]
++                    byExtendingSelection:NO];
++        [self.tableView scrollRowToVisible:index];
++        self.suppressSelectionEvent = false;
++        return;
++    }
++}
++
++- (NSDictionary*) entryAtRow:(NSInteger)row {
++    if (row < 0 || row >= (NSInteger)[self.items count]) {
++        return nil;
++    }
++    id entry = [self.items objectAtIndex:row];
++    if (![entry isKindOfClass:[NSDictionary class]]) {
++        return nil;
++    }
++    return (NSDictionary *)entry;
++}
++
++/***** NSTableViewDataSource *****/
++
++- (NSInteger) numberOfRowsInTableView:(NSTableView *)table {
++    return (NSInteger)[self.items count];
++}
++
++/***** NSTableViewDelegate *****/
++
++- (BOOL) tableView:(NSTableView *)table isGroupRow:(NSInteger)row {
++    NSDictionary *entry = [self entryAtRow:row];
++    return entry != nil && [entry objectForKey:@"group"] != nil;
++}
++
++- (BOOL) tableView:(NSTableView *)table shouldSelectRow:(NSInteger)row {
++    NSDictionary *entry = [self entryAtRow:row];
++    return entry != nil && [entry objectForKey:@"group"] == nil;
++}
++
++- (CGFloat) tableView:(NSTableView *)table heightOfRow:(NSInteger)row {
++    return [self tableView:table isGroupRow:row] ? WailsSidebarGroupHeight : WailsSidebarItemHeight;
++}
++
++- (NSView *) tableView:(NSTableView *)table
++    viewForTableColumn:(NSTableColumn *)column
++                   row:(NSInteger)row {
++    NSDictionary *entry = [self entryAtRow:row];
++    if (entry == nil) {
++        return nil;
++    }
++    BOOL isGroup = [entry objectForKey:@"group"] != nil;
++    CGFloat width = [self bounds].size.width;
++
++    if (isGroup) {
++        NSTextField *label = [NSTextField labelWithString:@""];
++        [label setFrame:NSMakeRect(10, 4, width - 20, 18)];
++        [label setAutoresizingMask:NSViewWidthSizable];
++        [label setFont:[NSFont systemFontOfSize:11 weight:NSFontWeightBold]];
++        [label setTextColor:[NSColor secondaryLabelColor]];
++        [label setStringValue:[entry objectForKey:@"group"]];
++
++        NSTableCellView *cell = [[[NSTableCellView alloc]
++            initWithFrame:NSMakeRect(0, 0, width, WailsSidebarGroupHeight)] autorelease];
++        [cell setAutoresizingMask:NSViewWidthSizable];
++        [cell addSubview:label];
++        [cell setTextField:label];
++        return cell;
++    }
++
++    NSTableCellView *cell = [[[NSTableCellView alloc]
++        initWithFrame:NSMakeRect(0, 0, width, WailsSidebarItemHeight)] autorelease];
++    [cell setAutoresizingMask:NSViewWidthSizable];
++
++    NSImageView *icon = [[[NSImageView alloc] initWithFrame:NSMakeRect(8, 5, 18, 18)] autorelease];
++    [icon setImageScaling:NSImageScaleProportionallyDown];
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
++    id symbol = [entry objectForKey:@"symbol"];
++    if ([symbol isKindOfClass:[NSString class]]) {
++        if (@available(macOS 11.0, *)) {
++            NSImage *image = [NSImage imageWithSystemSymbolName:(NSString *)symbol
++                                      accessibilityDescription:nil];
++            [icon setImage:image];
++        }
++    }
++#endif
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
++    if (@available(macOS 10.14, *)) {
++        NSColor *tint = [self colorFromHex:[entry objectForKey:@"tint"]];
++        [icon setContentTintColor:tint != nil ? tint : [NSColor controlAccentColor]];
++    }
++#endif
++    [cell addSubview:icon];
++    [cell setImageView:icon];
++
++    NSTextField *label = [NSTextField labelWithString:@""];
++    [label setFrame:NSMakeRect(34, 5, width - 44, 18)];
++    [label setAutoresizingMask:NSViewWidthSizable];
++    [label setFont:[NSFont systemFontOfSize:13]];
++    [label setTextColor:[NSColor labelColor]];
++    [label setLineBreakMode:NSLineBreakByTruncatingTail];
++    id title = [entry objectForKey:@"title"];
++    [label setStringValue:[title isKindOfClass:[NSString class]] ? (NSString *)title : @""];
++    [cell addSubview:label];
++    [cell setTextField:label];
++
++    return cell;
++}
++
++- (void) tableViewSelectionDidChange:(NSNotification *)notification {
++    if (self.suppressSelectionEvent) {
++        return;
++    }
++    NSDictionary *entry = [self entryAtRow:[self.tableView selectedRow]];
++    if (entry == nil) {
++        return;
++    }
++    id itemID = [entry objectForKey:@"id"];
++    if (![itemID isKindOfClass:[NSString class]]) {
++        return;
++    }
++    NSDictionary *detail = [NSDictionary dictionaryWithObject:itemID forKey:@"id"];
++    NSData *payload = [NSJSONSerialization dataWithJSONObject:detail options:0 error:nil];
++    if (payload == nil) {
++        return;
++    }
++    NSString *encoded = [[[NSString alloc] initWithData:payload
++                                               encoding:NSUTF8StringEncoding] autorelease];
++    NSString *script = [NSString stringWithFormat:
++        @"window.dispatchEvent(new CustomEvent('wails:sidebar',{detail:%@}));", encoded];
++    [self.context ExecJS:script];
++}
++
++@end
