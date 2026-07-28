@@ -27,8 +27,12 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	)
 	for _, expected := range []string{
 		"NavigationSplitView(",
+		"final class WailsWebViewContainer: NSView",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
+		"nativeSidebarInteractionWidth: CGFloat = 280",
+		"override func hitTest(_ point: NSPoint) -> NSView?",
+		"guard pointInWindow.x >= nativeSidebarInteractionWidth",
 		"container.layer?.masksToBounds = true",
 		"container.addSubview(webView)",
 		"NSHostingSceneRepresentation",
@@ -48,6 +52,10 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"window.performDrag(with: event)",
 		"NSEvent.addLocalMonitorForEvents(",
 		"matching: [.leftMouseDown, .leftMouseUp]",
+		"customElements.whenDefined('launcher-app').then(",
+		"const link = launcher?.querySelector(",
+		"link.click();",
+		"?.setUpNativeSidebar?.();",
 		"launcher.setScreen(",
 		"let windowAddress = UInt(bitPattern: windowPointer)",
 		"let webViewAddress = UInt(bitPattern: webViewPointer)",
@@ -65,10 +73,14 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	root := swift[rootStart:rootEnd]
 	for _, expected := range []string{
 		"var body: some View {\n        NavigationSplitView(",
+		"columnVisibility: lockedColumnVisibility",
+		"Button {\n                    model.select(item.id)",
+		".buttonStyle(.plain)",
 		"} detail: {\n            WailsWebView(webView: model.webView)",
 		".backgroundExtensionEffect()",
 		"edges: [.top, .trailing, .bottom]",
 		".navigationSplitViewStyle(\n            .prominentDetail\n        )",
+		"ToolbarDefaultItemKind.sidebarToggle",
 		".toolbarBackgroundVisibility(",
 	} {
 		if !strings.Contains(root, expected) {
@@ -91,7 +103,6 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"Button(action: toggleSidebar)",
-		"ToolbarDefaultItemKind.sidebarToggle",
 		`systemImage: "sidebar.leading"`,
 		"LegacyRootView",
 		"NSHostingController",
@@ -178,7 +189,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		),
 	)
 	for _, expected := range []string{
-		"const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : SIDEBAR_WIDTH",
+		"const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0",
 		"classList.toggle('is-swiftui-host', !preview)",
 	} {
 		if !strings.Contains(app, expected) {
