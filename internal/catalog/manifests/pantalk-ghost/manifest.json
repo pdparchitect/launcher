@@ -19,7 +19,7 @@
       }
     ]
   },
-  "image": "ghcr.io/pantalk/ghost:0.0.8",
+  "image": "ghcr.io/pantalk/ghost:0.0.9",
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",

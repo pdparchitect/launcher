@@ -174,6 +174,13 @@ export class AgentCard extends HTMLElement {
 
     const controls = this.querySelector('[data-controls]')
 
+    if (agent.updateAvailable) {
+      controls.append(
+        this.controlButton('↑', 'Update agent', () => {
+          emit(this, 'show-agent-update', agent)
+        })
+      )
+    }
     controls.append(
       this.controlButton(running ? '❚❚' : '▶', 'Toggle agent', () => {
         emit(this, 'toggle-agent', agent)

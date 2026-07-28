@@ -179,6 +179,10 @@ func TestDeploymentUsesNativeDialogInsteadOfBrowserPrompt(t *testing.T) {
 		"DEPLOY AGENT",
 		"'install-agent'",
 		"setProgress(progress)",
+		"data-install-log-output",
+		"progress-track--indeterminate",
+		"'DOWNLOADING'",
+		"appendLog(update.stage, update.message)",
 		`data-close type="button"`,
 		`data-cancel type="button"`,
 		"if (!this.busy)",
@@ -190,6 +194,9 @@ func TestDeploymentUsesNativeDialogInsteadOfBrowserPrompt(t *testing.T) {
 	}
 	if strings.Contains(source, "window.prompt") {
 		t.Fatal("deployment still uses the browser prompt")
+	}
+	if strings.Contains(source, "pulling: 48") {
+		t.Fatal("deployment still presents image pulling as a stuck percentage")
 	}
 	if strings.Contains(source, `src="{{`) {
 		t.Fatal("dynamic image source triggers a raw template URL request")
@@ -230,12 +237,15 @@ func TestAgentActionsUseNativeDialogAndFunctionalButtons(t *testing.T) {
 		"data-launcher-actions-dialog",
 		"RENAME AGENT",
 		"VIEW LOGS",
+		"UPDATE AGENT",
 		"DELETE AGENT",
 		"'rename-agent'",
 		"'load-agent-logs'",
+		"'update-agent'",
 		"'delete-agent'",
 		"this.renameAgent(event.detail)",
 		"this.loadAgentLogs(event.detail.agent)",
+		"this.updateAgent(event.detail.agent)",
 		"this.deleteAgent(event.detail.agent)",
 	} {
 		if !strings.Contains(source, expected) {
@@ -437,8 +447,10 @@ func TestAPIRequiresSessionToken(t *testing.T) {
 
 func TestListInstancesReturnsDesktopURL(t *testing.T) {
 	service := &fakeService{views: []agent.View{{
-		Instance: testInstance(),
-		State:    launchruntime.StatusRunning,
+		Instance:        testInstance(),
+		State:           launchruntime.StatusRunning,
+		UpdateAvailable: true,
+		AvailableImage:  "pantalk/ghost:new",
 		Metrics: launchruntime.Metrics{
 			CPUPercent:       0.22,
 			CPUAvailable:     true,
@@ -468,7 +480,9 @@ func TestListInstancesReturnsDesktopURL(t *testing.T) {
 		body.Instances[0].Metrics == nil ||
 		*body.Instances[0].Metrics.CPUPercent != 0.22 ||
 		*body.Instances[0].Metrics.MemoryPercent != 0.34 ||
-		body.Instances[0].Metrics.UptimeSeconds != 300 {
+		body.Instances[0].Metrics.UptimeSeconds != 300 ||
+		!body.Instances[0].UpdateAvailable ||
+		body.Instances[0].AvailableImage != "pantalk/ghost:new" {
 		t.Fatalf("instances = %#v", body.Instances)
 	}
 }
@@ -576,6 +590,26 @@ func TestStartInstanceInvokesLifecycleService(t *testing.T) {
 	}
 }
 
+func TestUpdateInstanceInvokesLifecycleService(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/update",
+		[]byte(`{}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if service.updated != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("updated = %q", service.updated)
+	}
+}
+
 func TestRenameInstanceUpdatesDisplayName(t *testing.T) {
 	service := &fakeService{created: testInstance()}
 	request := apiRequest(
@@ -632,6 +666,7 @@ type fakeService struct {
 	created          domain.Instance
 	createOptions    agent.CreateOptions
 	started          string
+	updated          string
 	renamedReference string
 	renamedName      string
 	logs             string
@@ -681,6 +716,15 @@ func (service *fakeService) Start(
 }
 func (*fakeService) Stop(context.Context, string) (domain.Instance, error) {
 	return testInstance(), nil
+}
+func (service *fakeService) Update(
+	_ context.Context,
+	reference string,
+) (domain.Instance, error) {
+	service.updated = reference
+	instance := testInstance()
+	instance.Image = "pantalk/ghost:new"
+	return instance, nil
 }
 func (*fakeService) Delete(context.Context, string) error { return nil }
 func (service *fakeService) Rename(

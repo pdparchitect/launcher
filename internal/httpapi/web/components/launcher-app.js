@@ -199,6 +199,12 @@ export class LauncherApp extends HTMLElement {
     this.addEventListener('agent-actions', (event) => {
       this.querySelector('agent-actions-dialog').open(event.detail.agent)
     })
+    this.addEventListener('show-agent-update', (event) => {
+      this.querySelector('agent-actions-dialog').open(
+        event.detail.agent,
+        'update'
+      )
+    })
     this.addEventListener('deploy-agent', (event) => {
       this.querySelector('deploy-dialog').open(event.detail.entry)
     })
@@ -210,6 +216,9 @@ export class LauncherApp extends HTMLElement {
     })
     this.addEventListener('load-agent-logs', (event) => {
       this.loadAgentLogs(event.detail.agent)
+    })
+    this.addEventListener('update-agent', (event) => {
+      this.updateAgent(event.detail.agent)
     })
     this.addEventListener('delete-agent', (event) => {
       this.deleteAgent(event.detail.agent)
@@ -910,6 +919,32 @@ export class LauncherApp extends HTMLElement {
     } catch (error) {
       dialog.setLogs('')
       dialog.showError('logs', error.message)
+    }
+  }
+
+  async updateAgent(agent) {
+    const dialog = this.querySelector('agent-actions-dialog')
+
+    dialog.setBusy(true)
+    dialog.showError('update', '')
+
+    try {
+      const updated = await this.api.update(agent.id)
+
+      this.recordActivity(
+        'update',
+        `Updated ${agent.name}`,
+        agent.name,
+        `${agent.image} → ${updated.image}`
+      )
+      dialog.close()
+      await this.refreshAgents()
+      this.showToast(`${agent.name} updated`)
+    } catch (error) {
+      dialog.showError('update', error.message)
+      await this.refreshAgents()
+    } finally {
+      dialog.setBusy(false)
     }
   }
 

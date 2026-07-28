@@ -1015,6 +1015,21 @@ mark {
   transition: width 180ms ease;
 }
 
+.progress-track--indeterminate i {
+  animation: install-progress 1.15s linear infinite;
+  transition: none;
+}
+
+@keyframes install-progress {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(340%);
+  }
+}
+
 .marketplace-hero,
 .activity-heading,
 .settings-heading {
@@ -1354,6 +1369,8 @@ mark {
 .launcher-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: none;
   padding: 0;
   border: 1px solid var(--line-bright);
   background: var(--surface);
@@ -1473,6 +1490,55 @@ mark {
   font-size: 10px;
 }
 
+.install-log {
+  margin-top: 13px;
+  border-top: 1px solid rgba(234, 255, 0, 0.18);
+}
+
+.install-log summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 12px;
+  color: #cfd43c;
+  cursor: pointer;
+  font-family: var(--font-technical);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  list-style: none;
+  user-select: none;
+}
+
+.install-log summary::-webkit-details-marker {
+  display: none;
+}
+
+.install-log summary::before {
+  content: '+';
+}
+
+.install-log[open] summary::before {
+  content: '−';
+}
+
+.install-log summary > span:first-child {
+  margin-right: auto;
+}
+
+.install-log pre {
+  max-height: 180px;
+  overflow: auto;
+  overscroll-behavior: none;
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #020302;
+  color: #b8bcaf;
+  font: 10px/1.5 var(--font-technical);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -1558,6 +1624,53 @@ mark {
   padding: 18px;
   border: 1px solid rgba(255, 88, 77, 0.42);
   background: rgba(255, 88, 77, 0.06);
+}
+
+.update-notice {
+  padding: 18px;
+  border: 1px solid rgba(234, 255, 0, 0.32);
+  background: var(--accent-soft);
+}
+
+.update-notice > strong {
+  color: var(--accent);
+  font-family: var(--font-interface);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.update-notice > p {
+  margin: 8px 0 16px;
+  color: #c5cabd;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.update-notice dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.update-notice dl > div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.update-notice dt {
+  color: var(--muted);
+  font-family: var(--font-technical);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.update-notice dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text);
+  font: 11px/1.4 var(--font-technical);
+  overflow-wrap: anywhere;
 }
 
 .danger-notice strong {

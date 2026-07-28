@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pdparchitect/launcher/internal/agent"
@@ -33,6 +34,7 @@ type Service interface {
 	Get(context.Context, string) (agent.View, error)
 	Start(context.Context, string) (domain.Instance, error)
 	Stop(context.Context, string) (domain.Instance, error)
+	Update(context.Context, string) (domain.Instance, error)
 	Rename(context.Context, string, string) (domain.Instance, error)
 	RecentLogs(context.Context, string, int) (string, error)
 	Delete(context.Context, string) error
@@ -57,16 +59,18 @@ func WithLogger(output io.Writer) Option {
 }
 
 type instanceResponse struct {
-	ID            string               `json:"id"`
-	CatalogID     string               `json:"catalogId"`
-	Name          string               `json:"name"`
-	Image         string               `json:"image"`
-	ContainerName string               `json:"containerName"`
-	Port          int                  `json:"port"`
-	State         launchruntime.Status `json:"state"`
-	URL           string               `json:"url"`
-	CreatedAt     time.Time            `json:"createdAt"`
-	Metrics       *metricsResponse     `json:"metrics,omitempty"`
+	ID              string               `json:"id"`
+	CatalogID       string               `json:"catalogId"`
+	Name            string               `json:"name"`
+	Image           string               `json:"image"`
+	ContainerName   string               `json:"containerName"`
+	Port            int                  `json:"port"`
+	State           launchruntime.Status `json:"state"`
+	URL             string               `json:"url"`
+	CreatedAt       time.Time            `json:"createdAt"`
+	UpdateAvailable bool                 `json:"updateAvailable"`
+	AvailableImage  string               `json:"availableImage,omitempty"`
+	Metrics         *metricsResponse     `json:"metrics,omitempty"`
 }
 
 type metricsResponse struct {
@@ -372,7 +376,10 @@ func (server *Server) installInstance(
 	controller := http.NewResponseController(response)
 	_ = controller.Flush()
 
+	var sendMu sync.Mutex
 	send := func(event installEvent) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		_ = json.NewEncoder(response).Encode(event)
 		_ = controller.Flush()
 	}
@@ -427,6 +434,12 @@ func (server *Server) changeInstance(
 	case "stop":
 		instance, err = server.service.Stop(request.Context(), reference)
 		state = launchruntime.StatusStopped
+	case "update":
+		instance, err = server.service.Update(request.Context(), reference)
+		state = launchruntime.StatusStopped
+		if instance.DesiredState == domain.DesiredRunning {
+			state = launchruntime.StatusRunning
+		}
 	default:
 		http.NotFound(response, request)
 		return
@@ -454,6 +467,8 @@ func (server *Server) deleteInstance(
 
 func responseFromView(view agent.View) instanceResponse {
 	response := responseFromInstance(view.Instance, view.State)
+	response.UpdateAvailable = view.UpdateAvailable
+	response.AvailableImage = view.AvailableImage
 	if view.State != launchruntime.StatusRunning {
 		return response
 	}

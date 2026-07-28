@@ -93,18 +93,33 @@ func (apple *Apple) Doctor(ctx context.Context) (string, error) {
 }
 
 func (apple *Apple) Pull(ctx context.Context, image string) error {
+	return apple.PullWithProgress(ctx, image, nil)
+}
+
+func (apple *Apple) PullWithProgress(
+	ctx context.Context,
+	image string,
+	progress func(string),
+) error {
 	if _, err := apple.runner.Capture(
 		ctx, apple.command, "image", "inspect", image,
 	); err == nil {
+		if progress != nil {
+			progress("Image is already available locally")
+		}
 		return nil
 	}
+	stdout := newProgressWriter(apple.stdout, progress)
+	stderr := newProgressWriter(apple.stderr, progress)
+	defer stdout.Flush()
+	defer stderr.Flush()
 	if err := apple.runner.Run(
 		ctx,
 		apple.command,
 		[]string{"image", "pull", image},
 		nil,
-		apple.stdout,
-		apple.stderr,
+		stdout,
+		stderr,
 	); err != nil {
 		return fmt.Errorf("pull image %q: %w", image, err)
 	}
