@@ -166,11 +166,17 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 	for _, expected := range []string{
 		"swift-autolink-extract",
 		"libLauncherNative.a",
+		`swiftc_path="$(xcrun --find swiftc)"`,
+		`"$swift_autolink_extract" "$swift_archive"`,
+		`-mmacosx-version-min="$deployment_target"`,
 		"xcrun clang",
 	} {
 		if !strings.Contains(linker, expected) {
 			t.Fatalf("Swift external linker missing %q", expected)
 		}
+	}
+	if strings.Contains(linker, "xcrun swift-autolink-extract") {
+		t.Fatal("swift-autolink-extract is not exposed as an xcrun SDK utility")
 	}
 }
 
