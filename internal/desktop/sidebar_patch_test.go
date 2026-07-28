@@ -52,6 +52,10 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		// it on focus changes, so setting the property once does not hold.
 		"@interface WailsSidebarRowView : NSTableRowView",
 		"- (BOOL) isEmphasized {",
+		// Rows are built during reloadData, before the table has a width, so
+		// any label sized from that width comes out truncated.
+		"setTranslatesAutoresizingMaskIntoConstraints:NO",
+		"NSLayoutConstraint activateConstraints:",
 	} {
 		if !strings.Contains(string(content), expected) {
 			t.Fatalf("Wails sidebar patch missing %q", expected)

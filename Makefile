@@ -15,6 +15,15 @@ PATCHED_GO := ./scripts/with-go-module-patches.sh
 ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
 endif
+# Every binary we mint ships with the Web Inspector: Cmd+Option+I on macOS,
+# and the WebKitGTK inspector on Linux. Build with DEVTOOLS=0 to leave it out —
+# needed only for a Mac App Store submission, since Wails' inspector shim calls
+# the private _WKInspector API. Must follow DESKTOP_TAGS, which it extends.
+DEVTOOLS ?= 1
+ifeq ($(DEVTOOLS),1)
+MACOS_BUILD_FLAGS := -devtools
+DESKTOP_TAGS := $(DESKTOP_TAGS),devtools
+endif
 
 .PHONY: help web web-open desktop check test images-check images-build build build-desktop build-macos build-all clean
 
@@ -31,6 +40,7 @@ help:
 	@echo "  make build      Build Launcher for this machine"
 	@echo "  make build-desktop  Build the Wails desktop executable"
 	@echo "  make build-macos  Build an Apple silicon macOS application (on macOS)"
+	@echo "                    Web Inspector is on by default; DEVTOOLS=0 omits it"
 	@echo "  make build-all  Cross-compile Linux and macOS binaries"
 	@echo "  make clean      Remove generated binaries"
 
@@ -84,6 +94,7 @@ build-macos:
 	MACOSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET) $(PATCHED_GO) go run \
 		github.com/wailsapp/wails/v2/cmd/wails build \
 		-platform darwin/arm64 \
+		$(MACOS_BUILD_FLAGS) \
 		-s \
 		-skipbindings \
 		-skipembedcreate \

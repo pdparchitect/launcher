@@ -130,10 +130,10 @@ index 0000000..ab9d3e7
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..521af8a
+index 0000000..4c944ae
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,577 @@
+@@ -0,0 +1,542 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -574,32 +574,38 @@ index 0000000..521af8a
 +        return nil;
 +    }
 +    BOOL isGroup = [entry objectForKey:@"group"] != nil;
-+    // The table's width, not the panel's: source-list insets and the scroller
-+    // make the row narrower than the view it sits in.
-+    CGFloat width = [table bounds].size.width;
++
++    // Constraints, not frames: rows are built during reloadData, before the
++    // table has been laid out, so its width is still zero at this point and
++    // any width computed from it truncates the label.
++    NSTableCellView *cell =
++        [[[NSTableCellView alloc] initWithFrame:NSZeroRect] autorelease];
++    [cell setAutoresizingMask:NSViewWidthSizable];
++
++    NSTextField *label = [NSTextField labelWithString:@""];
++    [label setTranslatesAutoresizingMaskIntoConstraints:NO];
++    [label setLineBreakMode:NSLineBreakByTruncatingTail];
++    [cell addSubview:label];
++    [cell setTextField:label];
 +
 +    if (isGroup) {
-+        NSTextField *label = [NSTextField labelWithString:@""];
-+        [label setFrame:NSMakeRect(10, 4, width - 20, 18)];
-+        [label setAutoresizingMask:NSViewWidthSizable];
 +        [label setFont:[NSFont systemFontOfSize:11 weight:NSFontWeightBold]];
 +        [label setTextColor:[NSColor secondaryLabelColor]];
 +        [label setStringValue:[entry objectForKey:@"group"]];
-+
-+        NSTableCellView *cell = [[[NSTableCellView alloc]
-+            initWithFrame:NSMakeRect(0, 0, width, WailsSidebarGroupHeight)] autorelease];
-+        [cell setAutoresizingMask:NSViewWidthSizable];
-+        [cell addSubview:label];
-+        [cell setTextField:label];
++        [NSLayoutConstraint activateConstraints:@[
++            [[label leadingAnchor] constraintEqualToAnchor:[cell leadingAnchor]
++                                                  constant:10],
++            [[label trailingAnchor] constraintEqualToAnchor:[cell trailingAnchor]
++                                                   constant:-10],
++            [[label bottomAnchor] constraintEqualToAnchor:[cell bottomAnchor]
++                                                 constant:-4],
++        ]];
 +        return cell;
 +    }
 +
-+    NSTableCellView *cell = [[[NSTableCellView alloc]
-+        initWithFrame:NSMakeRect(0, 0, width, WailsSidebarItemHeight)] autorelease];
-+    [cell setAutoresizingMask:NSViewWidthSizable];
-+
-+    NSImageView *icon = [[[NSImageView alloc]
-+        initWithFrame:NSMakeRect(10, 6, 20, 20)] autorelease];
++    NSImageView *icon =
++        [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
++    [icon setTranslatesAutoresizingMaskIntoConstraints:NO];
 +    [icon setImageScaling:NSImageScaleProportionallyDown];
 +#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
 +    id symbol = [entry objectForKey:@"symbol"];
@@ -622,67 +628,26 @@ index 0000000..521af8a
 +    [cell addSubview:icon];
 +    [cell setImageView:icon];
 +
-+    NSTextField *label = [NSTextField labelWithString:@""];
-+    // Sized from the table, not the panel: the source-list style and the
-+    // scroller inset both eat into the row, and measuring the wrong view is
-+    // what was truncating longer titles.
-+    CGFloat labelWidth = width - 48;
-+    if (labelWidth < 40) {
-+        labelWidth = 40;
-+    }
-+    [label setFrame:NSMakeRect(38, 7, labelWidth, 18)];
-+    [label setAutoresizingMask:NSViewWidthSizable];
 +    [label setFont:[NSFont systemFontOfSize:13]];
 +    [label setTextColor:[NSColor labelColor]];
-+    [label setLineBreakMode:NSLineBreakByTruncatingTail];
 +    id title = [entry objectForKey:@"title"];
-+    [label setStringValue:[title isKindOfClass:[NSString class]] ? (NSString *)title : @""];
-+    [cell addSubview:label];
-+    [cell setTextField:label];
++    [label setStringValue:
++        [title isKindOfClass:[NSString class]] ? (NSString *)title : @""];
++
++    [NSLayoutConstraint activateConstraints:@[
++        [[icon leadingAnchor] constraintEqualToAnchor:[cell leadingAnchor]
++                                             constant:10],
++        [[icon centerYAnchor] constraintEqualToAnchor:[cell centerYAnchor]],
++        [[icon widthAnchor] constraintEqualToConstant:20],
++        [[icon heightAnchor] constraintEqualToConstant:20],
++        [[label leadingAnchor] constraintEqualToAnchor:[icon trailingAnchor]
++                                              constant:8],
++        [[label trailingAnchor] constraintEqualToAnchor:[cell trailingAnchor]
++                                               constant:-10],
++        [[label centerYAnchor] constraintEqualToAnchor:[cell centerYAnchor]],
++    ]];
 +
 +    return cell;
-+}
-+
-+- (NSTableRowView *) tableView:(NSTableView *)table
-+                 rowViewForRow:(NSInteger)row {
-+    return [[[WailsSidebarRowView alloc] initWithFrame:NSZeroRect] autorelease];
-+}
-+
-+// Grey while idle, accent once selected — the treatment Apple's media apps use.
-+// An item may override the selected colour with a "tint" hex.
-+- (NSColor*) iconTintForRow:(NSInteger)row {
-+    if (![self.tableView isRowSelected:row]) {
-+        return [NSColor secondaryLabelColor];
-+    }
-+    NSDictionary *entry = [self entryAtRow:row];
-+    NSColor *tint = entry != nil
-+        ? [self colorFromHex:[entry objectForKey:@"tint"]]
-+        : nil;
-+    if (tint != nil) {
-+        return tint;
-+    }
-+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
-+    if (@available(macOS 10.14, *)) {
-+        return [NSColor controlAccentColor];
-+    }
-+#endif
-+    return [NSColor labelColor];
-+}
-+
-+- (void) refreshIconTints {
-+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
-+    if (@available(macOS 10.14, *)) {
-+        NSInteger count = (NSInteger)[self.items count];
-+        for (NSInteger row = 0; row < count; row++) {
-+            id view = [self.tableView viewAtColumn:0 row:row makeIfNecessary:NO];
-+            if (![view isKindOfClass:[NSTableCellView class]]) {
-+                continue;
-+            }
-+            [[(NSTableCellView *)view imageView]
-+                setContentTintColor:[self iconTintForRow:row]];
-+        }
-+    }
-+#endif
 +}
 +
 +- (void) tableViewSelectionDidChange:(NSNotification *)notification {
