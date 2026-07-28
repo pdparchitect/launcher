@@ -43,6 +43,11 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		".defaultSize(width: 1180, height: 760)",
 		".windowToolbarStyle(.unified(showsTitle: false))",
 		`name: "launcherNative"`,
+		`config["action"] as? String == "dragWindow"`,
+		"mouseDownEvent ?? window.currentEvent",
+		"window.performDrag(with: event)",
+		"NSEvent.addLocalMonitorForEvents(",
+		"matching: [.leftMouseDown, .leftMouseUp]",
 		"launcher.setScreen(",
 		"let windowAddress = UInt(bitPattern: windowPointer)",
 		"let webViewAddress = UInt(bitPattern: webViewPointer)",
@@ -61,7 +66,8 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	for _, expected := range []string{
 		"var body: some View {\n        NavigationSplitView(",
 		"} detail: {\n            WailsWebView(webView: model.webView)",
-		".backgroundExtensionEffect()\n                .ignoresSafeArea(",
+		".backgroundExtensionEffect()",
+		"edges: [.top, .trailing, .bottom]",
 		".navigationSplitViewStyle(\n            .prominentDetail\n        )",
 		".toolbarBackgroundVisibility(",
 	} {
@@ -73,6 +79,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"private var splitView",
 		"private var webDetail",
 		"if #available",
+		"edges: .all",
 	} {
 		if strings.Contains(root, unwanted) {
 			t.Fatalf("RootView must directly match the reference, found %q", unwanted)
@@ -147,6 +154,10 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	for _, expected := range []string{
 		"messageHandlers?.launcherNative",
 		"handler.postMessage({",
+		"installWindowDragBridge()",
+		"event.stopImmediatePropagation()",
+		"handler.postMessage({ action: 'dragWindow' })",
+		"{ capture: true }",
 		"wails:sidebar-ready",
 		"wails:sidebar",
 	} {
@@ -167,11 +178,27 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		),
 	)
 	for _, expected := range []string{
-		"const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0",
+		"const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : SIDEBAR_WIDTH",
 		"classList.toggle('is-swiftui-host', !preview)",
 	} {
 		if !strings.Contains(app, expected) {
 			t.Fatalf("SwiftUI detail layout missing %q", expected)
+		}
+	}
+
+	styles := readNativeHostSource(
+		t,
+		filepath.Join(launcher, "internal", "httpapi", "web", "styles.css"),
+	)
+	for _, expected := range []string{
+		".launcher-shell.has-native-sidebar .sidebar {",
+		"visibility: hidden",
+		"pointer-events: none",
+		".is-swiftui-host .topbar {",
+		"left: 0",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("native sidebar spacing or drag layout missing %q", expected)
 		}
 	}
 }

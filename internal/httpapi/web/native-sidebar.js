@@ -6,7 +6,7 @@
 
 // The panel floats inside the window rather than filling its height, so the
 // interface must reserve inset + width + inset for it.
-const SIDEBAR_WIDTH = 250
+export const SIDEBAR_WIDTH = 250
 const SIDEBAR_INSET = 8
 const SIDEBAR_TOP_INSET = 44
 
@@ -45,6 +45,54 @@ function isMac() {
   return /mac/i.test(platform)
 }
 
+let windowDragBridgeInstalled = false
+
+function installWindowDragBridge() {
+  if (windowDragBridgeInstalled) {
+    return
+  }
+  windowDragBridgeInstalled = true
+
+  /*
+   * Wails' built-in drag message retains its original NSWindow. The SwiftUI
+   * shell reparents the WKWebView into a different window, so native builds
+   * forward the same CSS-defined drag regions through launcherNative instead.
+   *
+   * Capture phase is intentional: it prevents Wails' bubble listener from
+   * trying to drag the now-hidden bootstrap window.
+   */
+  globalThis.addEventListener(
+    'mousedown',
+    (event) => {
+      const handler = messageHandler()
+
+      if (
+        !nativeSidebar.ready ||
+        !handler ||
+        event.button !== 0 ||
+        event.detail !== 1 ||
+        !(event.target instanceof Element)
+      ) {
+        return
+      }
+
+      const draggable = globalThis
+        .getComputedStyle(event.target)
+        .getPropertyValue('--wails-draggable')
+        .trim()
+
+      if (draggable !== 'drag') {
+        return
+      }
+
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      handler.postMessage({ action: 'dragWindow' })
+    },
+    { capture: true }
+  )
+}
+
 export const nativeSidebar = {
   // True only once SwiftUI has accepted the page's configuration.
   get ready() {
@@ -63,6 +111,7 @@ export const nativeSidebar = {
       return false
     }
 
+    installWindowDragBridge()
     handler.postMessage({
       width: SIDEBAR_WIDTH,
       inset: SIDEBAR_INSET,

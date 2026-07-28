@@ -2119,11 +2119,19 @@ mark {
   padding-top: 22px;
 }
 
-/* The native SwiftUI sidebar replaces the HTML one. In the packaged app the
-   WKWebView is the NavigationSplitView detail column, and JS sets
-   --sidebar-width to zero because SwiftUI has already positioned it. */
+/* The native SwiftUI sidebar replaces the HTML one. Keep the original element
+   and its reserved layout width, but make it fully inert and invisible. This
+   stops foreground content being mirrored beneath the glass panel while the
+   page background remains available to backgroundExtensionEffect. */
 .launcher-shell.has-native-sidebar .sidebar {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The reserved content offset must not shorten the native window drag strip.
+   The WKWebView already starts at the detail column's leading edge. */
+.is-swiftui-host .topbar {
+  left: 0;
 }
 
 /* Browser preview (?chrome=macos): there is no AppKit panel to hide behind, so
@@ -2137,6 +2145,8 @@ mark {
   inset: var(--panel-inset) auto var(--panel-inset) var(--panel-inset);
   width: var(--panel-width);
   display: flex;
+  visibility: visible;
+  pointer-events: auto;
   padding-top: var(--panel-top-inset);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--panel-radius);

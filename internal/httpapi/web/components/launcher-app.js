@@ -3,6 +3,7 @@ import { desktopWindow } from '../desktop-window.js'
 import {
   SIDEBAR_COLUMN_WIDTH,
   SIDEBAR_METRICS,
+  SIDEBAR_WIDTH,
   nativeSidebar,
 } from '../native-sidebar.js'
 import './agent-actions-dialog.js'
@@ -471,11 +472,10 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    // Browser preview draws the panel inside the page and still needs its
-    // column. In the packaged app, SwiftUI owns that column and the web view
-    // is already the NavigationSplitView detail, so reserving it again would
-    // double-inset the content.
-    const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0
+    // Keep the web layout's sidebar column in both modes. In the packaged app
+    // the HTML navigation is invisible, but its reserved width keeps headings
+    // and controls out of the background copy beneath the native glass panel.
+    const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : SIDEBAR_WIDTH
     shell.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
     shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
     shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
