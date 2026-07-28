@@ -24,6 +24,15 @@ const SIDEBAR_CORNER_RADIUS = Math.max(4, WINDOW_CORNER_RADIUS - SIDEBAR_INSET)
 
 export const SIDEBAR_COLUMN_WIDTH = SIDEBAR_WIDTH + SIDEBAR_INSET * 2
 
+// The panel's own geometry, so a browser preview can mirror it from one source
+// rather than repeating the numbers in CSS.
+export const SIDEBAR_METRICS = {
+  inset: SIDEBAR_INSET,
+  width: SIDEBAR_WIDTH,
+  radius: SIDEBAR_CORNER_RADIUS,
+  topInset: SIDEBAR_TOP_INSET,
+}
+
 function messageHandler() {
   return globalThis.webkit?.messageHandlers?.external
 }

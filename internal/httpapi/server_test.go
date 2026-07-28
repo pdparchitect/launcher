@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,103 @@ func TestInterfacePreventsAccidentalChromeSelection(t *testing.T) {
 
 // Scrollbars are left to the platform, so the interface must not restyle them:
 // on macOS the native overlay scroller is what matches the native sidebar.
+// The ?chrome=macos preview is the only way to see the packaged macOS layout
+// from a browser, so the wiring has to stay connected end to end: the flag is
+// read, the layout class is applied, and the stylesheet acts on it.
+// A shared constant used without being imported is a ReferenceError that only
+// fires on the code path that touches it — silently skipping everything after
+// it. Auto-formatting reorders import lists, so this cannot be eyeballed.
+func TestInterfaceImportsEverySharedConstantItUses(t *testing.T) {
+	module := readWebSources(t, "native-sidebar.js")
+	consumer := readWebSources(t, "components/launcher-app.js")
+
+	exported := regexp.MustCompile(`export const ([A-Z][A-Z0-9_]+)`).
+		FindAllStringSubmatch(module, -1)
+	if len(exported) == 0 {
+		t.Fatal("found no exported constants to check")
+	}
+
+	importBlock := consumer
+	if end := strings.Index(consumer, "from '../native-sidebar.js'"); end >= 0 {
+		importBlock = consumer[:end]
+	}
+
+	for _, match := range exported {
+		name := match[1]
+		used := regexp.MustCompile(`\b` + name + `\b`).MatchString(consumer)
+		if !used {
+			continue
+		}
+		if !strings.Contains(importBlock, name) {
+			t.Fatalf(
+				"launcher-app.js uses %s but never imports it from native-sidebar.js",
+				name,
+			)
+		}
+	}
+}
+
+// The hero runs to the window edges on every platform, passing beneath the
+// sidebar, which is translucent so it seeps through. It is not a per-platform
+// treatment, so it must not be gated behind a layout class.
+func TestInterfaceBleedsTheHeroToTheWindowEdges(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+
+	for _, expected := range []string{
+		// Cancels .content's padding rather than using viewport units, which
+		// ignore that padding and land the hero off by half of it.
+		"margin-left: calc(-1 * (var(--sidebar-width) + 26px));",
+		"padding-left: calc(var(--sidebar-width) + 48px);",
+		// A single column, since .sidebar is position:fixed and overlays it.
+		"grid-template-columns: minmax(0, 1fr);",
+		// Without this the artwork is hidden behind the panel, not seen through it.
+		"backdrop-filter: blur(24px) saturate(140%);",
+		// The art runs past the section and dissolves, instead of being boxed
+		// in by the hero's height.
+		"inset: 0 0 -340px;",
+		"z-index: -1;",
+		"mask-image: linear-gradient(",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("hero bleed not wired: missing %q", expected)
+		}
+	}
+	// An opaque hero or clipped overflow would each hide the backdrop.
+	heroRule := styles[strings.Index(styles, "\n.hero {"):]
+	heroRule = heroRule[:strings.Index(heroRule, "\n}")]
+	for _, unwanted := range []string{"overflow: hidden", "background:"} {
+		if strings.Contains(heroRule, unwanted) {
+			t.Fatalf(".hero must not set %q or it covers/clips its own artwork", unwanted)
+		}
+	}
+	if strings.Contains(styles, "border: 1px solid var(--line-bright);\n  background: #080a07;") {
+		t.Fatal("hero still draws the separating border")
+	}
+}
+
+func TestInterfacePreviewsMacosChromeFromTheBrowser(t *testing.T) {
+	app := readWebSources(t, "components/launcher-app.js")
+	styles := readWebSources(t, "styles.css")
+
+	for _, expected := range []string{
+		`.get('chrome')`,
+		"requestedChrome() === 'macos'",
+		"applyNativeSidebarLayout(true)",
+		"'is-sidebar-preview'",
+	} {
+		if !strings.Contains(app, expected) {
+			t.Fatalf("macOS chrome preview not wired: missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		".launcher-shell.is-sidebar-preview .sidebar {",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("macOS chrome preview not styled: missing %q", expected)
+		}
+	}
+}
+
 func TestInterfaceLeavesScrollbarsToThePlatform(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 
