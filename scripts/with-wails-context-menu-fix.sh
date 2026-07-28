@@ -8,7 +8,12 @@ if [[ "$(go env GOOS)" != "darwin" ]]; then
     exec "$@"
 fi
 
+(
+    cd "$project_dir"
+    go mod download github.com/wailsapp/wails/v2
+)
 wails_dir="$(
+    cd "$project_dir"
     go list -m -f '{{.Dir}}' github.com/wailsapp/wails/v2
 )"
 wails_context="$wails_dir/internal/frontend/desktop/darwin/WailsContext.m"
