@@ -40,6 +40,12 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		"applyWindowCornerRadius",
 		"setCornerRadius",
 		"setBorderWidth",
+		// Squircle corners, and Liquid Glass where the system provides it.
+		`forKey:@"cornerCurve"`,
+		`NSClassFromString(@"NSGlassEffectView")`,
+		// Traffic lights placed by hand, since there is no toolbar to inset them.
+		"layoutTrafficLights",
+		"standardWindowButton:NSWindowCloseButton",
 	} {
 		if !strings.Contains(string(content), expected) {
 			t.Fatalf("Wails sidebar patch missing %q", expected)
