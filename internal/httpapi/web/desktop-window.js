@@ -6,6 +6,7 @@ function invoke(method, ...args) {
   }
 
   action(...args)
+
   return true
 }
 
@@ -32,5 +33,19 @@ export const desktopWindow = {
     }
 
     return Boolean(window.open(url, '_blank', 'noopener'))
+  },
+
+  async readClipboardText() {
+    const readNativeClipboard = globalThis.runtime?.ClipboardGetText
+
+    if (typeof readNativeClipboard === 'function') {
+      return readNativeClipboard()
+    }
+
+    if (typeof globalThis.navigator?.clipboard?.readText === 'function') {
+      return globalThis.navigator.clipboard.readText()
+    }
+
+    throw new Error('Clipboard access is unavailable')
   },
 }

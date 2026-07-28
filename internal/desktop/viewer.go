@@ -1,11 +1,26 @@
 package desktop
 
 import (
+	"bytes"
+	"html/template"
 	"net/http"
 	"net/url"
 
 	"github.com/pdparchitect/launcher/internal/agent"
 )
+
+var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Name}} — Agent Launcher</title>
+</head>
+<body>
+  <script>window.location.replace({{.Target}});</script>
+  <p><a href="{{.Target}}">Open {{.Name}}</a></p>
+</body>
+</html>`))
 
 func viewerURL(rawURL string, viewer string) string {
 	if viewer != "kasmvnc" {
@@ -36,12 +51,16 @@ func viewerHandler(view agent.View, viewer string) http.Handler {
 			http.NotFound(response, request)
 			return
 		}
+		var page bytes.Buffer
+		if err := viewerPage.Execute(&page, map[string]string{
+			"Name":   view.Name,
+			"Target": viewerURL(view.URL(), viewer),
+		}); err != nil {
+			http.Error(response, "prepare agent viewer", http.StatusInternalServerError)
+			return
+		}
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		response.Header().Set("Cache-Control", "no-store")
-		http.Redirect(
-			response,
-			request,
-			viewerURL(view.URL(), viewer),
-			http.StatusTemporaryRedirect,
-		)
+		_, _ = response.Write(page.Bytes())
 	})
 }

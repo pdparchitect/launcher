@@ -308,6 +308,7 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"components/agent-card.js",
 		"components/launcher-app.js",
 		"components/agent-viewer-dialog.js",
+		"desktop-window.js",
 		"api.js",
 	)
 	for _, expected := range []string{
@@ -319,11 +320,16 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"<agent-viewer-dialog></agent-viewer-dialog>",
 		"this.querySelector('agent-viewer-dialog').open(agent, entry?.viewer)",
 		"OPEN IN WINDOW",
+		"PASTE CLIPBOARD",
 		"data-viewer-frame",
+		"data-viewer-paste",
 		"'show_control_bar', 'true'",
 		"'resize', 'remote'",
 		"'enable_threading', 'false'",
 		"window-management",
+		"ClipboardGetText",
+		"postMessage(",
+		"{ action: 'clipboardsnd', value: text }",
 		"entry?.viewer",
 		"this.api.openViewer(agent.id)",
 		"`/api/instances/${encodeURIComponent(id)}/viewer`",
@@ -347,8 +353,9 @@ func TestDesktopEmbeddingAvoidsCrossFrameWailsInjection(t *testing.T) {
 	)
 	for _, expected := range []string{
 		"document.addEventListener('contextmenu'",
-		"event.target.closest('iframe')",
+		"event.preventDefault()",
 		"autoplay; microphone; camera;",
+		`tabindex="0"`,
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("interface missing embedded-frame safeguard %q", expected)

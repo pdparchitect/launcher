@@ -1,3 +1,5 @@
+import { desktopWindow } from '../desktop-window.js'
+
 function embeddedViewerURL(rawURL, viewer) {
   if (viewer !== 'kasmvnc') {
     return rawURL
@@ -37,6 +39,8 @@ export class AgentViewerDialog extends HTMLElement {
               <h2 data-viewer-title>AGENT VIEW</h2>
             </div>
             <div class="viewer-heading__actions">
+              <button class="secondary-button" type="button"
+                data-viewer-paste hidden>PASTE CLIPBOARD</button>
               <button class="secondary-button viewer-reload" type="button"
                 data-viewer-reload>RELOAD</button>
               <button class="primary-button" type="button"
@@ -51,6 +55,7 @@ export class AgentViewerDialog extends HTMLElement {
               <strong>CONNECTING TO AGENT…</strong>
             </div>
             <iframe data-viewer-frame title="Agent view"
+              tabindex="0"
               allow="autoplay; microphone; camera; clipboard-read;
                 clipboard-write; window-management; fullscreen"></iframe>
           </div>
@@ -68,6 +73,9 @@ export class AgentViewerDialog extends HTMLElement {
     this.querySelector('[data-viewer-reload]').addEventListener('click', () => {
       this.reload()
     })
+    this.querySelector('[data-viewer-paste]').addEventListener('click', () => {
+      this.pasteClipboard()
+    })
     this.querySelector('[data-viewer-popout]').addEventListener('click', () => {
       if (!this.busy && this.agent) {
         this.dispatchEvent(
@@ -84,17 +92,24 @@ export class AgentViewerDialog extends HTMLElement {
         this.querySelector('[data-viewer-loading]').hidden = true
       }
     })
+    this.frame.addEventListener('pointerenter', () => {
+      this.frame.focus({ preventScroll: true })
+    })
     this.dialog.addEventListener('close', () => {
       this.frame.src = 'about:blank'
       this.agent = null
+      this.viewer = null
     })
   }
 
   open(agent, viewer = 'web') {
     this.agent = agent
+    this.viewer = viewer
     this.viewerURL = embeddedViewerURL(agent.url, viewer)
-    this.querySelector('[data-viewer-title]').textContent =
-      String(agent.name || 'AGENT VIEW').toUpperCase()
+    this.querySelector('[data-viewer-paste]').hidden = viewer !== 'kasmvnc'
+    this.querySelector('[data-viewer-title]').textContent = String(
+      agent.name || 'AGENT VIEW'
+    ).toUpperCase()
     this.frame.title = `${agent.name} live view`
     this.showError('')
     this.setBusy(false)
@@ -114,6 +129,40 @@ export class AgentViewerDialog extends HTMLElement {
   reload() {
     if (this.viewerURL) {
       this.load(this.viewerURL)
+    }
+  }
+
+  async pasteClipboard() {
+    const button = this.querySelector('[data-viewer-paste]')
+
+    if (button.disabled || this.viewer !== 'kasmvnc') {
+      return
+    }
+
+    button.disabled = true
+    this.showError('')
+
+    try {
+      const text = await desktopWindow.readClipboardText()
+
+      if (!text) {
+        throw new Error('The clipboard is empty')
+      }
+
+      const origin = new URL(this.viewerURL).origin
+
+      this.frame.contentWindow?.postMessage(
+        { action: 'clipboardsnd', value: text },
+        origin
+      )
+      button.textContent = 'PASTED ✓'
+      setTimeout(() => {
+        button.textContent = 'PASTE CLIPBOARD'
+      }, 1200)
+    } catch (error) {
+      this.showError(`Could not paste: ${error.message}`)
+    } finally {
+      button.disabled = false
     }
   }
 

@@ -3,7 +3,7 @@ package desktop
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/pdparchitect/launcher/internal/agent"
@@ -11,7 +11,7 @@ import (
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 )
 
-func TestViewerPageRedirectsToRunningAgentURL(t *testing.T) {
+func TestViewerPageNavigatesToRunningAgentURL(t *testing.T) {
 	view := agent.View{
 		Instance: domain.Instance{
 			ID:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -25,17 +25,23 @@ func TestViewerPageRedirectsToRunningAgentURL(t *testing.T) {
 
 	viewerHandler(view, "kasmvnc").ServeHTTP(response, request)
 
-	if response.Code != http.StatusTemporaryRedirect {
+	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
-	location, err := url.Parse(response.Header().Get("Location"))
-	if err != nil {
-		t.Fatalf("parse Location: %v", err)
+	if response.Header().Get("Location") != "" {
+		t.Fatalf("unexpected Location = %q", response.Header().Get("Location"))
 	}
-	if location.Scheme != "http" || location.Host != "127.0.0.1:16902" ||
-		location.Query().Get("resize") != "remote" ||
-		location.Query().Get("show_control_bar") != "true" ||
-		location.Query().Get("enable_threading") != "false" {
-		t.Fatalf("Location = %q", location)
+	body := response.Body.String()
+	for _, expected := range []string{
+		"window.location.replace(",
+		"http://127.0.0.1:16902",
+		"resize=remote",
+		"show_control_bar=true",
+		"enable_threading=false",
+		"Open Pantalk Ghost",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("viewer page missing %q: %s", expected, body)
+		}
 	}
 }
