@@ -2121,6 +2121,13 @@ mark {
   display: none;
 }
 
+/* body::after draws the window edge for the frameless Linux and Windows
+   builds. macOS has a real frame with rounded corners, so this square hairline
+   just cuts across them. */
+.is-macos-desktop body::after {
+  display: none;
+}
+
 .is-macos-desktop .sidebar {
   padding-top: 22px;
 }
@@ -2133,7 +2140,7 @@ mark {
    keep reserving the full width at every window size or the main panel would
    slide underneath it. Declared after the breakpoints so it always wins. */
 .launcher-shell.has-native-sidebar {
-  --sidebar-width: 250px;
+  /* Width is set from JS to match the native panel's inset + width + inset. */
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }

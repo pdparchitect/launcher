@@ -1,0 +1,111 @@
+diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
+index 624fe73..78ec2c6 100644
+--- a/internal/frontend/desktop/darwin/WailsContext.m
++++ b/internal/frontend/desktop/darwin/WailsContext.m
+@@ -13,6 +13,7 @@
+ #import "WailsMenu.h"
+ #import "WailsWebView.h"
+ #import "WailsSidebar.h"
++#import "WailsDockBadge.h"
+ #import "WindowDelegate.h"
+ #import "message.h"
+ #import "Role.h"
+@@ -536,6 +537,12 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+         return;
+     }
+ 
++    // Check for the Dock badge used by agent viewer windows
++    if ( [m isEqualToString:@"dockbadge"] ) {
++        WailsApplyDockBadge();
++        return;
++    }
++
+     // Check for the native sidebar
+     if ( [m hasPrefix:@"sidebar:"] ) {
+         if ( self.sidebar == nil ) {
+diff --git a/internal/frontend/desktop/darwin/WailsDockBadge.h b/internal/frontend/desktop/darwin/WailsDockBadge.h
+new file mode 100644
+index 0000000..e242ba8
+--- /dev/null
++++ b/internal/frontend/desktop/darwin/WailsDockBadge.h
+@@ -0,0 +1,24 @@
++//
++//  WailsDockBadge.h
++//
++//  Agent viewer windows run as their own process, so macOS gives each one a
++//  second Dock tile alongside the launcher. Badging that tile keeps it from
++//  reading as a duplicate of the main application.
++//
++//  The page asks for it before navigating away:
++//
++//    window.webkit.messageHandlers.external.postMessage("dockbadge")
++//
++//  Note the Dock *label* comes from the bundle's CFBundleName and cannot vary
++//  between processes of the same bundle; only shipping the viewer as its own
++//  .app would change the name underneath the icon.
++//
++
++#ifndef WailsDockBadge_h
++#define WailsDockBadge_h
++
++#import <Cocoa/Cocoa.h>
++
++void WailsApplyDockBadge(void);
++
++#endif /* WailsDockBadge_h */
+diff --git a/internal/frontend/desktop/darwin/WailsDockBadge.m b/internal/frontend/desktop/darwin/WailsDockBadge.m
+new file mode 100644
+index 0000000..130cc67
+--- /dev/null
++++ b/internal/frontend/desktop/darwin/WailsDockBadge.m
+@@ -0,0 +1,50 @@
++//
++//  WailsDockBadge.m
++//
++
++#import "WailsDockBadge.h"
++
++void WailsApplyDockBadge(void) {
++    @autoreleasepool {
++        NSImage *base = [NSApp applicationIconImage];
++        if (base == nil) {
++            return;
++        }
++
++        NSSize size = NSMakeSize(512, 512);
++        NSImage *badged = [[[NSImage alloc] initWithSize:size] autorelease];
++
++        [badged lockFocus];
++        [base drawInRect:NSMakeRect(0, 0, size.width, size.height)
++                fromRect:NSZeroRect
++               operation:NSCompositingOperationSourceOver
++                fraction:1.0];
++
++        // A window glyph in the lower-right corner, on a dark disc.
++        NSRect badge = NSMakeRect(280, 16, 216, 216);
++        NSBezierPath *disc = [NSBezierPath bezierPathWithOvalInRect:badge];
++        [[NSColor colorWithSRGBRed:0.04 green:0.05 blue:0.03 alpha:1.0] setFill];
++        [disc fill];
++        [[NSColor colorWithSRGBRed:0.92 green:1.0 blue:0.0 alpha:1.0] setStroke];
++        [disc setLineWidth:14.0];
++        [disc stroke];
++
++        NSRect glyph = NSMakeRect(
++            badge.origin.x + 56, badge.origin.y + 64, 104, 88);
++        NSBezierPath *frame = [NSBezierPath bezierPathWithRoundedRect:glyph
++                                                             xRadius:10
++                                                             yRadius:10];
++        [frame setLineWidth:14.0];
++        [frame stroke];
++
++        NSBezierPath *titlebar = [NSBezierPath bezierPath];
++        [titlebar moveToPoint:NSMakePoint(glyph.origin.x, NSMaxY(glyph) - 24)];
++        [titlebar lineToPoint:NSMakePoint(NSMaxX(glyph), NSMaxY(glyph) - 24)];
++        [titlebar setLineWidth:14.0];
++        [titlebar stroke];
++
++        [badged unlockFocus];
++
++        [NSApp setApplicationIconImage:badged];
++    }
++}

@@ -1,6 +1,6 @@
 import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
-import { nativeSidebar } from '../native-sidebar.js'
+import { nativeSidebar, SIDEBAR_COLUMN_WIDTH } from '../native-sidebar.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
@@ -14,18 +14,19 @@ const navigation = [
   ['activity', 'ACTIVITY'],
 ]
 
-// SF Symbol per screen, used only by the native macOS sidebar.
-const navigationSymbols = {
-  home: 'house',
-  agents: 'square.stack.3d.up',
-  marketplace: 'bag',
-  activity: 'waveform.path.ecg',
-}
+// The native sidebar follows macOS conventions rather than the interface's own
+// upper-case styling, so it carries its own title-cased labels and SF Symbols.
+const nativeNavigation = [
+  ['home', 'Home', 'house'],
+  ['agents', 'Agents', 'square.stack.3d.up'],
+  ['marketplace', 'Marketplace', 'bag'],
+  ['activity', 'Activity', 'waveform.path.ecg'],
+]
 
-const nativeSidebarItems = navigation.map(([id, label]) => ({
+const nativeSidebarItems = nativeNavigation.map(([id, title, symbol]) => ({
   id,
-  title: label,
-  symbol: navigationSymbols[id],
+  title,
+  symbol,
 }))
 
 const pageTitles = {
@@ -436,7 +437,15 @@ export class LauncherApp extends HTMLElement {
     // Only swap out the HTML navigation once the native sidebar confirms it
     // exists, so an unpatched build is left with a working interface.
     nativeSidebar.onReady(() => {
-      this.querySelector('.launcher-shell')?.classList.add('has-native-sidebar')
+      const shell = this.querySelector('.launcher-shell')
+
+      if (!shell) {
+        return
+      }
+      // The native panel owns its own inset, so the reserved column has to
+      // match it exactly or the content slides under the floating edge.
+      shell.style.setProperty('--sidebar-width', `${SIDEBAR_COLUMN_WIDTH}px`)
+      shell.classList.add('has-native-sidebar')
     })
 
     nativeSidebar.configure(nativeSidebarItems, this.screen)

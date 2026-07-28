@@ -4,8 +4,15 @@
 // configure call is a no-op and the HTML sidebar stays in place, so callers
 // must wait for onReady before hiding their own navigation.
 
-const SIDEBAR_TOP_INSET = 52
+// The panel floats inside the window rather than filling its height, so the
+// interface must reserve inset + width + inset for it.
+const SIDEBAR_TOP_INSET = 42
 const SIDEBAR_WIDTH = 250
+const SIDEBAR_INSET = 10
+const SIDEBAR_CORNER_RADIUS = 12
+const WINDOW_CORNER_RADIUS = 18
+
+export const SIDEBAR_COLUMN_WIDTH = SIDEBAR_WIDTH + SIDEBAR_INSET * 2
 
 function messageHandler() {
   return globalThis.webkit?.messageHandlers?.external
@@ -39,6 +46,9 @@ export const nativeSidebar = {
     handler.postMessage(
       `sidebar:${JSON.stringify({
         width: SIDEBAR_WIDTH,
+        inset: SIDEBAR_INSET,
+        cornerRadius: SIDEBAR_CORNER_RADIUS,
+        windowCornerRadius: WINDOW_CORNER_RADIUS,
         topInset: SIDEBAR_TOP_INSET,
         selected,
         items,
