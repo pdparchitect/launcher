@@ -58,30 +58,35 @@ index f3e49bf..624fe73 100644
  
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.h b/internal/frontend/desktop/darwin/WailsSidebar.h
 new file mode 100644
-index 0000000..3c484dd
+index 0000000..d310b43
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.h
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,64 @@
 +//
 +//  WailsSidebar.h
 +//
 +//  A native translucent sidebar layered on top of the webview. The webview
-+//  keeps the full content rect, so the sidebar blurs whatever the page draws
++//  keeps the full content rect, so the panel blurs whatever the page draws
 +//  underneath it.
++//
++//  On macOS 26 the backdrop is a real NSGlassEffectView (Liquid Glass); older
++//  systems fall back to an NSVisualEffectView with the sidebar material.
 +//
 +//  Driven entirely from JavaScript, so no Go-side options are involved:
 +//
 +//    window.webkit.messageHandlers.external.postMessage(
 +//      "sidebar:" + JSON.stringify({
 +//        width: 250,
-+//        inset: 10,             // floats the panel inside the window
-+//        cornerRadius: 12,
-+//        windowCornerRadius: 18,
-+//        topInset: 42,
++//        inset: 8,                // floats the panel inside the window
++//        cornerRadius: 14,
++//        windowCornerRadius: 26,  // Tahoe toolbar-window shape
++//        topInset: 44,            // clearance for the traffic lights
++//        trafficLightX: 22,       // repositions the traffic lights
++//        trafficLightY: 26,
++//        material: "glass",       // or "vibrancy" to force the fallback
 +//        selected: "home",
 +//        items: [
-+//          {id: "search", title: "Search", symbol: "magnifyingglass"},
-+//          {id: "home",   title: "Home",   symbol: "house.fill"},
++//          {id: "home", title: "Home", symbol: "house"},
 +//          {group: "Library"},
 +//          {id: "movies", title: "Movies", symbol: "film"}
 +//        ]
@@ -100,9 +105,10 @@ index 0000000..3c484dd
 +
 +@class WailsContext;
 +
-+@interface WailsSidebar : NSVisualEffectView <NSTableViewDataSource, NSTableViewDelegate>
++@interface WailsSidebar : NSView <NSTableViewDataSource, NSTableViewDelegate>
 +
 +@property (assign) WailsContext* context;
++@property (retain) NSView* backdrop;
 +@property (retain) NSScrollView* scrollView;
 +@property (retain) NSTableView* tableView;
 +@property (retain) NSArray* items;
@@ -110,6 +116,8 @@ index 0000000..3c484dd
 +@property CGFloat inset;
 +@property CGFloat cornerRadius;
 +@property CGFloat topInset;
++@property CGFloat trafficLightX;
++@property CGFloat trafficLightY;
 +@property bool suppressSelectionEvent;
 +
 ++ (WailsSidebar*) attachTo:(WailsContext*)context;
@@ -120,10 +128,10 @@ index 0000000..3c484dd
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..dbfc54b
+index 0000000..5101fc4
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,503 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -132,15 +140,54 @@ index 0000000..dbfc54b
 +#import "WailsContext.h"
 +
 +static const CGFloat WailsSidebarDefaultWidth = 250.0;
-+static const CGFloat WailsSidebarDefaultInset = 10.0;
-+static const CGFloat WailsSidebarDefaultCornerRadius = 12.0;
-+static const CGFloat WailsSidebarDefaultTopInset = 42.0;
++static const CGFloat WailsSidebarDefaultInset = 8.0;
++static const CGFloat WailsSidebarDefaultCornerRadius = 14.0;
++static const CGFloat WailsSidebarDefaultTopInset = 44.0;
++static const CGFloat WailsSidebarDefaultTrafficLightX = 22.0;
++static const CGFloat WailsSidebarDefaultTrafficLightY = 26.0;
 +static const CGFloat WailsSidebarItemHeight = 28.0;
 +static const CGFloat WailsSidebarGroupHeight = 34.0;
++
++// Apple's window and panel shapes are squircles, not plain rounded rectangles.
++// The continuous curve is set through KVC so this file does not have to link
++// QuartzCore just to reference kCACornerCurveContinuous.
++static void WailsSidebarRoundCorners(CALayer *layer, CGFloat radius) {
++    if (layer == nil) {
++        return;
++    }
++    [layer setCornerRadius:radius];
++    [layer setMasksToBounds:YES];
++    if ([layer respondsToSelector:@selector(setCornerCurve:)]) {
++        [layer setValue:@"continuous" forKey:@"cornerCurve"];
++    }
++}
++
++// Liquid Glass on macOS 26, sidebar vibrancy everywhere else. Looked up by
++// name so the file still compiles against older SDKs.
++static NSView* WailsSidebarMakeBackdrop(NSRect frame, BOOL allowGlass) {
++    if (allowGlass) {
++        Class glassClass = NSClassFromString(@"NSGlassEffectView");
++        if (glassClass != nil) {
++            NSView *glass = [[[glassClass alloc] initWithFrame:frame] autorelease];
++            [glass setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
++            return glass;
++        }
++    }
++    NSVisualEffectView *effect =
++        [[[NSVisualEffectView alloc] initWithFrame:frame] autorelease];
++    [effect setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
++    [effect setMaterial:NSVisualEffectMaterialSidebar];
++    [effect setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
++    [effect setState:NSVisualEffectStateFollowsWindowActiveState];
++    return effect;
++}
 +
 +@interface WailsSidebar ()
 +- (void) applyMetrics;
 +- (void) applyWindowCornerRadius:(CGFloat)radius;
++- (void) layoutTrafficLights;
++- (void) windowGeometryChanged:(NSNotification *)notification;
++- (void) replaceBackdropAllowingGlass:(BOOL)allowGlass;
 +- (NSColor*) colorFromHex:(NSString*)hex;
 +- (void) selectItemWithID:(NSString*)itemID notify:(bool)notify;
 +- (NSDictionary*) entryAtRow:(NSInteger)row;
@@ -149,6 +196,7 @@ index 0000000..dbfc54b
 +@implementation WailsSidebar
 +
 +@synthesize context;
++@synthesize backdrop;
 +@synthesize scrollView;
 +@synthesize tableView;
 +@synthesize items;
@@ -156,6 +204,8 @@ index 0000000..dbfc54b
 +@synthesize inset;
 +@synthesize cornerRadius;
 +@synthesize topInset;
++@synthesize trafficLightX;
++@synthesize trafficLightY;
 +@synthesize suppressSelectionEvent;
 +
 ++ (WailsSidebar*) attachTo:(WailsContext*)ctx {
@@ -175,12 +225,14 @@ index 0000000..dbfc54b
 +    sidebar.inset = WailsSidebarDefaultInset;
 +    sidebar.cornerRadius = WailsSidebarDefaultCornerRadius;
 +    sidebar.topInset = WailsSidebarDefaultTopInset;
++    sidebar.trafficLightX = WailsSidebarDefaultTrafficLightX;
++    sidebar.trafficLightY = WailsSidebarDefaultTrafficLightY;
 +    sidebar.suppressSelectionEvent = false;
 +    // Fixed margins top and bottom keep it floating as the window resizes.
 +    [sidebar setAutoresizingMask:NSViewHeightSizable | NSViewMaxXMargin];
-+    [sidebar setMaterial:NSVisualEffectMaterialSidebar];
-+    [sidebar setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
-+    [sidebar setState:NSVisualEffectStateFollowsWindowActiveState];
++    [sidebar setWantsLayer:YES];
++
++    [sidebar replaceBackdropAllowingGlass:YES];
 +
 +    NSRect scrollFrame = NSMakeRect(
 +        0, 0, WailsSidebarDefaultWidth,
@@ -222,10 +274,18 @@ index 0000000..dbfc54b
 +    // Layered above the webview so the vibrancy samples the page beneath it.
 +    [contentView addSubview:sidebar positioned:NSWindowAbove relativeTo:nil];
 +
++    // AppKit re-lays the traffic lights out on resize, so re-apply after it.
++    [[NSNotificationCenter defaultCenter] addObserver:sidebar
++                                             selector:@selector(windowGeometryChanged:)
++                                                 name:NSWindowDidResizeNotification
++                                               object:ctx.mainWindow];
++
 +    return sidebar;
 +}
 +
 +- (void) dealloc {
++    [[NSNotificationCenter defaultCenter] removeObserver:self];
++    [self.backdrop release];
 +    [self.scrollView release];
 +    [self.tableView release];
 +    [self.items release];
@@ -242,6 +302,20 @@ index 0000000..dbfc54b
 +    [self applyMetrics];
 +}
 +
++- (void) windowGeometryChanged:(NSNotification *)notification {
++    [self layoutTrafficLights];
++}
++
++- (void) replaceBackdropAllowingGlass:(BOOL)allowGlass {
++    if (self.backdrop != nil) {
++        [self.backdrop removeFromSuperview];
++        self.backdrop = nil;
++    }
++    NSView *view = WailsSidebarMakeBackdrop([self bounds], allowGlass);
++    self.backdrop = view;
++    [self addSubview:view positioned:NSWindowBelow relativeTo:nil];
++}
++
 +- (void) applyMetrics {
 +    NSView *parent = [self superview];
 +    if (parent != nil) {
@@ -256,10 +330,11 @@ index 0000000..dbfc54b
 +    // Rounded, bordered panel floating over the webview.
 +    [self setWantsLayer:YES];
 +    CALayer *layer = [self layer];
-+    [layer setCornerRadius:self.cornerRadius];
-+    [layer setMasksToBounds:YES];
++    WailsSidebarRoundCorners(layer, self.cornerRadius);
 +    [layer setBorderWidth:1.0];
-+    [layer setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.14] CGColor]];
++    [layer setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.12] CGColor]];
++
++    [self.backdrop setFrame:[self bounds]];
 +
 +    NSRect bounds = [self bounds];
 +    CGFloat height = bounds.size.height - self.topInset;
@@ -267,12 +342,53 @@ index 0000000..dbfc54b
 +        height = 0;
 +    }
 +    [self.scrollView setFrame:NSMakeRect(0, 0, bounds.size.width, height)];
++
++    [self layoutTrafficLights];
++}
++
++// The window keeps a hidden title bar with no toolbar, which avoids the
++// toolbar's own glass backing showing through the panel. Without a toolbar the
++// traffic lights sit high in the corner, so they are placed by hand instead.
++- (void) layoutTrafficLights {
++    NSWindow *window = [self window];
++    if (window == nil) {
++        return;
++    }
++    NSButton *close = [window standardWindowButton:NSWindowCloseButton];
++    NSButton *minimise = [window standardWindowButton:NSWindowMiniaturizeButton];
++    NSButton *zoom = [window standardWindowButton:NSWindowZoomButton];
++    if (close == nil || minimise == nil || zoom == nil) {
++        return;
++    }
++    NSView *container = [close superview];
++    if (container == nil) {
++        return;
++    }
++
++    CGFloat spacing = NSMinX([minimise frame]) - NSMinX([close frame]);
++    if (spacing <= 0) {
++        spacing = 20.0;
++    }
++    NSRect closeFrame = [close frame];
++    CGFloat top = NSHeight([container bounds]) - self.trafficLightY
++        - NSHeight(closeFrame);
++
++    closeFrame.origin = NSMakePoint(self.trafficLightX, top);
++    [close setFrame:closeFrame];
++
++    NSRect minimiseFrame = [minimise frame];
++    minimiseFrame.origin = NSMakePoint(self.trafficLightX + spacing, top);
++    [minimise setFrame:minimiseFrame];
++
++    NSRect zoomFrame = [zoom frame];
++    zoomFrame.origin = NSMakePoint(self.trafficLightX + (spacing * 2), top);
++    [zoom setFrame:zoomFrame];
 +}
 +
 +// macOS clips a titled window to its own corner radius, which is tighter than
-+// the one Apple's own media apps use. Rounding the content view and letting the
-+// window draw clear behind it gives the larger radius without losing the
-+// traffic lights or the system shadow.
++// the Tahoe toolbar-window shape Apple's media apps use. Rounding the content
++// view and letting the window draw clear behind it gives the larger continuous
++// radius without losing the traffic lights or the system shadow.
 +- (void) applyWindowCornerRadius:(CGFloat)radius {
 +    NSWindow *window = [self window];
 +    if (window == nil || radius <= 0) {
@@ -285,9 +401,7 @@ index 0000000..dbfc54b
 +    [window setOpaque:NO];
 +    [window setBackgroundColor:[NSColor clearColor]];
 +    [content setWantsLayer:YES];
-+    CALayer *layer = [content layer];
-+    [layer setCornerRadius:radius];
-+    [layer setMasksToBounds:YES];
++    WailsSidebarRoundCorners([content layer], radius);
 +    [window invalidateShadow];
 +}
 +
@@ -321,6 +435,11 @@ index 0000000..dbfc54b
 +    }
 +    NSDictionary *config = (NSDictionary *)parsed;
 +
++    id material = [config objectForKey:@"material"];
++    if ([material isKindOfClass:[NSString class]]) {
++        [self replaceBackdropAllowingGlass:![material isEqualToString:@"vibrancy"]];
++    }
++
 +    id width = [config objectForKey:@"width"];
 +    if ([width isKindOfClass:[NSNumber class]]) {
 +        self.panelWidth = [width doubleValue];
@@ -339,6 +458,16 @@ index 0000000..dbfc54b
 +    id top = [config objectForKey:@"topInset"];
 +    if ([top isKindOfClass:[NSNumber class]]) {
 +        self.topInset = [top doubleValue];
++    }
++
++    id lightX = [config objectForKey:@"trafficLightX"];
++    if ([lightX isKindOfClass:[NSNumber class]]) {
++        self.trafficLightX = [lightX doubleValue];
++    }
++
++    id lightY = [config objectForKey:@"trafficLightY"];
++    if ([lightY isKindOfClass:[NSNumber class]]) {
++        self.trafficLightY = [lightY doubleValue];
 +    }
 +    [self applyMetrics];
 +

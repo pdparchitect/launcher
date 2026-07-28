@@ -6,11 +6,23 @@
 
 // The panel floats inside the window rather than filling its height, so the
 // interface must reserve inset + width + inset for it.
-const SIDEBAR_TOP_INSET = 42
 const SIDEBAR_WIDTH = 250
-const SIDEBAR_INSET = 10
-const SIDEBAR_CORNER_RADIUS = 12
-const WINDOW_CORNER_RADIUS = 18
+const SIDEBAR_INSET = 8
+const SIDEBAR_CORNER_RADIUS = 14
+const SIDEBAR_TOP_INSET = 44
+
+// macOS Tahoe's toolbar-style windows use roughly a 26pt continuous ("squircle")
+// corner. Title-bar-only windows sit nearer 16pt.
+const WINDOW_CORNER_RADIUS = 26
+
+// The traffic lights are placed by the native side rather than left where
+// AppKit puts them, so they sit comfortably inside the floating panel.
+const TRAFFIC_LIGHT_X = 22
+const TRAFFIC_LIGHT_Y = 26
+
+// "glass" uses NSGlassEffectView on macOS 26 and falls back to vibrancy
+// elsewhere. Set to "vibrancy" to force the fallback everywhere.
+const SIDEBAR_MATERIAL = 'glass'
 
 export const SIDEBAR_COLUMN_WIDTH = SIDEBAR_WIDTH + SIDEBAR_INSET * 2
 
@@ -50,6 +62,9 @@ export const nativeSidebar = {
         cornerRadius: SIDEBAR_CORNER_RADIUS,
         windowCornerRadius: WINDOW_CORNER_RADIUS,
         topInset: SIDEBAR_TOP_INSET,
+        trafficLightX: TRAFFIC_LIGHT_X,
+        trafficLightY: TRAFFIC_LIGHT_Y,
+        material: SIDEBAR_MATERIAL,
         selected,
         items,
       })}`,

@@ -49,7 +49,11 @@ func mainWindowChrome() windowChrome {
 	return windowChrome{
 		hideWindowOnClose: true,
 		mac: &mac.Options{
-			TitleBar: mac.TitleBarHiddenInset(),
+			// TitleBarHidden rather than TitleBarHiddenInset: the inset variant
+			// adds an NSToolbar, and on Tahoe the toolbar paints its own glass
+			// backing that shows through the sidebar as a patch behind the
+			// traffic lights. The sidebar patch repositions the lights itself.
+			TitleBar: mac.TitleBarHidden(),
 		},
 	}
 }
