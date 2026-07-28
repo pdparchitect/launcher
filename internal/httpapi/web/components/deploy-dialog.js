@@ -42,6 +42,13 @@ export class DeployDialog extends HTMLElement {
             </div>
             <div class="progress-track"><i data-progress-bar></i></div>
             <p data-progress-message>Preparing the installation…</p>
+            <details class="install-log" data-install-log>
+              <summary>
+                <span>INSTALL LOG</span>
+                <span data-install-log-count>0 ENTRIES</span>
+              </summary>
+              <pre data-install-log-output></pre>
+            </details>
           </div>
           <p class="form-error" data-error hidden></p>
           <footer class="dialog-footer">
@@ -96,6 +103,11 @@ export class DeployDialog extends HTMLElement {
     this.setBusy(false)
     this.showError('')
     this.querySelector('[data-progress]').hidden = true
+    this.logLines = []
+    this.lastLogLine = ''
+    this.querySelector('[data-install-log]').open = false
+    this.querySelector('[data-install-log-output]').textContent = ''
+    this.updateLogCount()
     this.querySelector('[data-cover]').style.backgroundImage = `url("${assetURL(
       entry.media?.cover
     )}")`
@@ -143,20 +155,28 @@ export class DeployDialog extends HTMLElement {
 
     const values = {
       preparing: 8,
-      pulling: 48,
       creating: 72,
       starting: 90,
       ready: 100,
     }
+    const pulling = update.stage === 'pulling'
     const value = values[update.stage] || 24
+    const track = this.querySelector('.install-progress .progress-track')
+
+    track.classList.toggle('progress-track--indeterminate', pulling)
 
     this.querySelector('[data-progress-stage]').textContent = String(
       update.stage || 'INSTALLING'
     ).toUpperCase()
-    this.querySelector('[data-progress-value]').textContent = `${value}%`
-    this.querySelector('[data-progress-bar]').style.width = `${value}%`
+    this.querySelector('[data-progress-value]').textContent = pulling
+      ? 'DOWNLOADING'
+      : `${value}%`
+    this.querySelector('[data-progress-bar]').style.width = pulling
+      ? '32%'
+      : `${value}%`
     this.querySelector('[data-progress-message]').textContent =
       update.message || 'Installing the agent…'
+    this.appendLog(update.stage, update.message)
   }
 
   showError(message) {
@@ -164,6 +184,48 @@ export class DeployDialog extends HTMLElement {
 
     error.textContent = message
     error.hidden = !message
+
+    if (message) {
+      this.appendLog('error', message)
+      this.querySelector('[data-install-log]').open = true
+    }
+  }
+
+  appendLog(stage, message) {
+    const cleanMessage = String(message || '').trim()
+
+    if (!cleanMessage) {
+      return
+    }
+
+    const line = `[${String(stage || 'installing').toUpperCase()}] ${cleanMessage}`
+
+    if (line === this.lastLogLine) {
+      return
+    }
+
+    this.lastLogLine = line
+    this.logLines ??= []
+    this.logLines.push(line)
+
+    if (this.logLines.length > 300) {
+      this.logLines.shift()
+    }
+
+    const output = this.querySelector('[data-install-log-output]')
+
+    output.textContent = this.logLines.join('\n')
+    output.scrollTop = output.scrollHeight
+    this.updateLogCount()
+  }
+
+  updateLogCount() {
+    const count = this.logLines?.length || 0
+    const label = this.querySelector('[data-install-log-count]')
+
+    if (label) {
+      label.textContent = `${count} ${count === 1 ? 'ENTRY' : 'ENTRIES'}`
+    }
   }
 }
 

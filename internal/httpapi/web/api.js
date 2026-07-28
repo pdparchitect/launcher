@@ -5,17 +5,20 @@ export class LauncherAPI {
   }
 
   async request(path, options = {}) {
+    const { timeoutMs = 10000, ...requestOptions } = options
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000)
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
       const response = await fetch(path, {
-        ...options,
+        ...requestOptions,
         signal: controller.signal,
         headers: {
           'X-Launcher-Token': this.token,
-          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-          ...(options.headers || {}),
+          ...(requestOptions.body
+            ? { 'Content-Type': 'application/json' }
+            : {}),
+          ...(requestOptions.headers || {}),
         },
       })
 
@@ -62,6 +65,14 @@ export class LauncherAPI {
     return this.request(`/api/instances/${encodeURIComponent(id)}/stop`, {
       method: 'POST',
       body: '{}',
+    })
+  }
+
+  update(id) {
+    return this.request(`/api/instances/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 15 * 60 * 1000,
     })
   }
 

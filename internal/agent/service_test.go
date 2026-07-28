@@ -98,6 +98,38 @@ func TestCreateReportsLifecycleProgress(t *testing.T) {
 	}
 }
 
+func TestCreateReportsRuntimePullOutput(t *testing.T) {
+	service := newTestService(t, &fakeRuntime{
+		pullProgress: []string{
+			"downloading layer 1",
+			"extracting layer 1",
+		},
+	})
+	var messages []string
+
+	_, err := service.Create(t.Context(), CreateOptions{
+		Name: "Ada",
+		Progress: func(progress CreateProgress) {
+			if progress.Stage == CreateStagePulling {
+				messages = append(messages, progress.Message)
+			}
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, expected := range []string{
+		"Pulling agent image",
+		"downloading layer 1",
+		"extracting layer 1",
+	} {
+		if !containsText(messages, expected) {
+			t.Fatalf("pull messages = %#v, missing %q", messages, expected)
+		}
+	}
+}
+
 func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
@@ -177,6 +209,138 @@ func TestListIncludesLiveRuntimeMetrics(t *testing.T) {
 		views[0].Metrics.MemoryPercent != 12.5 ||
 		views[0].Uptime != 5*time.Minute {
 		t.Fatalf("List() = %#v", views)
+	}
+}
+
+func TestGetReportsCatalogueImageUpdate(t *testing.T) {
+	service := newTestService(t, &fakeRuntime{})
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name:  "Ada",
+		Image: "pantalk/ghost:old",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	view, err := service.Get(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !view.UpdateAvailable ||
+		view.AvailableImage != "pantalk/ghost:default" {
+		t.Fatalf("update information = %#v", view)
+	}
+}
+
+func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name:  "Ada",
+		Image: "pantalk/ghost:old",
+		Start: true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	updated, err := service.Update(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	wantCalls := []string{"pull", "stop", "remove", "create", "start"}
+	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
+		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
+	}
+	if updated.Image != "pantalk/ghost:default" ||
+		updated.ID != instance.ID ||
+		updated.ContainerName != instance.ContainerName ||
+		updated.Port != instance.Port ||
+		updated.DesiredState != domain.DesiredRunning {
+		t.Fatalf("Update() = %#v", updated)
+	}
+	if containerRuntime.pullImage != "pantalk/ghost:default" ||
+		containerRuntime.createRequest.Image != "pantalk/ghost:default" ||
+		containerRuntime.createRequest.Paths["workspace"] == "" {
+		t.Fatalf("runtime update = %#v", containerRuntime)
+	}
+	stored, err := service.store.Get(instance.ID)
+	if err != nil || stored.Image != "pantalk/ghost:default" {
+		t.Fatalf("stored instance = %#v, %v", stored, err)
+	}
+	view, err := service.Get(t.Context(), instance.ID)
+	if err != nil || view.UpdateAvailable {
+		t.Fatalf("updated view = %#v, %v", view, err)
+	}
+}
+
+func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name:  "Ada",
+		Image: "pantalk/ghost:old",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	updated, err := service.Update(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	wantCalls := []string{"pull", "remove", "create"}
+	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
+		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
+	}
+	if updated.DesiredState != domain.DesiredStopped {
+		t.Fatalf("DesiredState = %q", updated.DesiredState)
+	}
+}
+
+func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
+	t *testing.T,
+) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name:  "Ada",
+		Image: "pantalk/ghost:old",
+		Start: true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.createErrors = []error{
+		errors.New("replacement failed"),
+		nil,
+	}
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "previous container restored") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	wantCalls := []string{
+		"pull", "stop", "remove", "create", "create", "start",
+	}
+	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
+		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
+	}
+	if len(containerRuntime.createRequests) != 2 ||
+		containerRuntime.createRequests[0].Image != "pantalk/ghost:default" ||
+		containerRuntime.createRequests[1].Image != "pantalk/ghost:old" {
+		t.Fatalf("create requests = %#v", containerRuntime.createRequests)
+	}
+	stored, readErr := service.store.Get(instance.ID)
+	if readErr != nil || stored.Image != "pantalk/ghost:old" {
+		t.Fatalf("stored instance = %#v, %v", stored, readErr)
 	}
 }
 
@@ -383,7 +547,9 @@ type fakeRuntime struct {
 	stopCalled     bool
 	removeCalled   bool
 	createRequest  launchruntime.CreateRequest
+	createRequests []launchruntime.CreateRequest
 	createErr      error
+	createErrors   []error
 	metrics        launchruntime.Metrics
 	statsErr       error
 	recentLogs     string
@@ -391,11 +557,29 @@ type fakeRuntime struct {
 	recentLogLines int
 	statusFunc     func(context.Context, string) (launchruntime.Status, error)
 	statsFunc      func(context.Context, string) (launchruntime.Metrics, error)
+	pullProgress   []string
+	pullImage      string
+	calls          []string
 }
 
 func (*fakeRuntime) Doctor(context.Context) (string, error) { return "test", nil }
-func (runtime *fakeRuntime) Pull(context.Context, string) error {
+func (runtime *fakeRuntime) Pull(_ context.Context, image string) error {
 	runtime.pullCalled = true
+	runtime.pullImage = image
+	runtime.calls = append(runtime.calls, "pull")
+	return nil
+}
+func (runtime *fakeRuntime) PullWithProgress(
+	_ context.Context,
+	image string,
+	progress func(string),
+) error {
+	runtime.pullCalled = true
+	runtime.pullImage = image
+	runtime.calls = append(runtime.calls, "pull")
+	for _, message := range runtime.pullProgress {
+		progress(message)
+	}
 	return nil
 }
 func (runtime *fakeRuntime) Create(
@@ -404,21 +588,31 @@ func (runtime *fakeRuntime) Create(
 ) error {
 	runtime.createCalled = true
 	runtime.createRequest = request
+	runtime.createRequests = append(runtime.createRequests, request)
+	runtime.calls = append(runtime.calls, "create")
+	if len(runtime.createErrors) > 0 {
+		err := runtime.createErrors[0]
+		runtime.createErrors = runtime.createErrors[1:]
+		return err
+	}
 	return runtime.createErr
 }
 func (runtime *fakeRuntime) Start(context.Context, string) error {
 	runtime.startCalled = true
 	runtime.status = launchruntime.StatusRunning
+	runtime.calls = append(runtime.calls, "start")
 	return nil
 }
 func (runtime *fakeRuntime) Stop(context.Context, string) error {
 	runtime.stopCalled = true
 	runtime.status = launchruntime.StatusStopped
+	runtime.calls = append(runtime.calls, "stop")
 	return nil
 }
 func (runtime *fakeRuntime) Remove(context.Context, string, string) error {
 	runtime.removeCalled = true
 	runtime.status = launchruntime.StatusMissing
+	runtime.calls = append(runtime.calls, "remove")
 	return nil
 }
 func (runtime *fakeRuntime) Status(
@@ -448,4 +642,24 @@ func (runtime *fakeRuntime) RecentLogs(
 	runtime.recentLogName = name
 	runtime.recentLogLines = lines
 	return runtime.recentLogs, nil
+}
+
+func containsText(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func (runtime *fakeRuntime) resetCalls() {
+	runtime.pullCalled = false
+	runtime.createCalled = false
+	runtime.startCalled = false
+	runtime.stopCalled = false
+	runtime.removeCalled = false
+	runtime.pullImage = ""
+	runtime.createRequests = nil
+	runtime.calls = nil
 }

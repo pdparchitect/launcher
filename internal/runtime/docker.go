@@ -41,21 +41,36 @@ func (docker *Docker) Doctor(ctx context.Context) (string, error) {
 }
 
 func (docker *Docker) Pull(ctx context.Context, image string) error {
+	return docker.PullWithProgress(ctx, image, nil)
+}
+
+func (docker *Docker) PullWithProgress(
+	ctx context.Context,
+	image string,
+	progress func(string),
+) error {
 	if strings.TrimSpace(image) == "" {
 		return errors.New("image is required")
 	}
 	if _, err := docker.runner.Capture(
 		ctx, docker.command, "image", "inspect", image,
 	); err == nil {
+		if progress != nil {
+			progress("Image is already available locally")
+		}
 		return nil
 	}
+	stdout := newProgressWriter(docker.stdout, progress)
+	stderr := newProgressWriter(docker.stderr, progress)
+	defer stdout.Flush()
+	defer stderr.Flush()
 	if err := docker.runner.Run(
 		ctx,
 		docker.command,
 		[]string{"pull", image},
 		nil,
-		docker.stdout,
-		docker.stderr,
+		stdout,
+		stderr,
 	); err != nil {
 		return fmt.Errorf("pull image %q: %w", image, err)
 	}

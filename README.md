@@ -40,7 +40,7 @@ configuration and its user-facing presentation:
       }
     ]
   },
-  "image": "ghcr.io/pantalk/ghost:0.0.8"
+  "image": "ghcr.io/pantalk/ghost:0.0.9"
 }
 ```
 

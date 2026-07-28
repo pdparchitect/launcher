@@ -23,6 +23,10 @@ export class AgentActionsDialog extends HTMLElement {
               Manage this agent without exposing container details.
             </p>
             <div class="action-menu">
+              <button type="button" data-action="update"
+                data-update-action hidden>
+                <span>↑</span><strong>UPDATE AGENT</strong><i>›</i>
+              </button>
               <button type="button" data-action="rename">
                 <span>✎</span><strong>RENAME AGENT</strong><i>›</i>
               </button>
@@ -57,6 +61,26 @@ export class AgentActionsDialog extends HTMLElement {
                 data-back>BACK</button>
               <button class="primary-button primary-button--outline"
                 type="button" data-refresh-logs>REFRESH</button>
+            </footer>
+          </div>
+          <div data-update hidden>
+            <div class="update-notice">
+              <strong>UPDATE THIS AGENT?</strong>
+              <p>
+                Launcher will replace only the runtime container. Its
+                workspace, credentials, name, and port will be preserved.
+              </p>
+              <dl>
+                <div><dt>CURRENT</dt><dd data-current-image></dd></div>
+                <div><dt>AVAILABLE</dt><dd data-available-image></dd></div>
+              </dl>
+            </div>
+            <p class="form-error" data-update-error hidden></p>
+            <footer class="dialog-footer">
+              <button class="secondary-button" type="button"
+                data-back>BACK</button>
+              <button class="primary-button" type="button"
+                data-confirm-update>UPDATE AGENT</button>
             </footer>
           </div>
           <div data-delete hidden>
@@ -121,6 +145,15 @@ export class AgentActionsDialog extends HTMLElement {
       }
     })
 
+    this.querySelector('[data-confirm-update]').addEventListener(
+      'click',
+      () => {
+        if (!this.busy) {
+          this.dispatch('update-agent')
+        }
+      }
+    )
+
     this.querySelector('[data-confirm-delete]').addEventListener(
       'click',
       () => {
@@ -131,13 +164,19 @@ export class AgentActionsDialog extends HTMLElement {
     )
   }
 
-  open(agent) {
+  open(agent, mode = 'menu') {
     this.agent = agent
 
     this.setBusy(false)
-    this.setMode('menu')
+    this.querySelector('[data-update-action]').hidden = !agent.updateAvailable
     this.querySelector('[data-rename-name]').value = agent.name
+    this.querySelector('[data-current-image]').textContent = agent.image
+    this.querySelector('[data-available-image]').textContent =
+      agent.availableImage || 'No update available'
     this.clearErrors()
+    this.setMode(
+      mode === 'update' && agent.updateAvailable ? 'update' : 'menu'
+    )
 
     if (!this.dialog.open) {
       this.dialog.showModal()
@@ -155,12 +194,14 @@ export class AgentActionsDialog extends HTMLElement {
     this.querySelector('[data-menu]').hidden = mode !== 'menu'
     this.querySelector('[data-rename]').hidden = mode !== 'rename'
     this.querySelector('[data-logs]').hidden = mode !== 'logs'
+    this.querySelector('[data-update]').hidden = mode !== 'update'
     this.querySelector('[data-delete]').hidden = mode !== 'delete'
 
     const titles = {
       menu: this.agent?.name || 'AGENT ACTIONS',
       rename: 'RENAME AGENT',
       logs: 'AGENT LOGS',
+      update: 'UPDATE AGENT',
       delete: 'DELETE AGENT',
     }
 
@@ -191,6 +232,9 @@ export class AgentActionsDialog extends HTMLElement {
     this.querySelector('[data-confirm-delete]').textContent = busy
       ? 'DELETING…'
       : 'DELETE PERMANENTLY'
+    this.querySelector('[data-confirm-update]').textContent = busy
+      ? 'UPDATING…'
+      : 'UPDATE AGENT'
   }
 
   showError(mode, message) {

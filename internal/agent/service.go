@@ -38,6 +38,10 @@ type Runtime interface {
 	Logs(context.Context, string, bool) error
 }
 
+type pullProgressRuntime interface {
+	PullWithProgress(context.Context, string, func(string)) error
+}
+
 type PortAllocator interface {
 	Allocate(int, map[int]struct{}) (int, error)
 }
@@ -79,11 +83,13 @@ type CreateProgress struct {
 
 type View struct {
 	domain.Instance
-	CatalogSlug  string
-	State        launchruntime.Status
-	Metrics      launchruntime.Metrics
-	MetricsError string
-	Uptime       time.Duration
+	CatalogSlug     string
+	UpdateAvailable bool
+	AvailableImage  string
+	State           launchruntime.Status
+	Metrics         launchruntime.Metrics
+	MetricsError    string
+	Uptime          time.Duration
 }
 
 type CatalogEntry struct {
@@ -248,7 +254,19 @@ func (service *Service) Create(
 		}
 	}()
 	options.report(CreateStagePulling, "Pulling agent image")
-	if err := service.runtime.Pull(ctx, image); err != nil {
+	pull := service.runtime.Pull
+	if progressRuntime, ok := service.runtime.(pullProgressRuntime); ok {
+		pull = func(ctx context.Context, image string) error {
+			return progressRuntime.PullWithProgress(
+				ctx,
+				image,
+				func(message string) {
+					options.report(CreateStagePulling, message)
+				},
+			)
+		}
+	}
+	if err := pull(ctx, image); err != nil {
 		return domain.Instance{}, err
 	}
 	options.report(CreateStageCreating, "Creating agent container")
@@ -352,6 +370,10 @@ func (service *Service) view(
 	view := View{Instance: instance, State: state}
 	if manifest, exists := service.manifest(instance.CatalogID); exists {
 		view.CatalogSlug = manifest.Slug
+		if manifest.Image != "" && manifest.Image != instance.Image {
+			view.UpdateAvailable = true
+			view.AvailableImage = manifest.Image
+		}
 	}
 	if state != launchruntime.StatusRunning {
 		return view
@@ -400,6 +422,119 @@ func (service *Service) Stop(
 	}
 	instance.DesiredState = domain.DesiredStopped
 	return instance, service.store.Save(instance)
+}
+
+func (service *Service) Update(
+	ctx context.Context,
+	reference string,
+) (domain.Instance, error) {
+	instance, err := service.store.Get(reference)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	manifest, exists := service.manifest(instance.CatalogID)
+	if !exists {
+		return domain.Instance{}, fmt.Errorf(
+			"catalogue entry %q is not built in", instance.CatalogID,
+		)
+	}
+	targetImage := strings.TrimSpace(manifest.Image)
+	if targetImage == "" {
+		return domain.Instance{}, errors.New("catalogue image is empty")
+	}
+	if targetImage == instance.Image {
+		return instance, nil
+	}
+	status, err := service.runtime.Status(ctx, instance.ContainerName)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("inspect agent before update: %w", err)
+	}
+	shouldStart := instance.DesiredState == domain.DesiredRunning ||
+		status == launchruntime.StatusRunning ||
+		status == launchruntime.StatusRestarting
+	if err := service.runtime.Pull(ctx, targetImage); err != nil {
+		return domain.Instance{}, fmt.Errorf("pull agent update: %w", err)
+	}
+	if status == launchruntime.StatusRunning ||
+		status == launchruntime.StatusRestarting ||
+		status == launchruntime.StatusPaused {
+		if err := service.runtime.Stop(ctx, instance.ContainerName); err != nil {
+			return domain.Instance{}, fmt.Errorf("stop agent for update: %w", err)
+		}
+	}
+	if err := service.runtime.Remove(
+		ctx,
+		instance.ContainerName,
+		instance.ID,
+	); err != nil {
+		return domain.Instance{}, fmt.Errorf("remove old agent container: %w", err)
+	}
+	paths := service.store.Paths(instance.ID, manifest)
+	updated := instance
+	updated.Image = targetImage
+	if shouldStart {
+		updated.DesiredState = domain.DesiredRunning
+	}
+	if err := service.createRuntimeContainer(ctx, updated, manifest, paths); err != nil {
+		rollbackErr := service.restoreRuntimeContainer(
+			ctx,
+			instance,
+			manifest,
+			paths,
+			shouldStart,
+		)
+		if rollbackErr != nil {
+			return domain.Instance{}, fmt.Errorf(
+				"create updated agent container: %w; restoring previous container: %v",
+				err,
+				rollbackErr,
+			)
+		}
+		return domain.Instance{}, fmt.Errorf(
+			"create updated agent container: %w; previous container restored",
+			err,
+		)
+	}
+	if err := service.store.Save(updated); err != nil {
+		return domain.Instance{}, fmt.Errorf("save updated agent image: %w", err)
+	}
+	if shouldStart {
+		if err := service.runtime.Start(ctx, updated.ContainerName); err != nil {
+			updated.DesiredState = domain.DesiredStopped
+			_ = service.store.Save(updated)
+			return updated, fmt.Errorf("start updated agent: %w", err)
+		}
+	}
+	return updated, nil
+}
+
+func (service *Service) createRuntimeContainer(
+	ctx context.Context,
+	instance domain.Instance,
+	manifest catalog.Manifest,
+	paths store.Paths,
+) error {
+	return service.runtime.Create(ctx, launchruntime.CreateRequest{
+		InstanceID: instance.ID, ContainerName: instance.ContainerName,
+		Image: instance.Image, Port: instance.Port, Platform: service.options.Platform,
+		Paths: paths.Mounts, Manifest: manifest,
+	})
+}
+
+func (service *Service) restoreRuntimeContainer(
+	ctx context.Context,
+	instance domain.Instance,
+	manifest catalog.Manifest,
+	paths store.Paths,
+	start bool,
+) error {
+	if err := service.createRuntimeContainer(ctx, instance, manifest, paths); err != nil {
+		return err
+	}
+	if start {
+		return service.runtime.Start(ctx, instance.ContainerName)
+	}
+	return nil
 }
 
 func (service *Service) Rename(

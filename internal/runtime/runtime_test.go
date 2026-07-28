@@ -62,6 +62,37 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 	}
 }
 
+func TestDockerPullStreamsCommandOutput(t *testing.T) {
+	runner := &fakeRunner{
+		captureErr: errExit,
+		runStdout:  "first layer complete\nsecond layer downloading\r",
+		runStderr:  "verifying image\n",
+	}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+	var progress []string
+
+	err := docker.PullWithProgress(
+		t.Context(),
+		"pantalk/ghost:test",
+		func(message string) {
+			progress = append(progress, message)
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("PullWithProgress() error = %v", err)
+	}
+	for _, expected := range []string{
+		"first layer complete",
+		"second layer downloading",
+		"verifying image",
+	} {
+		if !containsString(progress, expected) {
+			t.Fatalf("progress = %#v, missing %q", progress, expected)
+		}
+	}
+}
+
 func TestAppleStatusReadsInspectJSON(t *testing.T) {
 	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
 		{
@@ -348,6 +379,8 @@ type fakeRunner struct {
 	captureArgs    [][]string
 	runArgs        []string
 	runCalled      bool
+	runStdout      string
+	runStderr      string
 }
 
 func (runner *fakeRunner) Capture(
@@ -372,10 +405,21 @@ func (runner *fakeRunner) Run(
 	_ string,
 	args []string,
 	_ io.Reader,
-	_ io.Writer,
-	_ io.Writer,
+	stdout io.Writer,
+	stderr io.Writer,
 ) error {
 	runner.runCalled = true
 	runner.runArgs = append([]string(nil), args...)
+	_, _ = io.WriteString(stdout, runner.runStdout)
+	_, _ = io.WriteString(stderr, runner.runStderr)
 	return nil
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
