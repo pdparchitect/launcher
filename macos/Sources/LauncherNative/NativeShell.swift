@@ -127,6 +127,13 @@ private struct RootView: View {
         )
     }
 
+    private func toggleSidebar() {
+        withAnimation {
+            columnVisibility =
+                columnVisibility == .detailOnly ? .all : .detailOnly
+        }
+    }
+
     @ViewBuilder
     var body: some View {
         if #available(macOS 26.0, *) {
@@ -161,6 +168,28 @@ private struct RootView: View {
             webDetail
         }
         .navigationSplitViewStyle(.prominentDetail)
+        /*
+         NSHostingController does not participate in a SwiftUI App scene's
+         automatic toolbar commands. Supply the same native control explicitly
+         so the sidebar remains collapsible when hosted by Wails.
+         */
+        .toolbar(
+            removing:
+                ToolbarDefaultItemKind.sidebarToggle
+        )
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button(action: toggleSidebar) {
+                    Label(
+                        "Toggle Sidebar",
+                        systemImage: "sidebar.leading"
+                    )
+                }
+                .labelStyle(.iconOnly)
+                .help("Toggle Sidebar")
+            }
+        }
+        .frame(minWidth: 820, minHeight: 560)
     }
 
     @ViewBuilder
@@ -186,7 +215,7 @@ private struct RootView: View {
 private final class NativeShell {
     static let shared = NativeShell()
 
-    private var hostingView: NSHostingView<RootView>?
+    private var hostingController: NSHostingController<RootView>?
     private var model: NativeShellModel?
 
     func install(window: NSWindow, webView: WKWebView) {
@@ -201,19 +230,20 @@ private final class NativeShell {
                 name: "launcherNative"
             )
 
-            let hostingView = NSHostingView(
+            let hostingController = NSHostingController(
                 rootView: RootView(model: model)
             )
-            hostingView.frame = window.contentView?.bounds ?? .zero
-            hostingView.autoresizingMask = [.width, .height]
+            hostingController.view.frame =
+                window.contentView?.bounds ?? .zero
+            hostingController.view.autoresizingMask = [.width, .height]
             if #available(macOS 26.0, *) {
-                hostingView.sceneBridgingOptions = [
+                hostingController.sceneBridgingOptions = [
                     .toolbars,
                     .title,
                 ]
             }
-            self.hostingView = hostingView
-            window.contentView = hostingView
+            self.hostingController = hostingController
+            window.contentViewController = hostingController
 
             if #available(macOS 11.0, *) {
                 window.toolbarStyle = .unified

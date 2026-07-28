@@ -18,10 +18,14 @@ import (
 )
 
 const (
-	windowWidth     = 1440
-	windowHeight    = 900
-	windowMinWidth  = 960
-	windowMinHeight = 640
+	windowWidth          = 1440
+	windowHeight         = 900
+	windowMinWidth       = 960
+	windowMinHeight      = 640
+	macOSWindowWidth     = 1180
+	macOSWindowHeight    = 760
+	macOSWindowMinWidth  = 820
+	macOSWindowMinHeight = 560
 )
 
 func Available() bool {
@@ -32,6 +36,30 @@ type windowChrome struct {
 	frameless         bool
 	hideWindowOnClose bool
 	mac               *mac.Options
+}
+
+type windowGeometry struct {
+	width     int
+	height    int
+	minWidth  int
+	minHeight int
+}
+
+func mainWindowGeometry() windowGeometry {
+	if runtime.GOOS == "darwin" {
+		return windowGeometry{
+			width:     macOSWindowWidth,
+			height:    macOSWindowHeight,
+			minWidth:  macOSWindowMinWidth,
+			minHeight: macOSWindowMinHeight,
+		}
+	}
+	return windowGeometry{
+		width:     windowWidth,
+		height:    windowHeight,
+		minWidth:  windowMinWidth,
+		minHeight: windowMinHeight,
+	}
 }
 
 // mainWindowChrome keeps macOS on the real window chrome: native traffic
@@ -50,11 +78,10 @@ func mainWindowChrome() windowChrome {
 	return windowChrome{
 		hideWindowOnClose: true,
 		mac: &mac.Options{
-			// TitleBarHiddenInset adds an NSToolbar, which matters twice over:
-			// macOS gives toolbar-style windows the larger corner radius
-			// (title-bar-only windows get a tighter one), and it insets the
-			// traffic lights natively so nothing has to move them by hand.
-			TitleBar: mac.TitleBarHiddenInset(),
+			// SwiftUI owns the unified toolbar after its hosting controller is
+			// installed. Starting with Wails' toolbar-free full-size title bar
+			// avoids competing with NavigationSplitView's toolbar integration.
+			TitleBar: mac.TitleBarHidden(),
 		},
 	}
 }
@@ -83,13 +110,14 @@ func run(
 		)
 	}
 	handler := httpapi.New(service, token, serverOptions...)
+	geometry := mainWindowGeometry()
 	window := mainWindowChrome()
 	err = wails.Run(&options.App{
 		Title:                    "Agent Launcher",
-		Width:                    windowWidth,
-		Height:                   windowHeight,
-		MinWidth:                 windowMinWidth,
-		MinHeight:                windowMinHeight,
+		Width:                    geometry.width,
+		Height:                   geometry.height,
+		MinWidth:                 geometry.minWidth,
+		MinHeight:                geometry.minHeight,
 		Frameless:                window.frameless,
 		Mac:                      window.mac,
 		HideWindowOnClose:        window.hideWindowOnClose,
