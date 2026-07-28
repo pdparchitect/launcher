@@ -108,7 +108,7 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build universal macOS application
+      - name: Build Apple silicon macOS application
         run: make build-macos
 
       - name: Verify macOS application bundle
@@ -122,19 +122,15 @@ jobs:
           file "${executable_path}"
 
           architectures="$(lipo -archs "${executable_path}")"
-          case " ${architectures} " in
-            *" arm64 "*) ;;
-            *) echo "The application is missing its arm64 executable"; exit 1 ;;
-          esac
-          case " ${architectures} " in
-            *" x86_64 "*) ;;
-            *) echo "The application is missing its x86_64 executable"; exit 1 ;;
-          esac
+          test "${architectures}" = "arm64" || {
+            echo "Expected an arm64-only executable, got: ${architectures}"
+            exit 1
+          }
 
       - name: Package macOS application
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
-          archive="Agent-Launcher-${version}-macOS-universal.zip"
+          archive="Agent-Launcher-${version}-macOS-arm64.zip"
 
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent \
@@ -144,7 +140,7 @@ jobs:
       - name: Upload macOS application
         uses: actions/upload-artifact@v6
         with:
-          name: Agent-Launcher-macOS-universal
-          path: dist/Agent-Launcher-*-macOS-universal.zip
+          name: Agent-Launcher-macOS-arm64
+          path: dist/Agent-Launcher-*-macOS-arm64.zip
           if-no-files-found: error
           retention-days: 14

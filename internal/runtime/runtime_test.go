@@ -282,11 +282,13 @@ func TestDetectFindsAppleContainerOutsideFinderPath(t *testing.T) {
 	}
 }
 
-func TestDetectFallsBackToDocker(t *testing.T) {
+func TestDetectDoesNotFallBackToDockerOnMacOS(t *testing.T) {
+	var searched []string
 	selection, err := Detect(DetectOptions{
 		GOOS:   "darwin",
 		GOARCH: "arm64",
 		LookPath: func(name string) (string, error) {
+			searched = append(searched, name)
 			if name == "docker" {
 				return "/usr/local/bin/docker", nil
 			}
@@ -296,8 +298,39 @@ func TestDetectFallsBackToDocker(t *testing.T) {
 		Stdout: io.Discard,
 		Stderr: io.Discard,
 	})
-	if err != nil || selection.Name != KindDocker {
+	if err != nil || selection.Name != KindApple {
 		t.Fatalf("Detect() = %#v, %v", selection, err)
+	}
+	for _, candidate := range searched {
+		if strings.Contains(candidate, "docker") {
+			t.Fatalf("Detect() searched Docker candidate %q on macOS", candidate)
+		}
+	}
+	_, doctorErr := selection.Runtime.Doctor(t.Context())
+	var missing *MissingRuntimeError
+	if !errors.As(doctorErr, &missing) || missing.kind != KindApple {
+		t.Fatalf("Doctor() error = %v, want missing Apple container", doctorErr)
+	}
+}
+
+func TestDetectRejectsExplicitDockerOnMacOS(t *testing.T) {
+	_, err := Detect(DetectOptions{
+		GOOS:      "darwin",
+		GOARCH:    "arm64",
+		Requested: "docker",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires Apple container") {
+		t.Fatalf("Detect() error = %v", err)
+	}
+}
+
+func TestDetectRejectsIntelMacInsteadOfSelectingDocker(t *testing.T) {
+	_, err := Detect(DetectOptions{
+		GOOS:   "darwin",
+		GOARCH: "amd64",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires Apple silicon") {
+		t.Fatalf("Detect() error = %v", err)
 	}
 }
 

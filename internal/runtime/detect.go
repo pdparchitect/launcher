@@ -47,12 +47,18 @@ func Detect(options DetectOptions) (Selection, error) {
 		options.Stderr = io.Discard
 	}
 	requested := strings.ToLower(strings.TrimSpace(options.Requested))
-	switch requested {
-	case "", "auto":
-	case "container", "apple":
-		if options.GOOS != "darwin" {
-			return Selection{}, errors.New(
-				"Apple container runtime is only supported on macOS",
+	if options.GOOS == "darwin" {
+		switch requested {
+		case "", "auto", "container", "apple":
+		case "docker", "podman":
+			return Selection{}, fmt.Errorf(
+				"%s runtime is disabled on macOS; Launcher requires Apple container",
+				requested,
+			)
+		default:
+			return Selection{}, fmt.Errorf(
+				"unknown runtime %q; macOS uses Apple container",
+				options.Requested,
 			)
 		}
 		if options.GOARCH != "" && options.GOARCH != "arm64" {
@@ -61,6 +67,13 @@ func Detect(options DetectOptions) (Selection, error) {
 			)
 		}
 		return detectKind(KindApple, options), nil
+	}
+	switch requested {
+	case "", "auto":
+	case "container", "apple":
+		return Selection{}, errors.New(
+			"Apple container runtime is only supported on macOS",
+		)
 	case "docker":
 		return detectKind(KindDocker, options), nil
 	default:
@@ -68,16 +81,6 @@ func Detect(options DetectOptions) (Selection, error) {
 			"unknown runtime %q; use auto, container, or docker",
 			options.Requested,
 		)
-	}
-	if options.GOOS == "darwin" &&
-		(options.GOARCH == "" || options.GOARCH == "arm64") {
-		if selection, found := findKind(KindApple, options); found {
-			return selection, nil
-		}
-		if selection, found := findKind(KindDocker, options); found {
-			return selection, nil
-		}
-		return missingSelection(KindApple, options), nil
 	}
 	if selection, found := findKind(KindDocker, options); found {
 		return selection, nil

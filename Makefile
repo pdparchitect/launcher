@@ -21,7 +21,7 @@ help:
 	@echo "  make check      Format-check, test, and vet Launcher"
 	@echo "  make build      Build Launcher for this machine"
 	@echo "  make build-desktop  Build the Wails desktop executable"
-	@echo "  make build-macos  Build a universal macOS application (on macOS)"
+	@echo "  make build-macos  Build an Apple silicon macOS application (on macOS)"
 	@echo "  make build-all  Cross-compile Linux and macOS binaries"
 	@echo "  make clean      Remove generated binaries"
 
@@ -62,7 +62,7 @@ build-macos:
 	fi
 	cp internal/httpapi/web/assets/logo.png build/appicon.png
 	go run github.com/wailsapp/wails/v2/cmd/wails@v2.13.0 build \
-		-platform darwin/universal \
+		-platform darwin/arm64 \
 		-s \
 		-skipbindings \
 		-skipembedcreate \
@@ -77,9 +77,6 @@ build-all:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
 		go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o dist/launcher-linux-arm64 .
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
-		go build -trimpath -ldflags "$(LDFLAGS)" \
-		-o dist/launcher-darwin-amd64 .
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
 		go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o dist/launcher-darwin-arm64 .

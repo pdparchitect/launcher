@@ -128,7 +128,7 @@ make desktop
 make build-desktop
 ```
 
-On macOS, build the complete universal application bundle with:
+On macOS, build the Apple silicon application bundle with:
 
 ```bash
 make build-macos
@@ -138,9 +138,10 @@ open "build/bin/Agent Launcher.app"
 This target must run on macOS because Wails links Apple's native Cocoa and
 WebKit frameworks. The project's multi-stage `Build` workflow first checks the
 code, then builds Linux and macOS desktop applications in parallel on
-GitHub-hosted runners. It publishes a Linux x86-64 archive and a universal
-Intel and Apple silicon macOS ZIP. The macOS application is ad-hoc signed but
-not Developer ID signed or notarized, so macOS may require Control-clicking the
+GitHub-hosted runners. It publishes a Linux x86-64 archive and an Apple silicon
+macOS ZIP. Intel Macs are not supported because Apple's Container runtime
+requires Apple silicon. The macOS application is ad-hoc signed but not
+Developer ID signed or notarized, so macOS may require Control-clicking the
 application and selecting **Open** the first time.
 
 The packaged application remains a command-line tool:
@@ -185,9 +186,10 @@ successful fallback.
 
 Launcher selects a runtime automatically:
 
-- On an Apple silicon Mac, it prefers Apple `container` and falls back to
-  Docker.
-- On Linux, Windows, and Intel Macs, it uses Docker.
+- On an Apple silicon Mac, it exclusively uses Apple `container`. Docker and
+  Podman are not selected as fallbacks and cannot be requested as overrides.
+- On Linux and Windows, it uses Docker.
+- Intel Macs are unsupported because Apple `container` requires Apple silicon.
 
 Override the selection when testing:
 
@@ -195,6 +197,8 @@ Override the selection when testing:
 PDPARCHITECT_LAUNCHER_RUNTIME=container ./dist/launcher doctor
 PDPARCHITECT_LAUNCHER_RUNTIME=docker ./dist/launcher doctor
 ```
+
+The Docker override is only available on non-macOS platforms.
 
 If the selected runtime is missing, `launcher doctor` offers to open its
 official installation page. It never downloads or executes an installer
@@ -240,10 +244,10 @@ make build-macos
 make build-all
 ```
 
-`make build-all` produces Linux and macOS command-line binaries for AMD64 and
-ARM64 without requiring macOS. `make build-macos` produces the native universal
-`.app` on macOS. Developer ID signing, notarization, and a polished `.dmg`
-remain later release steps.
+`make build-all` produces Linux command-line binaries for AMD64 and ARM64 plus
+the macOS ARM64 command-line binary without requiring macOS. `make build-macos`
+produces the native Apple silicon `.app` on macOS. Developer ID signing,
+notarization, and a polished `.dmg` remain later release steps.
 
 ## Structure
 
