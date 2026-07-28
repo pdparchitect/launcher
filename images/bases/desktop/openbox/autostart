@@ -1,0 +1,43 @@
+#!/bin/bash
+
+set -e
+
+mkdir -p "$HOME/.config/kitty"
+cat > "$HOME/.config/kitty/kitty.conf" <<'KITTY'
+detect_urls yes
+open_url_with chromium
+cursor_shape block
+shell_integration no-cursor
+confirm_os_window_close 0
+map ctrl+c copy_or_interrupt
+map ctrl+v paste_from_clipboard
+window_padding_width 8
+repaint_delay 40
+input_delay 8
+sync_to_monitor no
+cursor_blink_interval 0
+disable_ligatures always
+KITTY
+
+wallpaper=/usr/share/backgrounds/launcher-desktop.svg
+if [ -f "$wallpaper" ]; then
+    (
+        last_resolution=""
+        while true; do
+            current_resolution="$(
+                xdpyinfo -display "${DISPLAY:-:1}" 2>/dev/null |
+                    awk '/dimensions/{print $2}'
+            )"
+            if [ -n "$current_resolution" ] &&
+                [ "$current_resolution" != "$last_resolution" ]; then
+                feh --no-fehbg --bg-fill "$wallpaper"
+                last_resolution="$current_resolution"
+            fi
+            sleep 2
+        done
+    ) &
+fi
+
+tint2 &
+cortile >/tmp/cortile.log 2>&1 &
+desktop-welcome &

@@ -11,7 +11,7 @@ ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
 endif
 
-.PHONY: help web web-open desktop check test build build-desktop build-macos build-all clean
+.PHONY: help web web-open desktop check test images-check images-build build build-desktop build-macos build-all clean
 
 help:
 	@echo "Launcher development"
@@ -20,6 +20,8 @@ help:
 	@echo "  make web-open   Run the web interface and open a local browser"
 	@echo "  make desktop    Run the frameless Wails desktop application"
 	@echo "  make check      Format-check, test, and vet Launcher"
+	@echo "  make images-check  Validate the container image sources"
+	@echo "  make images-build  Build the Ubuntu, desktop, and Hermes image chain"
 	@echo "  make build      Build Launcher for this machine"
 	@echo "  make build-desktop  Build the Wails desktop executable"
 	@echo "  make build-macos  Build an Apple silicon macOS application (on macOS)"
@@ -49,6 +51,12 @@ check:
 
 test:
 	go test ./...
+
+images-check:
+	$(MAKE) --directory images check
+
+images-build:
+	$(MAKE) --directory images build
 
 build:
 	mkdir -p dist

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [ ! -s "${HERMES_HOME:-$HOME/.hermes}/.env" ]; then
+    command='echo "Welcome to Hermes Desktop."; echo; echo "Complete the initial Hermes setup to begin."; echo; hermes setup; exec bash'
+else
+    command='hermes --tui; exec bash'
+fi
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Hermes Desktop}" \
+    --override remember_window_size=no \
+    --override initial_window_width=118c \
+    --override initial_window_height=38c \
+    -e bash -lc "$command"
