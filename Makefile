@@ -5,6 +5,11 @@ VERSION ?= $(shell tr -d '[:space:]' < VERSION)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 WEB_LISTEN ?= 127.0.0.1:16900
 HOST_OS := $(shell go env GOOS)
+# Built against whatever SDK the toolchain has (macOS 26 in CI, so the app gets
+# the current design system), but still runnable on the oldest macOS Launcher
+# supports. Without this, clang defaults the target to the build host and the
+# binary refuses to launch on anything older.
+MACOS_DEPLOYMENT_TARGET ?= 15.0
 DESKTOP_TAGS := desktop
 PATCHED_GO := ./scripts/with-go-module-patches.sh
 ifeq ($(HOST_OS),linux)
@@ -75,7 +80,7 @@ build-macos:
 		exit 1; \
 	fi
 	cp internal/httpapi/web/assets/logo.png build/appicon.png
-	$(PATCHED_GO) go run \
+	MACOSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET) $(PATCHED_GO) go run \
 		github.com/wailsapp/wails/v2/cmd/wails build \
 		-platform darwin/arm64 \
 		-s \
