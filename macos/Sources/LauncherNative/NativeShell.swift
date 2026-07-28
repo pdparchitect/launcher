@@ -30,13 +30,14 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     var selection: String? = "home"
 
     let webView: WKWebView
+    private var mouseDownEvent: NSEvent?
 
     init(webView: WKWebView) {
         self.webView = webView
     }
 
     func select(_ identifier: String?) {
-        guard let identifier, selection != identifier else {
+        guard let identifier else {
             return
         }
         selection = identifier
@@ -68,6 +69,23 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
         )
     }
 
+    func trackMouseEvent(_ event: NSEvent) {
+        guard event.window === webView.window else {
+            return
+        }
+
+        switch event.type {
+        case .leftMouseDown:
+            mouseDownEvent = event
+
+        case .leftMouseUp:
+            mouseDownEvent = nil
+
+        default:
+            break
+        }
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
@@ -76,6 +94,18 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
             message.name == "launcherNative",
             let config = message.body as? [String: Any]
         else {
+            return
+        }
+
+        if config["action"] as? String == "dragWindow" {
+            guard
+                let window = webView.window,
+                let event = mouseDownEvent ?? window.currentEvent
+            else {
+                return
+            }
+            window.performDrag(with: event)
+
             return
         }
 
@@ -181,9 +211,15 @@ private struct RootView: View {
         } detail: {
             WailsWebView(webView: model.webView)
                 .backgroundExtensionEffect()
+                /*
+                 The effect supplies the visual copy beneath the sidebar.
+                 Extending the AppKit-backed WKWebView itself through the
+                 leading safe area would put its hit-test surface above the
+                 native List and sidebar toolbar button.
+                 */
                 .ignoresSafeArea(
                     .container,
-                    edges: .all
+                    edges: [.top, .trailing, .bottom]
                 )
         }
         .navigationSplitViewStyle(
@@ -246,6 +282,7 @@ private final class NativeShell {
 
     private var sceneHost: NativeSceneHost?
     private var model: NativeShellModel?
+    private var mouseEventMonitor: Any?
 
     func install(window: NSWindow, webView: WKWebView) {
         if model == nil {
@@ -258,6 +295,13 @@ private final class NativeShell {
                 model,
                 name: "launcherNative"
             )
+            mouseEventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .leftMouseUp]
+            ) { [weak model] event in
+                model?.trackMouseEvent(event)
+
+                return event
+            }
 
             let sceneHost = NativeSceneHost(
                 model: model,
