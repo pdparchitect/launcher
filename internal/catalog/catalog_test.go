@@ -22,7 +22,7 @@ func TestLoadGhost(t *testing.T) {
 		manifest.Name != "Pantalk Ghost" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
-	if manifest.Image != "ghcr.io/pantalk/ghost:0.0.9" {
+	if manifest.Image != "ghcr.io/pantalk/ghost:0.0.10" {
 		t.Fatalf("Image = %q", manifest.Image)
 	}
 	if manifest.ContainerPort != 6901 || manifest.Memory != "4g" {

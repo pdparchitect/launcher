@@ -146,6 +146,65 @@ func TestInterfaceDisablesElasticDocumentScrolling(t *testing.T) {
 	}
 }
 
+func TestInterfacePreventsAccidentalChromeSelection(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+
+	globalStart := strings.Index(styles, "* {")
+	if globalStart < 0 {
+		t.Fatal("interface missing global element styles")
+	}
+	globalEnd := strings.Index(styles[globalStart:], "}")
+	if globalEnd < 0 {
+		t.Fatal("global element styles are incomplete")
+	}
+	globalRule := styles[globalStart : globalStart+globalEnd]
+	for _, expected := range []string{
+		"-webkit-user-select: none",
+		"user-select: none",
+	} {
+		if !strings.Contains(globalRule, expected) {
+			t.Fatalf("global element styles missing %q", expected)
+		}
+	}
+
+	for _, expected := range []string{
+		"input,\ntextarea,\npre,\ncode,",
+		"[data-settings-root],",
+		"[data-current-image],",
+		"[data-available-image]",
+		"-webkit-user-select: text",
+		"user-select: text",
+		"img {",
+		"-webkit-user-drag: none",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("interface missing selection behavior %q", expected)
+		}
+	}
+}
+
+func TestInterfaceUsesSubtleScrollbars(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+
+	for _, expected := range []string{
+		"scrollbar-width: thin",
+		"scrollbar-color: rgba(135, 140, 130, 0.42) transparent",
+		"*::-webkit-scrollbar {",
+		"width: 6px",
+		"height: 6px",
+		"*::-webkit-scrollbar-track {",
+		"background: transparent",
+		"*::-webkit-scrollbar-thumb {",
+		"background-clip: padding-box",
+		"*::-webkit-scrollbar-thumb:hover {",
+		"*::-webkit-scrollbar-corner {",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("interface missing subtle scrollbar behavior %q", expected)
+		}
+	}
+}
+
 func TestSettingsScreenRemainsImplementedButHiddenFromNavigation(t *testing.T) {
 	source := readWebSources(
 		t,
@@ -276,6 +335,23 @@ func TestBackgroundRefreshDoesNotShowBlockingAlert(t *testing.T) {
 	}
 	if strings.Contains(source, "window.alert") {
 		t.Fatal("background refresh can still show a blocking alert")
+	}
+}
+
+func TestFailedStartShowsRuntimeLogToast(t *testing.T) {
+	source := readWebSources(t, "components/launcher-app.js")
+	for _, expected := range []string{
+		"this.startWatches = new Map()",
+		"await this.checkStartWatches()",
+		"reportAfter: now + 750",
+		"setTimeout(() => this.refreshAgents(), 750)",
+		"await this.api.logs(id)",
+		"failed to start",
+		"'The container stopped during startup'",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing failed-start feedback %q", expected)
+		}
 	}
 }
 
