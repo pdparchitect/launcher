@@ -81,6 +81,20 @@ func TestWindowChromeUsesDesktopRuntimeAdapter(t *testing.T) {
 	}
 }
 
+func TestDialogHeadersRemainDraggableOverModalBackdrop(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+	for _, expected := range []string{
+		".dialog-heading,\n.viewer-heading {",
+		"--wails-draggable: drag;",
+		".dialog-heading button,\n.viewer-heading__actions {",
+		"--wails-draggable: no-drag;",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("dialog chrome missing draggable rule %q", expected)
+		}
+	}
+}
+
 func TestLauncherWindowUsesDialogBorder(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 	start := strings.Index(styles, "body::after {")
