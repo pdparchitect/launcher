@@ -2,7 +2,6 @@ import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
-import './agent-viewer-dialog.js'
 import './deploy-dialog.js'
 import './marketplace-card.js'
 import './runtime-setup-dialog.js'
@@ -150,7 +149,6 @@ export class LauncherApp extends HTMLElement {
       </div>
       <deploy-dialog></deploy-dialog>
       <agent-actions-dialog></agent-actions-dialog>
-      <agent-viewer-dialog></agent-viewer-dialog>
       <runtime-setup-dialog></runtime-setup-dialog>
       <div class="toast" role="status" aria-live="polite" data-toast hidden></div>
     `
@@ -218,9 +216,6 @@ export class LauncherApp extends HTMLElement {
     })
     this.addEventListener('open-agent', (event) => {
       this.openAgent(event.detail.agent)
-    })
-    this.addEventListener('pop-out-agent', (event) => {
-      this.popOutAgent(event.detail.agent)
     })
     this.addEventListener('agent-actions', (event) => {
       this.querySelector('agent-actions-dialog').open(event.detail.agent)
@@ -1041,36 +1036,19 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
-  openAgent(agent) {
+  async openAgent(agent) {
     if (agent.state !== 'running') {
       this.showToast(`Start ${agent.name} before opening it`, true)
 
       return
     }
 
-    const entry = catalogueEntry(this.catalog, agent)
-
-    this.querySelector('agent-viewer-dialog').open(agent, entry?.viewer)
-    this.recordActivity(
-      'open',
-      `Opened ${agent.name}`,
-      agent.name,
-      'Agent desktop opened inside Launcher'
-    )
-  }
-
-  async popOutAgent(agent) {
-    const dialog = this.querySelector('agent-viewer-dialog')
-
-    dialog.showError('')
-
     if (!desktopWindow.available()) {
       if (!desktopWindow.openExternal(agent.url)) {
-        dialog.showError(`Could not open ${agent.name} in a browser window`)
+        this.showToast(`Could not open ${agent.name} in a browser window`, true)
 
         return
       }
-      dialog.close()
       this.recordActivity(
         'open',
         `Opened ${agent.name} in a browser`,
@@ -1082,11 +1060,8 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    dialog.setBusy(true)
-
     try {
       await this.api.openViewer(agent.id)
-      dialog.close()
       this.recordActivity(
         'open',
         `Opened ${agent.name} in a window`,
@@ -1095,9 +1070,7 @@ export class LauncherApp extends HTMLElement {
       )
       this.showToast(`${agent.name} opened in its own window`)
     } catch (error) {
-      dialog.showError(error.message)
-    } finally {
-      dialog.setBusy(false)
+      this.showToast(`Could not open ${agent.name}: ${error.message}`, true)
     }
   }
 

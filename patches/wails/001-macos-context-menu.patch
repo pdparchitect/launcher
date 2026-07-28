@@ -1,0 +1,45 @@
+diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
+index 401f115..80a8b7b 100644
+--- a/internal/frontend/desktop/darwin/WailsContext.m
++++ b/internal/frontend/desktop/darwin/WailsContext.m
+@@ -287,7 +287,7 @@
+     if (!self.defaultContextMenuEnabled) {
+         // Disable default context menus
+         WKUserScript *initScript = [WKUserScript new];
+-        [initScript initWithSource:@"window.wails.flags.disableDefaultContextMenu = true;"
++        [initScript initWithSource:@"if (window.wails && window.wails.flags) { window.wails.flags.disableDefaultContextMenu = true; }"
+                      injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                   forMainFrameOnly:false];
+         [userContentController addUserScript:initScript];
+@@ -301 +301,2 @@
+-    [self.webview initWithFrame:init configuration:config];
++    [self.webview initWithFrame:init configuration:config];
++    self.webview.defaultContextMenuEnabled = self.defaultContextMenuEnabled;
+diff --git a/internal/frontend/desktop/darwin/WailsWebView.h b/internal/frontend/desktop/darwin/WailsWebView.h
+index c03a595..5b44941 100644
+--- a/internal/frontend/desktop/darwin/WailsWebView.h
++++ b/internal/frontend/desktop/darwin/WailsWebView.h
+@@ -11 +11,2 @@
+-@property bool enableDragAndDrop;
++@property bool enableDragAndDrop;
++@property bool defaultContextMenuEnabled;
+diff --git a/internal/frontend/desktop/darwin/WailsWebView.m b/internal/frontend/desktop/darwin/WailsWebView.m
+index 56ecb83..25675be 100644
+--- a/internal/frontend/desktop/darwin/WailsWebView.m
++++ b/internal/frontend/desktop/darwin/WailsWebView.m
+@@ -7 +7,2 @@
+-@synthesize enableDragAndDrop;
++@synthesize enableDragAndDrop;
++@synthesize defaultContextMenuEnabled;
+@@ -9 +10,10 @@
+-- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender
++- (NSMenu *)menuForEvent:(NSEvent *)event
++{
++  if ( !defaultContextMenuEnabled ) {
++    return nil;
++  }
++
++  return [super menuForEvent:event];
++}
++
++- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender

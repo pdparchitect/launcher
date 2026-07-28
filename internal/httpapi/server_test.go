@@ -84,9 +84,9 @@ func TestWindowChromeUsesDesktopRuntimeAdapter(t *testing.T) {
 func TestDialogHeadersRemainDraggableOverModalBackdrop(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 	for _, expected := range []string{
-		".dialog-heading,\n.viewer-heading {",
+		".dialog-heading {",
 		"--wails-draggable: drag;",
-		".dialog-heading button,\n.viewer-heading__actions {",
+		".dialog-heading button {",
 		"--wails-draggable: no-drag;",
 	} {
 		if !strings.Contains(styles, expected) {
@@ -307,7 +307,6 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		t,
 		"components/agent-card.js",
 		"components/launcher-app.js",
-		"components/agent-viewer-dialog.js",
 		"desktop-window.js",
 		"api.js",
 	)
@@ -317,21 +316,9 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"metrics?.uptimeSeconds",
 		"item.id === agent.catalogId",
 		"setInterval(() => this.refreshAgents(), 5000)",
-		"<agent-viewer-dialog></agent-viewer-dialog>",
-		"this.querySelector('agent-viewer-dialog').open(agent, entry?.viewer)",
-		"OPEN IN WINDOW",
-		"PASTE CLIPBOARD",
-		"data-viewer-frame",
-		"data-viewer-paste",
-		"'show_control_bar', 'true'",
-		"'resize', 'remote'",
-		"'enable_threading', 'false'",
-		"window-management",
-		"ClipboardGetText",
-		"postMessage(",
-		"{ action: 'clipboardsnd', value: text }",
-		"entry?.viewer",
-		"this.api.openViewer(agent.id)",
+		"async openAgent(agent)",
+		"desktopWindow.openExternal(agent.url)",
+		"await this.api.openViewer(agent.id)",
 		"`/api/instances/${encodeURIComponent(id)}/viewer`",
 	} {
 		if !strings.Contains(source, expected) {
@@ -345,20 +332,19 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 	}
 }
 
-func TestDesktopEmbeddingAvoidsCrossFrameWailsInjection(t *testing.T) {
+func TestAgentOpeningDoesNotEmbedRemoteDesktop(t *testing.T) {
 	source := readWebSources(
 		t,
-		"main.js",
-		"components/agent-viewer-dialog.js",
+		"index.html",
+		"components/launcher-app.js",
 	)
-	for _, expected := range []string{
-		"document.addEventListener('contextmenu'",
-		"event.preventDefault()",
-		"autoplay; microphone; camera;",
-		`tabindex="0"`,
+	for _, forbidden := range []string{
+		"agent-viewer-dialog",
+		"data-viewer-frame",
+		"pop-out-agent",
 	} {
-		if !strings.Contains(source, expected) {
-			t.Fatalf("interface missing embedded-frame safeguard %q", expected)
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("interface still embeds remote desktop using %q", forbidden)
 		}
 	}
 }
