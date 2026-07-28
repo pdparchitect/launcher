@@ -130,10 +130,10 @@ index 0000000..ab9d3e7
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..4c944ae
+index 0000000..8de066a
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,542 @@
+@@ -0,0 +1,579 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -648,6 +648,43 @@ index 0000000..4c944ae
 +    ]];
 +
 +    return cell;
++}
++
++// Grey while idle, accent once selected — the treatment Apple's media apps use.
++// An item may override the selected colour with a "tint" hex.
++- (NSColor*) iconTintForRow:(NSInteger)row {
++    if (![self.tableView isRowSelected:row]) {
++        return [NSColor secondaryLabelColor];
++    }
++    NSDictionary *entry = [self entryAtRow:row];
++    NSColor *tint = entry != nil
++        ? [self colorFromHex:[entry objectForKey:@"tint"]]
++        : nil;
++    if (tint != nil) {
++        return tint;
++    }
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
++    if (@available(macOS 10.14, *)) {
++        return [NSColor controlAccentColor];
++    }
++#endif
++    return [NSColor labelColor];
++}
++
++- (void) refreshIconTints {
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
++    if (@available(macOS 10.14, *)) {
++        NSInteger count = (NSInteger)[self.items count];
++        for (NSInteger row = 0; row < count; row++) {
++            id view = [self.tableView viewAtColumn:0 row:row makeIfNecessary:NO];
++            if (![view isKindOfClass:[NSTableCellView class]]) {
++                continue;
++            }
++            [[(NSTableCellView *)view imageView]
++                setContentTintColor:[self iconTintForRow:row]];
++        }
++    }
++#endif
 +}
 +
 +- (void) tableViewSelectionDidChange:(NSNotification *)notification {

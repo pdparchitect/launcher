@@ -119,7 +119,10 @@ func TestLauncherWindowUsesDialogBorder(t *testing.T) {
 	}
 }
 
-func TestInterfaceDisablesElasticDocumentScrolling(t *testing.T) {
+// The document must never rubber-band — that is the whole window bouncing and
+// revealing its background. Content scrollers keep the bounce, which is what
+// makes them feel native, so they use `contain` (no chaining) not `none`.
+func TestInterfaceKeepsElasticScrollingInsideContentOnly(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 
 	documentStart := strings.Index(styles, "html,\nbody {")
@@ -153,11 +156,14 @@ func TestInterfaceDisablesElasticDocumentScrolling(t *testing.T) {
 	for _, expected := range []string{
 		"height: 100%",
 		"overflow-y: auto",
-		"overscroll-behavior: none",
+		"overscroll-behavior: contain",
 	} {
 		if !strings.Contains(panelRule, expected) {
 			t.Fatalf("main panel styles missing %q", expected)
 		}
+	}
+	if strings.Contains(panelRule, "overscroll-behavior: none") {
+		t.Fatal("main panel uses none, which also suppresses the elastic bounce")
 	}
 }
 
