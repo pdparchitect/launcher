@@ -12,8 +12,17 @@ HOST_OS := $(shell go env GOOS)
 MACOS_DEPLOYMENT_TARGET ?= 15.0
 DESKTOP_TAGS := desktop
 PATCHED_GO := ./scripts/with-go-module-patches.sh
+SWIFT_LINKER := $(abspath scripts/swift-linker.sh)
+NATIVE_MACOS_TARGET :=
+DESKTOP_LDFLAGS := $(LDFLAGS)
 ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
+endif
+ifeq ($(HOST_OS),darwin)
+NATIVE_MACOS_TARGET := native-macos
+# The wrapper adds the statically linked Swift object's autolink dependencies
+# before delegating the final Mach-O link to clang.
+DESKTOP_LDFLAGS := $(LDFLAGS) -linkmode external -extld $(SWIFT_LINKER)
 endif
 # Every binary we mint ships with the Web Inspector: Cmd+Option+I on macOS,
 # and the WebKitGTK inspector on Linux. Build with DEVTOOLS=0 to leave it out —
@@ -25,7 +34,7 @@ MACOS_BUILD_FLAGS := -devtools
 DESKTOP_TAGS := $(DESKTOP_TAGS),devtools
 endif
 
-.PHONY: help web web-open desktop check test images-check images-build build build-desktop build-macos build-all clean
+.PHONY: help web web-open desktop check test images-check images-build build build-desktop native-macos build-macos build-all clean
 
 help:
 	@echo "Launcher development"
@@ -39,7 +48,7 @@ help:
 	@echo "  make images-build  Build the Ubuntu, desktop, and Hermes image chain"
 	@echo "  make build      Build Launcher for this machine"
 	@echo "  make build-desktop  Build the Wails desktop executable"
-	@echo "  make build-macos  Build an Apple silicon macOS application (on macOS)"
+	@echo "  make build-macos  Build the single-binary SwiftUI/Wails macOS app"
 	@echo "                    Web Inspector is on by default; DEVTOOLS=0 omits it"
 	@echo "  make build-all  Cross-compile Linux and macOS binaries"
 	@echo "  make clean      Remove generated binaries"
@@ -50,7 +59,7 @@ web:
 web-open:
 	go run . serve --listen "$(WEB_LISTEN)"
 
-desktop:
+desktop: $(NATIVE_MACOS_TARGET)
 	CGO_ENABLED=1 $(PATCHED_GO) go run -tags "$(DESKTOP_TAGS)" . desktop
 
 check:
@@ -62,6 +71,7 @@ check:
 	go test ./...
 	go vet ./...
 	bash -n $(PATCHED_GO)
+	bash -n scripts/swift-linker.sh
 	GOOS=darwin $(PATCHED_GO) go list ./internal/desktop >/dev/null
 	GOOS=darwin $(PATCHED_GO) go list github.com/wailsapp/wails/v2/cmd/wails >/dev/null
 	$(MAKE) --directory images check
@@ -79,13 +89,25 @@ build:
 	mkdir -p dist
 	go build -trimpath -ldflags "$(LDFLAGS)" -o dist/launcher .
 
-build-desktop:
+build-desktop: $(NATIVE_MACOS_TARGET)
 	mkdir -p dist
 	CGO_ENABLED=1 $(PATCHED_GO) go build \
 		-tags "$(DESKTOP_TAGS),production" -trimpath \
-		-ldflags "$(LDFLAGS)" -o dist/launcher-desktop .
+		-ldflags "$(DESKTOP_LDFLAGS)" -o dist/launcher-desktop .
 
-build-macos:
+native-macos:
+	@if [ "$(HOST_OS)" != "darwin" ]; then \
+		echo "make native-macos must run on macOS"; \
+		exit 1; \
+	fi
+	MACOSX_DEPLOYMENT_TARGET=$(MACOS_DEPLOYMENT_TARGET) \
+		swift build \
+		--package-path macos \
+		-c release \
+		--arch arm64 \
+		--product LauncherNative
+
+build-macos: native-macos
 	@if [ "$(HOST_OS)" != "darwin" ]; then \
 		echo "make build-macos must run on macOS (use the Build workflow from Linux)"; \
 		exit 1; \
@@ -99,7 +121,7 @@ build-macos:
 		-skipbindings \
 		-skipembedcreate \
 		-trimpath \
-		-ldflags "$(LDFLAGS)"
+		-ldflags "$(DESKTOP_LDFLAGS)"
 
 build-all:
 	mkdir -p dist
@@ -118,3 +140,4 @@ clean:
 	@if [ -d build/bin ]; then rm -r build/bin; fi
 	@if [ -d build/wailsjs ]; then rm -r build/wailsjs; fi
 	@if [ -f build/appicon.png ]; then rm build/appicon.png; fi
+	@if [ -d macos/.build ]; then rm -r macos/.build; fi

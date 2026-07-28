@@ -125,11 +125,12 @@ The equivalent built-binary command is `./dist/launcher serve --no-open`.
 
 ## Desktop application
 
-Launcher uses Wails to host the same embedded interface as a frameless native
-desktop window. The header is the window chrome: drag it to move the window,
-double-click it to maximise or restore, or use its minimise, maximise, and
-close buttons. Browser development continues to use the same files; the window
-controls become active only when the Wails runtime is present.
+Launcher uses Wails to host the same embedded interface. Linux keeps the
+frameless web window and its HTML controls. On macOS, a statically linked
+SwiftUI shell reparents Wails' configured WKWebView into the detail column of a
+native `NavigationSplitView`. Wails still owns the process, custom asset scheme
+and JavaScript runtime, while SwiftUI supplies the system sidebar, toolbar and
+background extension effect.
 
 On Ubuntu, install the Wails development libraries once:
 
@@ -150,6 +151,11 @@ On macOS, build the Apple silicon application bundle with:
 make build-macos
 open "build/bin/Agent Launcher.app"
 ```
+
+The macOS build compiles `macos/` as a static Swift library before Wails links
+the application. The resulting bundle still contains one `launcher` executable
+and runs one main process; there is no helper executable or loopback web
+server.
 
 The desktop targets run Go through
 `scripts/with-go-module-patches.sh`. Patch sets are discovered automatically

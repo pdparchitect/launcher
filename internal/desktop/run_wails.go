@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/pdparchitect/launcher/internal/desktop/nativehost"
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	"github.com/pdparchitect/launcher/internal/webapp"
 	"github.com/wailsapp/wails/v2"
@@ -82,16 +83,16 @@ func run(
 		)
 	}
 	handler := httpapi.New(service, token, serverOptions...)
-	chrome := mainWindowChrome()
+	window := mainWindowChrome()
 	err = wails.Run(&options.App{
 		Title:                    "Agent Launcher",
 		Width:                    windowWidth,
 		Height:                   windowHeight,
 		MinWidth:                 windowMinWidth,
 		MinHeight:                windowMinHeight,
-		Frameless:                chrome.frameless,
-		Mac:                      chrome.mac,
-		HideWindowOnClose:        chrome.hideWindowOnClose,
+		Frameless:                window.frameless,
+		Mac:                      window.mac,
+		HideWindowOnClose:        window.hideWindowOnClose,
 		DisableResize:            false,
 		EnableDefaultContextMenu: false,
 		BackgroundColour: options.NewRGB(
@@ -103,6 +104,7 @@ func run(
 			Handler: handler,
 		},
 		OnStartup: func(wailsContext context.Context) {
+			nativehost.Install()
 			go func() {
 				select {
 				case <-ctx.Done():
@@ -110,6 +112,12 @@ func run(
 				case <-finished:
 				}
 			}()
+		},
+		OnDomReady: func(context.Context) {
+			// OnStartup normally installs before navigation begins. Retrying
+			// after the DOM loads closes the small race with Wails creating and
+			// exposing its native window.
+			nativehost.Install()
 		},
 	})
 	if err != nil {
@@ -140,6 +148,7 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 			Handler: viewerHandler(name, target, viewer),
 		},
 		OnStartup: func(wailsContext context.Context) {
+			nativehost.BadgeDockIcon()
 			go func() {
 				select {
 				case <-ctx.Done():
