@@ -11,7 +11,7 @@ const SIDEBAR_INSET = 8
 const SIDEBAR_TOP_INSET = 44
 
 // The window shape the panel is laid out against. macOS rounds the window
-// itself, so this is never applied to anything — it exists purely so the
+// itself, so this is never applied to anything - it exists purely so the
 // panel's own corners can be derived from it below. 26 is a community
 // measurement of the Tahoe toolbar-window corner, not a published Apple value;
 // adjust it if the panel's corners look wrong against the window's.
@@ -29,7 +29,8 @@ function messageHandler() {
 }
 
 function isMac() {
-  const platform = globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
+  const platform =
+    globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
 
   return /mac/i.test(platform)
 }
@@ -61,7 +62,7 @@ export const nativeSidebar = {
         topInset: SIDEBAR_TOP_INSET,
         selected,
         items,
-      })}`,
+      })}`
     )
 
     return true

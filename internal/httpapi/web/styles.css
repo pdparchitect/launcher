@@ -39,8 +39,6 @@
 * {
   box-sizing: border-box;
   -webkit-user-select: none;
-  scrollbar-color: rgba(135, 140, 130, 0.42) transparent;
-  scrollbar-width: thin;
   user-select: none;
 }
 
@@ -61,32 +59,6 @@ img {
   -webkit-user-drag: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  min-height: 30px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: rgba(135, 140, 130, 0.42);
-  background-clip: padding-box;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(234, 255, 0, 0.46);
-  background-clip: padding-box;
 }
 
 [hidden] {
@@ -166,26 +138,6 @@ mark {
   -webkit-user-select: none;
   border-right: 1px solid rgba(255, 255, 255, 0.07);
   background: linear-gradient(180deg, #0d0d0a 0%, #080808 100%);
-  user-select: none;
-}
-
-.brand {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  padding: 26px 20px 22px;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.brand img {
-  width: 150px;
-  height: 150px;
-  -webkit-user-drag: none;
-  -webkit-user-select: none;
-  image-rendering: pixelated;
-  object-fit: contain;
   user-select: none;
 }
 
@@ -320,36 +272,19 @@ mark {
   overscroll-behavior: none;
 }
 
+/* No longer a titled bar with a separator - just the drag strip that carries
+   the window controls on the frameless platforms. */
 .topbar {
   --wails-draggable: drag;
   position: sticky;
   top: 0;
   z-index: 8;
-  height: 76px;
+  height: 44px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 32px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(5, 6, 4, 0.94);
-  backdrop-filter: blur(12px);
+  justify-content: flex-end;
+  padding: 0 18px;
   user-select: none;
-}
-
-.topbar h1 {
-  margin: 0;
-  color: var(--accent);
-  font-family: var(--font-interface);
-  font-size: 25px;
-  font-weight: 900;
-  letter-spacing: 0.03em;
-}
-
-.topbar p {
-  margin: 2px 0 0;
-  color: #7f7f78;
-  font-family: var(--font-interface);
-  font-size: 13px;
 }
 
 .window-controls {
@@ -1354,13 +1289,11 @@ mark {
   font-size: 10px;
 }
 
-.activity-empty {
-  color: var(--muted);
-  font-size: 9px;
-}
-
+/* Matches .empty-state > p: muted descriptive copy at the inherited body size
+   rather than the 9px it used to be. */
 .activity-empty {
   margin: 20px 0 8px;
+  color: var(--muted);
   line-height: 1.5;
 }
 
@@ -1876,17 +1809,6 @@ mark {
     --sidebar-width: 82px;
   }
 
-  .brand {
-    flex-basis: auto;
-    justify-content: center;
-    padding: 26px 15px 22px;
-  }
-
-  .brand img {
-    width: 52px;
-    height: 52px;
-  }
-
   .main-navigation .nav-label,
   .sidebar__footer > span:last-child {
     display: none;
@@ -1980,7 +1902,6 @@ mark {
     border-right: 0;
   }
 
-  .brand,
   .sidebar__footer {
     display: none;
   }
@@ -2000,11 +1921,6 @@ mark {
 
   .main-navigation button.is-active {
     border-bottom-color: var(--accent);
-  }
-
-  .topbar {
-    height: 64px;
-    padding: 0 18px;
   }
 
   .window-marks {
@@ -2118,6 +2034,12 @@ mark {
 /* The packaged macOS build uses the real window chrome, so the native traffic
    lights replace the HTML window controls and the sidebar clears them. */
 .is-macos-desktop .window-controls {
+  display: none;
+}
+
+/* Nothing left for it to hold: the traffic lights are native and the title bar
+   already provides the drag region. */
+.is-macos-desktop .topbar {
   display: none;
 }
 

@@ -16,7 +16,7 @@ function statusFor(state) {
 
 function percentLabel(value) {
   if (!Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
 
   if (value > 0 && value < 0.1) {
@@ -28,7 +28,7 @@ function percentLabel(value) {
 
 function formatUptime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) {
-    return '—'
+    return '-'
   }
 
   const totalMinutes = Math.floor(seconds / 60)
@@ -201,7 +201,7 @@ export class AgentCard extends HTMLElement {
       this.querySelector('[data-memory]').textContent = percentLabel(memory)
       this.querySelector('[data-uptime]').textContent = running
         ? formatUptime(metrics?.uptimeSeconds)
-        : '—'
+        : '-'
       this.setBar('[data-cpu-bar]', cpu)
       this.setBar('[data-memory-bar]', memory)
     }

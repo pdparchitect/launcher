@@ -95,8 +95,8 @@ jobs:
 
     # macOS 26, not 15: an app is granted the current design system only when it
     # links against the matching SDK. Built against the macOS 15 SDK the app
-    # renders in legacy appearance on macOS 26 — tighter window corners, no
-    # Liquid Glass — whatever the frontend does. Arm64 by default, which
+    # renders in legacy appearance on macOS 26 - tighter window corners, no
+    # Liquid Glass - whatever the frontend does. Arm64 by default, which
     # matches the darwin/arm64 target below.
     runs-on: macos-26
     timeout-minutes: 30
