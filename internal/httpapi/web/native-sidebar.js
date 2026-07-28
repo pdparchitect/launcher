@@ -27,14 +27,11 @@ const SELF_CLIP_WINDOW = false
 // inside a different one is what makes panels look subtly wrong.
 const SIDEBAR_CORNER_RADIUS = Math.max(4, WINDOW_CORNER_RADIUS - SIDEBAR_INSET)
 
-// The traffic lights are placed by the native side rather than left where
-// AppKit puts them, so they sit comfortably inside the floating panel.
-const TRAFFIC_LIGHT_X = 22
-const TRAFFIC_LIGHT_Y = 26
-
-// "glass" uses NSGlassEffectView on macOS 26 and falls back to vibrancy
-// elsewhere. Set to "vibrancy" to force the fallback everywhere.
-const SIDEBAR_MATERIAL = 'glass'
+// NSGlassEffectView blurs what is behind the *window*, so the sidebar showed
+// the desktop rather than the page underneath it. Vibrancy with within-window
+// blending samples the webview's own content, which is the effect we want.
+// Set to "glass" to try NSGlassEffectView again.
+const SIDEBAR_MATERIAL = 'vibrancy'
 
 export const SIDEBAR_COLUMN_WIDTH = SIDEBAR_WIDTH + SIDEBAR_INSET * 2
 
@@ -74,8 +71,6 @@ export const nativeSidebar = {
         cornerRadius: SIDEBAR_CORNER_RADIUS,
         windowCornerRadius: SELF_CLIP_WINDOW ? WINDOW_CORNER_RADIUS : 0,
         topInset: SIDEBAR_TOP_INSET,
-        trafficLightX: TRAFFIC_LIGHT_X,
-        trafficLightY: TRAFFIC_LIGHT_Y,
         material: SIDEBAR_MATERIAL,
         selected,
         items,
