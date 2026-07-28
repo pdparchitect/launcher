@@ -49,12 +49,21 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
         }
         webView.evaluateJavaScript(
             """
-            window.dispatchEvent(
-                new CustomEvent(
-                    'wails:sidebar',
-                    { detail: { id: \(encoded) } }
-                )
-            );
+            (() => {
+                const launcher = document.querySelector('launcher-app');
+
+                if (typeof launcher?.setScreen === 'function') {
+                    launcher.setScreen(\(encoded));
+                    return;
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent(
+                        'wails:sidebar',
+                        { detail: { id: \(encoded) } }
+                    )
+                );
+            })();
             """
         )
     }
@@ -108,14 +117,37 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
 private struct WailsWebView: NSViewRepresentable {
     let webView: WKWebView
 
-    func makeNSView(context: Context) -> WKWebView {
-        webView
+    func makeNSView(context: Context) -> NSView {
+        /*
+         Keep Wails' WKWebView inside a detail-column container. Returning the
+         already full-window WKWebView directly allows its backing layers to
+         retain the old window geometry and cover the sidebar's hit-test area.
+         SwiftUI owns the container's frame; the web view can only fill it.
+         */
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.masksToBounds = true
+
+        webView.removeFromSuperview()
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        return container
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {}
+    func updateNSView(_ container: NSView, context: Context) {
+        guard webView.superview !== container else {
+            return
+        }
+
+        webView.removeFromSuperview()
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+    }
 }
 
-@available(macOS 26.0, *)
 private struct RootView: View {
     @Bindable var model: NativeShellModel
 
@@ -164,50 +196,6 @@ private struct RootView: View {
     }
 }
 
-private struct LegacyRootView: View {
-    @Bindable var model: NativeShellModel
-
-    @State private var columnVisibility:
-        NavigationSplitViewVisibility = .all
-
-    private var selection: Binding<String?> {
-        Binding(
-            get: { model.selection },
-            set: { model.select($0) }
-        )
-    }
-
-    var body: some View {
-        NavigationSplitView(
-            columnVisibility: $columnVisibility
-        ) {
-            List(model.items, selection: selection) { item in
-                Label(
-                    item.title,
-                    systemImage: item.symbol
-                )
-                .tag(item.id)
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(
-                min: 210,
-                ideal: 240,
-                max: 280
-            )
-        } detail: {
-            WailsWebView(webView: model.webView)
-                .ignoresSafeArea(
-                    .container,
-                    edges: .all
-                )
-        }
-        .navigationSplitViewStyle(
-            .prominentDetail
-        )
-    }
-}
-
-@available(macOS 26.0, *)
 private struct NativeWindowScene: Scene {
     static let identifier = "launcher-main-window"
 
@@ -223,7 +211,6 @@ private struct NativeWindowScene: Scene {
     }
 }
 
-@available(macOS 26.0, *)
 @MainActor
 private final class NativeSceneHost {
     private let representation:
@@ -257,8 +244,7 @@ private final class NativeSceneHost {
 private final class NativeShell {
     static let shared = NativeShell()
 
-    private var sceneHost: AnyObject?
-    private var hostingController: NSHostingController<LegacyRootView>?
+    private var sceneHost: NativeSceneHost?
     private var model: NativeShellModel?
 
     func install(window: NSWindow, webView: WKWebView) {
@@ -273,35 +259,12 @@ private final class NativeShell {
                 name: "launcherNative"
             )
 
-            if #available(macOS 26.0, *) {
-                let sceneHost = NativeSceneHost(
-                    model: model,
-                    wailsWindow: window
-                )
-                self.sceneHost = sceneHost
-                sceneHost.present()
-            } else {
-                /*
-                 NavigationSplitView remains functional on macOS 15, but the
-                 inset Liquid Glass window treatment requires the macOS 26
-                 SwiftUI scene APIs used above.
-                */
-                let hostingController = NSHostingController(
-                    rootView: LegacyRootView(model: model)
-                )
-                hostingController.view.frame =
-                    window.contentView?.bounds ?? .zero
-                hostingController.view.autoresizingMask = [.width, .height]
-                self.hostingController = hostingController
-                window.contentViewController = hostingController
-
-                if #available(macOS 11.0, *) {
-                    window.toolbarStyle = .unified
-                }
-                window.titleVisibility = .hidden
-                window.titlebarAppearsTransparent = true
-                window.makeKeyAndOrderFront(nil)
-            }
+            let sceneHost = NativeSceneHost(
+                model: model,
+                wailsWindow: window
+            )
+            self.sceneHost = sceneHost
+            sceneHost.present()
         }
 
         /*

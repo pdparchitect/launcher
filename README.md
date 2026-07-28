@@ -152,6 +152,10 @@ make build-macos
 open "build/bin/Agent Launcher.app"
 ```
 
+The native application requires macOS 26. Its `NavigationSplitView`,
+`backgroundExtensionEffect`, unified toolbar, and automatic sidebar control
+are the same system APIs used by the standalone SwiftUI reference.
+
 The macOS build compiles `macos/` as a static Swift library before Wails links
 the application. The resulting bundle still contains one `launcher` executable
 and runs one main process; there is no helper executable or loopback web

@@ -135,11 +135,22 @@ jobs:
 
           test -d "${app_path}"
           plutil -lint "${app_path}/Contents/Info.plist"
+          test "$(
+            plutil -extract LSMinimumSystemVersion raw \
+              "${app_path}/Contents/Info.plist"
+          )" = "26.0"
+          ! plutil -p "${app_path}/Contents/Info.plist" |
+            grep -q UIDesignRequiresCompatibility
           codesign --verify --deep --strict "${app_path}"
           file "${executable_path}"
           test "$(find "${app_path}/Contents/MacOS" -type f | wc -l | tr -d ' ')" = "1"
           test ! -e "${app_path}/Contents/Resources/launcher"
           ! otool -L "${executable_path}" | grep -q 'LauncherNative'
+
+          build_version="$(vtool -show-build "${executable_path}")"
+          printf '%s\n' "${build_version}"
+          grep -Eq 'minos[[:space:]]+26[.]0' <<<"${build_version}"
+          grep -Eq 'sdk[[:space:]]+26[.]' <<<"${build_version}"
 
           architectures="$(lipo -archs "${executable_path}")"
           test "${architectures}" = "arm64" || {

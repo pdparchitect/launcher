@@ -12,7 +12,7 @@ fi
 
 swiftc_path="$(xcrun --find swiftc)"
 sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
-deployment_target="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
+deployment_target="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
 target_arch="arm64"
 swift_link_args=()
 
@@ -35,7 +35,7 @@ while (($# > 0)); do
             ;;
         -mmacosx-version-min=*)
             # The Go toolchain currently emits 10.13. The SwiftUI library and
-            # application deliberately target macOS 15 or later.
+            # application deliberately target macOS 26.
             ;;
         -Wl,*)
             IFS=',' read -r -a linker_options <<<"${argument#-Wl,}"
