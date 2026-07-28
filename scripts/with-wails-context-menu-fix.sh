@@ -53,7 +53,10 @@ mv "$temporary_context" "$patched_context"
 
 modfile="$temporary_dir/launcher.mod"
 cp "$project_dir/go.mod" "$modfile"
-cp "$project_dir/go.sum" "$temporary_dir/launcher.sum"
+{
+    cat "$project_dir/go.sum"
+    cat "$patched_wails/go.sum"
+} | sort -u >"$temporary_dir/launcher.sum"
 printf '\nreplace github.com/wailsapp/wails/v2 => %s\n' \
     "$patched_wails" >>"$modfile"
 
