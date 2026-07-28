@@ -20,8 +20,8 @@ DESKTOP_TAGS := desktop,webkit2_41
 endif
 ifeq ($(HOST_OS),darwin)
 NATIVE_MACOS_TARGET := native-macos
-# The wrapper adds the statically linked Swift object's autolink dependencies
-# before delegating the final Mach-O link to clang.
+# The wrapper delegates the final Mach-O link to the Swift driver so it adds
+# the statically linked Swift object's runtime and autolink dependencies.
 DESKTOP_LDFLAGS := $(LDFLAGS) -linkmode external -extld $(SWIFT_LINKER)
 endif
 # Every binary we mint ships with the Web Inspector: Cmd+Option+I on macOS,

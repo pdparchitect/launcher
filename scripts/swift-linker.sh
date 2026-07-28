@@ -10,34 +10,48 @@ if [[ ! -f "$swift_archive" ]]; then
     exit 1
 fi
 
-autolink_file="$(mktemp)"
-trap 'rm -f "$autolink_file"' EXIT
-
 swiftc_path="$(xcrun --find swiftc)"
-swift_bin_dir="$(cd "$(dirname "$swiftc_path")" && pwd)"
-swift_autolink_extract="$swift_bin_dir/swift-autolink-extract"
-
-# Xcode 26.5 ships swift-autolink-extract in the Swift toolchain but no longer
-# exposes it through `xcrun --find`. Resolve it beside swiftc, with the explicit
-# default-toolchain location as a fallback for installations whose swiftc is a
-# shim in /usr/bin.
-if [[ ! -x "$swift_autolink_extract" ]]; then
-    developer_dir="$(xcode-select -p)"
-    swift_autolink_extract="$developer_dir/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-autolink-extract"
-fi
-if [[ ! -x "$swift_autolink_extract" ]]; then
-    echo "Unable to find swift-autolink-extract in the active Xcode toolchain" >&2
-    exit 1
-fi
-
-"$swift_autolink_extract" "$swift_archive" -o "$autolink_file"
-swift_toolchain_bin="$(cd "$(dirname "$swift_autolink_extract")" && pwd)"
-swift_lib_dir="$(cd "$swift_toolchain_bin/../lib/swift/macosx" && pwd)"
+sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
 deployment_target="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
+target_arch="arm64"
+swift_link_args=()
 
-xcrun clang \
-    "$@" \
-    -L"$swift_lib_dir" \
-    -Wl,-rpath,/usr/lib/swift \
-    -mmacosx-version-min="$deployment_target" \
-    @"$autolink_file"
+# Go invokes its external linker using clang's argument spelling. Swiftc is the
+# correct final-link driver for a binary containing Swift because it supplies
+# the runtime and autolink dependencies itself. Normalize the small part of
+# clang's syntax that swiftc does not accept.
+while (($# > 0)); do
+    argument="$1"
+    shift
+
+    case "$argument" in
+        -arch)
+            if (($# == 0)); then
+                echo "Missing architecture after -arch" >&2
+                exit 1
+            fi
+            target_arch="$1"
+            shift
+            ;;
+        -mmacosx-version-min=*)
+            # The Go toolchain currently emits 10.13. The SwiftUI library and
+            # application deliberately target macOS 15 or later.
+            ;;
+        -Wl,*)
+            IFS=',' read -r -a linker_options <<<"${argument#-Wl,}"
+            for linker_option in "${linker_options[@]}"; do
+                swift_link_args+=("-Xlinker" "$linker_option")
+            done
+            ;;
+        *)
+            swift_link_args+=("$argument")
+            ;;
+    esac
+done
+
+"$swiftc_path" \
+    -target "${target_arch}-apple-macosx${deployment_target}" \
+    -sdk "$sdk_path" \
+    "${swift_link_args[@]}" \
+    -Xlinker -rpath \
+    -Xlinker /usr/lib/swift
