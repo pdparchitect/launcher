@@ -200,6 +200,32 @@ func TestDesktopCommandOpensDesktop(t *testing.T) {
 	}
 }
 
+func TestViewerCommandOpensFramedAgentViewer(t *testing.T) {
+	service := &fakeService{}
+	var reference string
+	app := New(
+		service,
+		&fakeOpener{},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		"test",
+		WithViewer(func(_ context.Context, received string) error {
+			reference = received
+			return nil
+		}),
+	)
+
+	if code := app.Run(
+		t.Context(),
+		[]string{"viewer", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if reference != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("viewer reference = %q", reference)
+	}
+}
+
 type fakeService struct {
 	catalog       []agent.CatalogEntry
 	created       domain.Instance

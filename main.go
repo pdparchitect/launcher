@@ -75,6 +75,9 @@ func main() {
 					OpenPath: systemOpener.OpenPath,
 				})
 			}),
+			cli.WithViewer(func(ctx context.Context, reference string) error {
+				return desktop.RunViewer(ctx, service, reference)
+			}),
 		)
 	}
 	app := cli.New(

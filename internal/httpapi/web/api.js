@@ -103,6 +103,13 @@ export class LauncherAPI {
     })
   }
 
+  openViewer(id) {
+    return this.request(`/api/instances/${encodeURIComponent(id)}/viewer`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }
+
   delete(id) {
     return this.request(`/api/instances/${encodeURIComponent(id)}`, {
       method: 'DELETE',
