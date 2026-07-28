@@ -197,24 +197,18 @@ func TestInterfacePreventsAccidentalChromeSelection(t *testing.T) {
 	}
 }
 
-func TestInterfaceUsesSubtleScrollbars(t *testing.T) {
+// Scrollbars are left to the platform, so the interface must not restyle them:
+// on macOS the native overlay scroller is what matches the native sidebar.
+func TestInterfaceLeavesScrollbarsToThePlatform(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 
-	for _, expected := range []string{
-		"scrollbar-width: thin",
-		"scrollbar-color: rgba(135, 140, 130, 0.42) transparent",
-		"*::-webkit-scrollbar {",
-		"width: 6px",
-		"height: 6px",
-		"*::-webkit-scrollbar-track {",
-		"background: transparent",
-		"*::-webkit-scrollbar-thumb {",
-		"background-clip: padding-box",
-		"*::-webkit-scrollbar-thumb:hover {",
-		"*::-webkit-scrollbar-corner {",
+	for _, unwanted := range []string{
+		"scrollbar-width",
+		"scrollbar-color",
+		"::-webkit-scrollbar",
 	} {
-		if !strings.Contains(styles, expected) {
-			t.Fatalf("interface missing subtle scrollbar behavior %q", expected)
+		if strings.Contains(styles, unwanted) {
+			t.Fatalf("interface restyles scrollbars with %q", unwanted)
 		}
 	}
 }

@@ -123,7 +123,7 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 	defer close(finished)
 
 	err := wails.Run(&options.App{
-		Title:                    fmt.Sprintf("%s — Agent Launcher", name),
+		Title:                    fmt.Sprintf("%s - Agent Launcher", name),
 		Width:                    1280,
 		Height:                   800,
 		MinWidth:                 720,

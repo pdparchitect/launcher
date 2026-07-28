@@ -58,10 +58,10 @@ index f3e49bf..624fe73 100644
  
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.h b/internal/frontend/desktop/darwin/WailsSidebar.h
 new file mode 100644
-index 0000000..010ae12
+index 0000000..ab9d3e7
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,66 @@
 +//
 +//  WailsSidebar.h
 +//
@@ -72,7 +72,7 @@ index 0000000..010ae12
 +//  The panel IS the NSVisualEffectView, not a container holding one. Within-
 +//  window backdrop sampling does not survive being nested inside another
 +//  layer-backed view: it stops seeing the webview and shows whatever is behind
-+//  the window instead. That is also why NSGlassEffectView is not used here —
++//  the window instead. That is also why NSGlassEffectView is not used here -
 +//  it blurs behind the window by design.
 +//
 +//  Driven entirely from JavaScript, so no Go-side options are involved:
@@ -81,7 +81,8 @@ index 0000000..010ae12
 +//      "sidebar:" + JSON.stringify({
 +//        width: 250,
 +//        inset: 8,                // floats the panel inside the window
-+//        cornerRadius: 14,
++//        cornerRadius: 18,        // window radius minus inset, keeping
++//                                 // the two corners concentric
 +//        topInset: 44,            // clearance for the traffic lights
 +//        trafficLightX: 22,       // OPTIONAL. Omit to leave the traffic
 +//        trafficLightY: 26,       // lights where AppKit puts them.
@@ -129,10 +130,10 @@ index 0000000..010ae12
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..2a84b37
+index 0000000..da98bff
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,568 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -142,11 +143,12 @@ index 0000000..2a84b37
 +
 +static const CGFloat WailsSidebarDefaultWidth = 250.0;
 +static const CGFloat WailsSidebarDefaultInset = 8.0;
-+static const CGFloat WailsSidebarDefaultCornerRadius = 14.0;
++// Concentric with the window's own corner: its radius minus the panel inset.
++static const CGFloat WailsSidebarDefaultCornerRadius = 18.0;
 +static const CGFloat WailsSidebarDefaultTopInset = 44.0;
 +static const CGFloat WailsSidebarDefaultTrafficLightX = 22.0;
 +static const CGFloat WailsSidebarDefaultTrafficLightY = 26.0;
-+static const CGFloat WailsSidebarItemHeight = 28.0;
++static const CGFloat WailsSidebarItemHeight = 32.0;
 +static const CGFloat WailsSidebarGroupHeight = 34.0;
 +
 +// Apple's window and panel shapes are squircles, not plain rounded rectangles.
@@ -167,6 +169,9 @@ index 0000000..2a84b37
 +- (void) applyMetrics;
 +- (void) applyToolbarStyle;
 +- (void) layoutTrafficLights;
++- (void) clearTitlebarBackground;
++- (void) refreshIconTints;
++- (NSColor*) iconTintForRow:(NSInteger)row;
 +- (void) windowGeometryChanged:(NSNotification *)notification;
 +- (NSColor*) colorFromHex:(NSString*)hex;
 +- (void) selectItemWithID:(NSString*)itemID notify:(bool)notify;
@@ -288,6 +293,39 @@ index 0000000..2a84b37
 +
 +- (void) windowGeometryChanged:(NSNotification *)notification {
 +    [self layoutTrafficLights];
++    [self clearTitlebarBackground];
++}
++
++// A unified toolbar paints its own material behind the traffic lights, which
++// reads as a shaded band across the top of the panel. AppKit has no direct
++// equivalent of SwiftUI's toolbarBackgroundVisibility, so the effect views the
++// title bar installs are hidden instead. Only effect views are touched; the
++// traffic lights are siblings of them, not children.
++- (void) clearTitlebarBackground {
++    NSWindow *window = [self window];
++    if (window == nil) {
++        return;
++    }
++    NSButton *close = [window standardWindowButton:NSWindowCloseButton];
++    NSView *titlebar = [close superview];
++    if (titlebar == nil) {
++        return;
++    }
++    Class glassClass = NSClassFromString(@"NSGlassEffectView");
++    NSMutableArray *candidates = [NSMutableArray array];
++    [candidates addObject:titlebar];
++    if ([titlebar superview] != nil) {
++        [candidates addObject:[titlebar superview]];
++    }
++    for (NSView *container in candidates) {
++        for (NSView *view in [container subviews]) {
++            BOOL isEffect = [view isKindOfClass:[NSVisualEffectView class]]
++                || (glassClass != nil && [view isKindOfClass:glassClass]);
++            if (isEffect) {
++                [view setHidden:YES];
++            }
++        }
++    }
 +}
 +
 +- (void) applyMetrics {
@@ -316,10 +354,11 @@ index 0000000..2a84b37
 +    [self.scrollView setFrame:NSMakeRect(0, 0, bounds.size.width, height)];
 +
 +    [self layoutTrafficLights];
++    [self clearTitlebarBackground];
 +}
 +
 +// Off unless the config asks for it. The window carries a unified toolbar,
-+// which insets the traffic lights natively, so this normally does nothing —
++// which insets the traffic lights natively, so this normally does nothing -
 +// AppKit re-lays them out on its own schedule and fighting that makes them
 +// intermittently unclickable.
 +- (void) layoutTrafficLights {
@@ -522,7 +561,9 @@ index 0000000..2a84b37
 +        return nil;
 +    }
 +    BOOL isGroup = [entry objectForKey:@"group"] != nil;
-+    CGFloat width = [self bounds].size.width;
++    // The table's width, not the panel's: source-list insets and the scroller
++    // make the row narrower than the view it sits in.
++    CGFloat width = [table bounds].size.width;
 +
 +    if (isGroup) {
 +        NSTextField *label = [NSTextField labelWithString:@""];
@@ -544,7 +585,8 @@ index 0000000..2a84b37
 +        initWithFrame:NSMakeRect(0, 0, width, WailsSidebarItemHeight)] autorelease];
 +    [cell setAutoresizingMask:NSViewWidthSizable];
 +
-+    NSImageView *icon = [[[NSImageView alloc] initWithFrame:NSMakeRect(8, 5, 18, 18)] autorelease];
++    NSImageView *icon = [[[NSImageView alloc]
++        initWithFrame:NSMakeRect(10, 6, 20, 20)] autorelease];
 +    [icon setImageScaling:NSImageScaleProportionallyDown];
 +#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
 +    id symbol = [entry objectForKey:@"symbol"];
@@ -552,21 +594,30 @@ index 0000000..2a84b37
 +        if (@available(macOS 11.0, *)) {
 +            NSImage *image = [NSImage imageWithSystemSymbolName:(NSString *)symbol
 +                                      accessibilityDescription:nil];
-+            [icon setImage:image];
++            NSImageSymbolConfiguration *configuration =
++                [NSImageSymbolConfiguration configurationWithPointSize:15
++                                                               weight:NSFontWeightRegular];
++            [icon setImage:[image imageWithSymbolConfiguration:configuration]];
 +        }
 +    }
 +#endif
 +#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
 +    if (@available(macOS 10.14, *)) {
-+        NSColor *tint = [self colorFromHex:[entry objectForKey:@"tint"]];
-+        [icon setContentTintColor:tint != nil ? tint : [NSColor controlAccentColor]];
++        [icon setContentTintColor:[self iconTintForRow:row]];
 +    }
 +#endif
 +    [cell addSubview:icon];
 +    [cell setImageView:icon];
 +
 +    NSTextField *label = [NSTextField labelWithString:@""];
-+    [label setFrame:NSMakeRect(34, 5, width - 44, 18)];
++    // Sized from the table, not the panel: the source-list style and the
++    // scroller inset both eat into the row, and measuring the wrong view is
++    // what was truncating longer titles.
++    CGFloat labelWidth = width - 48;
++    if (labelWidth < 40) {
++        labelWidth = 40;
++    }
++    [label setFrame:NSMakeRect(38, 7, labelWidth, 18)];
 +    [label setAutoresizingMask:NSViewWidthSizable];
 +    [label setFont:[NSFont systemFontOfSize:13]];
 +    [label setTextColor:[NSColor labelColor]];
@@ -579,7 +630,54 @@ index 0000000..2a84b37
 +    return cell;
 +}
 +
++// Source-list tables draw the accent colour while focused and grey otherwise.
++// Apple's media apps keep the grey, so emphasis is switched off per row rather
++// than letting selection flicker blue whenever the sidebar takes focus.
++- (void) tableView:(NSTableView *)table
++        didAddRowView:(NSTableRowView *)rowView
++               forRow:(NSInteger)row {
++    [rowView setEmphasized:NO];
++}
++
++// Grey while idle, accent once selected - the treatment Apple's media apps use.
++// An item may override the selected colour with a "tint" hex.
++- (NSColor*) iconTintForRow:(NSInteger)row {
++    if (![self.tableView isRowSelected:row]) {
++        return [NSColor secondaryLabelColor];
++    }
++    NSDictionary *entry = [self entryAtRow:row];
++    NSColor *tint = entry != nil
++        ? [self colorFromHex:[entry objectForKey:@"tint"]]
++        : nil;
++    if (tint != nil) {
++        return tint;
++    }
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
++    if (@available(macOS 10.14, *)) {
++        return [NSColor controlAccentColor];
++    }
++#endif
++    return [NSColor labelColor];
++}
++
++- (void) refreshIconTints {
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
++    if (@available(macOS 10.14, *)) {
++        NSInteger count = (NSInteger)[self.items count];
++        for (NSInteger row = 0; row < count; row++) {
++            id view = [self.tableView viewAtColumn:0 row:row makeIfNecessary:NO];
++            if (![view isKindOfClass:[NSTableCellView class]]) {
++                continue;
++            }
++            [[(NSTableCellView *)view imageView]
++                setContentTintColor:[self iconTintForRow:row]];
++        }
++    }
++#endif
++}
++
 +- (void) tableViewSelectionDidChange:(NSNotification *)notification {
++    [self refreshIconTints];
 +    if (self.suppressSelectionEvent) {
 +        return;
 +    }

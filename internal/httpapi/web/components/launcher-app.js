@@ -1,6 +1,6 @@
 import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
-import { nativeSidebar, SIDEBAR_COLUMN_WIDTH } from '../native-sidebar.js'
+import { SIDEBAR_COLUMN_WIDTH, nativeSidebar } from '../native-sidebar.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
@@ -29,13 +29,13 @@ const nativeSidebarItems = nativeNavigation.map(([id, title, symbol]) => ({
   symbol,
 }))
 
-const pageTitles = {
-  home: ['AGENT LAUNCHER', 'LOCAL AGENT ORCHESTRATOR'],
-  agents: ['MY AGENTS', 'MANAGE YOUR AGENTS'],
-  marketplace: ['MARKETPLACE', 'DISCOVER LOCAL AGENTS'],
-  activity: ['ACTIVITY', 'WHAT YOUR LAUNCHER HAS BEEN DOING'],
-  settings: ['SETTINGS', 'LAUNCHER PREFERENCES'],
-}
+const screens = new Set([
+  'home',
+  'agents',
+  'marketplace',
+  'activity',
+  'settings',
+])
 
 function statusFor(agent) {
   if (agent.state === 'running') {
@@ -58,7 +58,7 @@ function formatTime(value) {
 
 function formatBytes(value) {
   if (!Number.isFinite(value) || value <= 0) {
-    return '—'
+    return '-'
   }
 
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -123,10 +123,6 @@ export class LauncherApp extends HTMLElement {
     this.innerHTML = `
       <div class="launcher-shell">
         <aside class="sidebar">
-          <a class="brand" href="#" data-screen-link="home"
-            aria-label="Agent Launcher home">
-            <img src="/assets/logo.png" alt="" draggable="false">
-          </a>
           <nav class="main-navigation" aria-label="Primary navigation"
             data-navigation></nav>
           <button class="sidebar__footer" type="button" data-runtime-setup
@@ -137,14 +133,10 @@ export class LauncherApp extends HTMLElement {
         </aside>
         <main class="main-panel">
           <header class="topbar">
-            <div>
-              <h1 data-page-title>AGENT LAUNCHER</h1>
-              <p data-page-subtitle>LOCAL AGENT ORCHESTRATOR</p>
-            </div>
             <div class="window-controls" aria-label="Window controls">
               <button type="button" data-window-action="minimise"
                 aria-label="Minimise window" title="Minimise">
-                —
+                -
               </button>
               <button type="button" data-window-action="maximise"
                 aria-label="Maximise or restore window" title="Maximise or restore">
@@ -247,10 +239,14 @@ export class LauncherApp extends HTMLElement {
     this.addEventListener('deploy-agent', (event) => {
       if (!this.doctorReport) {
         this.openRuntimeSetup()
-        this.showToast('Set up the local runtime before installing agents', true)
+        this.showToast(
+          'Set up the local runtime before installing agents',
+          true
+        )
 
         return
       }
+
       this.querySelector('deploy-dialog').open(event.detail.entry)
     })
     this.addEventListener('install-agent', (event) => {
@@ -293,6 +289,7 @@ export class LauncherApp extends HTMLElement {
 
         return
       }
+
       this.openRuntimeSetup()
     })
   }
@@ -310,6 +307,7 @@ export class LauncherApp extends HTMLElement {
       this.catalog = catalog.catalog || []
       this.agents = instances.instances || []
       this.render()
+
       if (!doctor.ready) {
         this.openRuntimeSetup()
       }
@@ -369,6 +367,7 @@ export class LauncherApp extends HTMLElement {
       this.doctorReport = result.ready ? result.report : null
       this.runtimeSetup = result.ready ? null : result.setup
       this.render()
+
       if (result.ready) {
         dialog.close()
         this.showToast(
@@ -380,8 +379,8 @@ export class LauncherApp extends HTMLElement {
           result.setup?.state === 'missing'
             ? 'The installer has not been detected yet. Complete it, then check again.'
             : result.setup?.state === 'stopped'
-              ? ''
-              : result.error || 'The runtime is not ready yet.'
+            ? ''
+            : result.error || 'The runtime is not ready yet.'
         )
       }
     } catch (error) {
@@ -422,9 +421,13 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    const platform = globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
+    const platform =
+      globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
 
-    document.documentElement.classList.toggle('is-macos-desktop', /mac/i.test(platform))
+    document.documentElement.classList.toggle(
+      'is-macos-desktop',
+      /mac/i.test(platform)
+    )
   }
 
   setUpNativeSidebar() {
@@ -442,6 +445,7 @@ export class LauncherApp extends HTMLElement {
       if (!shell) {
         return
       }
+
       // The native panel owns its own inset, so the reserved column has to
       // match it exactly or the content slides under the floating edge.
       shell.style.setProperty('--sidebar-width', `${SIDEBAR_COLUMN_WIDTH}px`)
@@ -452,7 +456,7 @@ export class LauncherApp extends HTMLElement {
   }
 
   setScreen(screen) {
-    if (!pageTitles[screen]) {
+    if (!screens.has(screen)) {
       return
     }
 
@@ -485,11 +489,6 @@ export class LauncherApp extends HTMLElement {
     this.querySelectorAll('[data-screen]').forEach((screen) => {
       screen.hidden = screen.dataset.screen !== this.screen
     })
-
-    const [title, subtitle] = pageTitles[this.screen]
-
-    this.querySelector('[data-page-title]').textContent = title
-    this.querySelector('[data-page-subtitle]').textContent = subtitle
   }
 
   renderScreen() {
@@ -527,7 +526,7 @@ export class LauncherApp extends HTMLElement {
           <h2>Your Agents.<br><mark>Your Rules.</mark></h2>
           <p>
             Deploy specialized AI agents to automate, assist, and accelerate
-            your workflow—all on this computer.
+            your workflow-all on this computer.
           </p>
           <div class="button-row">
             <button class="primary-button" data-screen-link="marketplace">
@@ -614,7 +613,7 @@ export class LauncherApp extends HTMLElement {
       ['RUNNING AGENTS', online, 'LOCAL CONTAINERS'],
       [
         'RUNTIME',
-        this.doctorReport?.runtime?.toUpperCase() || '—',
+        this.doctorReport?.runtime?.toUpperCase() || '-',
         this.doctorReport?.version || 'NOT DETECTED',
       ],
     ]
@@ -792,11 +791,11 @@ export class LauncherApp extends HTMLElement {
       0
     )
     const resources = [
-      ['TOTAL CPU', running.length ? `${cpu.toFixed(1)}%` : '—', cpu],
+      ['TOTAL CPU', running.length ? `${cpu.toFixed(1)}%` : '-', cpu],
       ['MEMORY IN USE', formatBytes(memory), running.length ? 62 : 0],
       [
         'RUNTIME',
-        this.doctorReport?.runtime?.toUpperCase() || '—',
+        this.doctorReport?.runtime?.toUpperCase() || '-',
         this.doctorReport ? 100 : 0,
       ],
     ]
@@ -1108,6 +1107,7 @@ export class LauncherApp extends HTMLElement {
 
         return
       }
+
       this.recordActivity(
         'open',
         `Opened ${agent.name} in a browser`,

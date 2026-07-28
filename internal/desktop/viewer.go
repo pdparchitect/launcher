@@ -12,7 +12,7 @@ var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Name}} — Agent Launcher</title>
+  <title>{{.Name}} - Agent Launcher</title>
 </head>
 <body>
   <script>
