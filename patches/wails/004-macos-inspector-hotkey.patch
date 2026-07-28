@@ -1,8 +1,8 @@
 diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
-index 78ec2c6..41b5b55 100644
+index 78ec2c6..121bd58 100644
 --- a/internal/frontend/desktop/darwin/WailsContext.m
 +++ b/internal/frontend/desktop/darwin/WailsContext.m
-@@ -340,6 +340,31 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+@@ -340,6 +340,29 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
          return event;
      }];
  
@@ -21,8 +21,6 @@ index 78ec2c6..41b5b55 100644
 +        if ((flags & required) != required) {
 +            return event;
 +        }
-+        // charactersIgnoringModifiers rather than a key code, so the shortcut
-+        // survives non-QWERTY layouts.
 +        NSString *key = [[event charactersIgnoringModifiers] lowercaseString];
 +        if ([key isEqualToString:@"i"]) {
 +            processMessage("wails:openInspector");

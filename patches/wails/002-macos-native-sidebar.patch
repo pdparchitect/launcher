@@ -130,10 +130,10 @@ index 0000000..ab9d3e7
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..8de066a
+index 0000000..72ae982
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,579 @@
+@@ -0,0 +1,613 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -151,18 +151,22 @@ index 0000000..8de066a
 +static const CGFloat WailsSidebarItemHeight = 32.0;
 +static const CGFloat WailsSidebarGroupHeight = 34.0;
 +
-+// Apple's window and panel shapes are squircles, not plain rounded rectangles.
-+// The continuous curve is set through KVC so this file does not have to link
-+// QuartzCore just to reference kCACornerCurveContinuous.
-+static void WailsSidebarRoundCorners(CALayer *layer, CGFloat radius) {
-+    if (layer == nil) {
-+        return;
-+    }
-+    [layer setCornerRadius:radius];
-+    [layer setMasksToBounds:YES];
-+    if ([layer respondsToSelector:@selector(setCornerCurve:)]) {
-+        [layer setValue:@"continuous" forKey:@"cornerCurve"];
-+    }
++// NSVisualEffectView must be rounded with a mask image, not a layer corner
++// radius: layer masking silently disables its backdrop sampling, leaving a
++// flat grey panel that no longer shows the content behind it. A stretchable
++// image with cap insets gives the same rounded rect at any size.
++static NSImage* WailsSidebarRoundedMask(CGFloat radius) {
++    CGFloat side = (radius * 2) + 1;
++    NSImage *mask = [[[NSImage alloc] initWithSize:NSMakeSize(side, side)] autorelease];
++    [mask lockFocus];
++    [[NSColor blackColor] setFill];
++    [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0, 0, side, side)
++                                     xRadius:radius
++                                     yRadius:radius] fill];
++    [mask unlockFocus];
++    [mask setCapInsets:NSEdgeInsetsMake(radius, radius, radius, radius)];
++    [mask setResizingMode:NSImageResizingModeStretch];
++    return mask;
 +}
 +
 +// AppKit re-applies emphasis to row views whenever first-responder status
@@ -183,6 +187,7 @@ index 0000000..8de066a
 +- (void) applyToolbarStyle;
 +- (void) layoutTrafficLights;
 +- (void) clearTitlebarBackground;
++- (void) stripMaterialFrom:(NSView *)view;
 +- (void) refreshIconTints;
 +- (NSColor*) iconTintForRow:(NSInteger)row;
 +- (void) windowGeometryChanged:(NSNotification *)notification;
@@ -229,10 +234,11 @@ index 0000000..8de066a
 +    sidebar.suppressSelectionEvent = false;
 +    // Fixed margins top and bottom keep it floating as the window resizes.
 +    [sidebar setAutoresizingMask:NSViewHeightSizable | NSViewMaxXMargin];
-+    [sidebar setWantsLayer:YES];
 +    [sidebar setMaterial:NSVisualEffectMaterialSidebar];
 +    [sidebar setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
-+    [sidebar setState:NSVisualEffectStateFollowsWindowActiveState];
++    // Always active: following the window's active state dims the panel to a
++    // flat fill whenever the window is not key.
++    [sidebar setState:NSVisualEffectStateActive];
 +
 +    NSRect scrollFrame = NSMakeRect(
 +        0, 0, WailsSidebarDefaultWidth,
@@ -252,7 +258,13 @@ index 0000000..8de066a
 +    NSTableView *table = [[[NSTableView alloc] initWithFrame:NSZeroRect] autorelease];
 +    NSTableColumn *column = [[[NSTableColumn alloc] initWithIdentifier:@"wails.sidebar.item"] autorelease];
 +    [column setResizingMask:NSTableColumnAutoresizingMask];
++    // A table column defaults to 100pt wide. Left at that, every row is 100pt
++    // no matter how wide the panel is, and the labels truncate — which no
++    // amount of cell or label sizing can undo.
++    [column setMinWidth:40];
++    [column setWidth:WailsSidebarDefaultWidth];
 +    [table addTableColumn:column];
++    [table setColumnAutoresizingStyle:NSTableViewUniformColumnAutoresizingStyle];
 +    [table setHeaderView:nil];
 +    [table setBackgroundColor:[NSColor clearColor]];
 +    [table setFocusRingType:NSFocusRingTypeNone];
@@ -324,20 +336,36 @@ index 0000000..8de066a
 +    if (titlebar == nil) {
 +        return;
 +    }
-+    Class glassClass = NSClassFromString(@"NSGlassEffectView");
-+    NSMutableArray *candidates = [NSMutableArray array];
-+    [candidates addObject:titlebar];
-+    if ([titlebar superview] != nil) {
-+        [candidates addObject:[titlebar superview]];
++    // Walk up to the container AppKit installs the material into, then strip
++    // it out of the whole subtree — the backing is not always a direct child,
++    // which is why a one-level scan left the band visible.
++    NSView *root = [titlebar superview] != nil ? [titlebar superview] : titlebar;
++    [self stripMaterialFrom:root];
++}
++
++- (void) stripMaterialFrom:(NSView *)view {
++    if (view == nil) {
++        return;
 +    }
-+    for (NSView *container in candidates) {
-+        for (NSView *view in [container subviews]) {
-+            BOOL isEffect = [view isKindOfClass:[NSVisualEffectView class]]
-+                || (glassClass != nil && [view isKindOfClass:glassClass]);
-+            if (isEffect) {
-+                [view setHidden:YES];
++    Class glassClass = NSClassFromString(@"NSGlassEffectView");
++    for (NSView *child in [view subviews]) {
++        BOOL isEffect = [child isKindOfClass:[NSVisualEffectView class]]
++            || (glassClass != nil && [child isKindOfClass:glassClass]);
++        if (isEffect) {
++            // Hiding alone is not always enough; a hidden effect view can still
++            // contribute its fill, so it is emptied as well.
++            [child setHidden:YES];
++            if ([child respondsToSelector:@selector(setMaterial:)]) {
++                [(NSVisualEffectView *)child
++                    setState:NSVisualEffectStateInactive];
 +            }
++            continue;
 +        }
++        // Never descend into the buttons themselves.
++        if ([child isKindOfClass:[NSButton class]]) {
++            continue;
++        }
++        [self stripMaterialFrom:child];
 +    }
 +}
 +
@@ -352,12 +380,8 @@ index 0000000..8de066a
 +        [self setFrame:NSMakeRect(self.inset, self.inset, self.panelWidth, panelHeight)];
 +    }
 +
-+    // Rounded, bordered panel floating over the webview.
-+    [self setWantsLayer:YES];
-+    CALayer *layer = [self layer];
-+    WailsSidebarRoundCorners(layer, self.cornerRadius);
-+    [layer setBorderWidth:1.0];
-+    [layer setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.12] CGColor]];
++    // Rounded without touching the layer, so the backdrop keeps sampling.
++    [self setMaskImage:WailsSidebarRoundedMask(self.cornerRadius)];
 +
 +    NSRect bounds = [self bounds];
 +    CGFloat height = bounds.size.height - self.topInset;
@@ -365,6 +389,8 @@ index 0000000..8de066a
 +        height = 0;
 +    }
 +    [self.scrollView setFrame:NSMakeRect(0, 0, bounds.size.width, height)];
++    // Re-stretch the column whenever the panel resizes.
++    [self.tableView sizeLastColumnToFit];
 +
 +    [self layoutTrafficLights];
 +    [self clearTitlebarBackground];
@@ -648,6 +674,14 @@ index 0000000..8de066a
 +    ]];
 +
 +    return cell;
++}
++
++// Without this AppKit builds a stock NSTableRowView and the accent-coloured
++// focus highlight comes back — the subclass above only matters if it is the
++// one actually used.
++- (NSTableRowView *) tableView:(NSTableView *)table
++                 rowViewForRow:(NSInteger)row {
++    return [[[WailsSidebarRowView alloc] initWithFrame:NSZeroRect] autorelease];
 +}
 +
 +// Grey while idle, accent once selected — the treatment Apple's media apps use.
