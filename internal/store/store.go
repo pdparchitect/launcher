@@ -169,6 +169,24 @@ func (dataStore *Store) Paths(id string, manifest catalog.Manifest) Paths {
 	return Paths{Root: root, Mounts: mounts}
 }
 
+func (dataStore *Store) AgentRoot(id string) (string, error) {
+	if !domain.ValidID(id) {
+		return "", errors.New("invalid agent ID")
+	}
+	root := dataStore.instanceRoot(id)
+	info, err := os.Stat(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("inspect agent directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("agent path is not a directory")
+	}
+	return root, nil
+}
+
 func (dataStore *Store) write(instance domain.Instance) error {
 	data, err := json.MarshalIndent(instance, "", "  ")
 	if err != nil {

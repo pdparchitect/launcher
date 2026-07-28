@@ -4,6 +4,7 @@ import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
 import './marketplace-card.js'
+import './runtime-setup-dialog.js'
 
 const navigation = [
   ['home', 'HOME'],
@@ -75,6 +76,7 @@ export class LauncherApp extends HTMLElement {
     this.agents = []
     this.catalog = []
     this.doctorReport = null
+    this.runtimeSetup = null
     this.activity = []
     this.query = ''
     this.filter = 'all'
@@ -109,10 +111,11 @@ export class LauncherApp extends HTMLElement {
           </a>
           <nav class="main-navigation" aria-label="Primary navigation"
             data-navigation></nav>
-          <div class="sidebar__footer">
+          <button class="sidebar__footer" type="button" data-runtime-setup
+            title="Container runtime status">
             <span class="runtime-light"></span>
             <span><strong>LOCAL RUNTIME</strong><small data-runtime>CHECKING…</small></span>
-          </div>
+          </button>
         </aside>
         <main class="main-panel">
           <header class="topbar">
@@ -146,6 +149,7 @@ export class LauncherApp extends HTMLElement {
       </div>
       <deploy-dialog></deploy-dialog>
       <agent-actions-dialog></agent-actions-dialog>
+      <runtime-setup-dialog></runtime-setup-dialog>
       <div class="toast" role="status" aria-live="polite" data-toast hidden></div>
     `
 
@@ -223,6 +227,12 @@ export class LauncherApp extends HTMLElement {
       )
     })
     this.addEventListener('deploy-agent', (event) => {
+      if (!this.doctorReport) {
+        this.openRuntimeSetup()
+        this.showToast('Set up the local runtime before installing agents', true)
+
+        return
+      }
       this.querySelector('deploy-dialog').open(event.detail.entry)
     })
     this.addEventListener('install-agent', (event) => {
@@ -234,11 +244,38 @@ export class LauncherApp extends HTMLElement {
     this.addEventListener('load-agent-logs', (event) => {
       this.loadAgentLogs(event.detail.agent)
     })
+    this.addEventListener('open-agent-files', (event) => {
+      this.openAgentFiles(event.detail.agent)
+    })
     this.addEventListener('update-agent', (event) => {
       this.updateAgent(event.detail.agent)
     })
     this.addEventListener('delete-agent', (event) => {
       this.deleteAgent(event.detail.agent)
+    })
+    this.addEventListener('open-runtime-installer', (event) => {
+      const dialog = this.querySelector('runtime-setup-dialog')
+      const installURL = event.detail.setup?.installUrl
+
+      if (!installURL || !desktopWindow.openExternal(installURL)) {
+        dialog.showError('Could not open the official installation page.')
+      }
+    })
+    this.addEventListener('check-runtime', () => {
+      this.checkRuntime()
+    })
+    this.addEventListener('start-runtime', () => {
+      this.startRuntime()
+    })
+    this.querySelector('[data-runtime-setup]').addEventListener('click', () => {
+      if (this.doctorReport) {
+        this.showToast(
+          `${this.doctorReport.runtime} ${this.doctorReport.version} is ready`
+        )
+
+        return
+      }
+      this.openRuntimeSetup()
     })
   }
 
@@ -250,10 +287,14 @@ export class LauncherApp extends HTMLElement {
         this.api.instances(),
       ])
 
-      this.doctorReport = doctor.report || null
+      this.doctorReport = doctor.ready ? doctor.report : null
+      this.runtimeSetup = doctor.ready ? null : doctor.setup
       this.catalog = catalog.catalog || []
       this.agents = instances.instances || []
       this.render()
+      if (!doctor.ready) {
+        this.openRuntimeSetup()
+      }
     } catch (error) {
       console.error('Launcher startup failed:', error)
       this.showToast(error.message, true)
@@ -282,10 +323,77 @@ export class LauncherApp extends HTMLElement {
   }
 
   render() {
+    const runtimeControl = this.querySelector('[data-runtime-setup]')
+
+    runtimeControl.classList.toggle(
+      'sidebar__footer--unavailable',
+      !this.doctorReport
+    )
     this.querySelector('[data-runtime]').textContent = this.doctorReport
       ? `${this.doctorReport.runtime} ${this.doctorReport.version}`
       : 'UNAVAILABLE'
     this.renderScreen()
+  }
+
+  openRuntimeSetup() {
+    this.querySelector('runtime-setup-dialog').open(this.runtimeSetup)
+  }
+
+  async checkRuntime() {
+    const dialog = this.querySelector('runtime-setup-dialog')
+
+    dialog.setBusy(true, 'CHECKING…')
+    dialog.showError('')
+
+    try {
+      const result = await this.api.doctor()
+
+      this.doctorReport = result.ready ? result.report : null
+      this.runtimeSetup = result.ready ? null : result.setup
+      this.render()
+      if (result.ready) {
+        dialog.close()
+        this.showToast(
+          `${result.report.runtime} ${result.report.version} is ready`
+        )
+      } else {
+        dialog.open(result.setup)
+        dialog.showError(
+          result.setup?.state === 'missing'
+            ? 'The installer has not been detected yet. Complete it, then check again.'
+            : result.setup?.state === 'stopped'
+              ? ''
+              : result.error || 'The runtime is not ready yet.'
+        )
+      }
+    } catch (error) {
+      dialog.showError(error.message)
+    } finally {
+      dialog.setBusy(false)
+    }
+  }
+
+  async startRuntime() {
+    const dialog = this.querySelector('runtime-setup-dialog')
+
+    dialog.setBusy(true, 'STARTING…')
+    dialog.showError('')
+
+    try {
+      const result = await this.api.startRuntime()
+
+      this.doctorReport = result.report
+      this.runtimeSetup = null
+      this.render()
+      dialog.close()
+      this.showToast(
+        `${result.report.runtime} ${result.report.version} is ready`
+      )
+    } catch (error) {
+      dialog.showError(error.message)
+    } finally {
+      dialog.setBusy(false)
+    }
   }
 
   setScreen(screen) {
@@ -935,7 +1043,11 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    window.open(agent.url, '_blank', 'noopener')
+    if (!desktopWindow.openExternal(agent.url)) {
+      this.showToast(`Could not open ${agent.name}`, true)
+
+      return
+    }
     this.recordActivity(
       'open',
       `Opened ${agent.name}`,
@@ -1015,6 +1127,28 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
+  async openAgentFiles(agent) {
+    const dialog = this.querySelector('agent-actions-dialog')
+
+    dialog.setBusy(true)
+
+    try {
+      await this.api.openFiles(agent.id)
+      this.recordActivity(
+        'open',
+        `Opened ${agent.name} files`,
+        agent.name,
+        'Opened Launcher-managed local files'
+      )
+      dialog.close()
+      this.showToast(`${agent.name} local files opened`)
+    } catch (error) {
+      this.showToast(error.message, true)
+    } finally {
+      dialog.setBusy(false)
+    }
+  }
+
   async updateAgent(agent) {
     const dialog = this.querySelector('agent-actions-dialog')
 
@@ -1022,16 +1156,22 @@ export class LauncherApp extends HTMLElement {
     dialog.showError('update', '')
 
     try {
-      const updated = await this.api.update(agent.id)
+      const updated = await this.api.update(agent.id, (progress) => {
+        dialog.setUpdateProgress(progress)
+      })
 
+      dialog.setUpdateProgress({
+        stage: 'ready',
+        message: `${agent.name} is up to date`,
+      })
       this.recordActivity(
         'update',
         `Updated ${agent.name}`,
         agent.name,
         `${agent.image} → ${updated.image}`
       )
-      dialog.close()
       await this.refreshAgents()
+      setTimeout(() => dialog.close(), 500)
       this.showToast(`${agent.name} updated`)
     } catch (error) {
       dialog.showError('update', error.message)

@@ -262,11 +262,38 @@ func TestDeploymentUsesNativeDialogInsteadOfBrowserPrompt(t *testing.T) {
 	}
 }
 
+func TestUpdateDialogStreamsProgressAndRetainsLogs(t *testing.T) {
+	source := readWebSources(
+		t,
+		"api.js",
+		"components/agent-actions-dialog.js",
+		"components/launcher-app.js",
+	)
+	for _, expected := range []string{
+		"progressRequest(",
+		"`/api/instances/${encodeURIComponent(id)}/update`",
+		"data-update-progress",
+		"data-update-progress-bar",
+		"UPDATE LOG",
+		"setUpdateProgress(update)",
+		"appendUpdateLog(update.stage, update.message)",
+		"'DOWNLOADING'",
+		"'RECOVERING'",
+		"dialog.setUpdateProgress(progress)",
+		"setTimeout(() => dialog.close(), 500)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing update progress behavior %q", expected)
+		}
+	}
+}
+
 func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 	source := readWebSources(
 		t,
 		"components/agent-card.js",
 		"components/launcher-app.js",
+		"desktop-window.js",
 	)
 	for _, expected := range []string{
 		"metrics?.cpuPercent",
@@ -274,6 +301,9 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"metrics?.uptimeSeconds",
 		"item.id === agent.catalogId",
 		"setInterval(() => this.refreshAgents(), 5000)",
+		"desktopWindow.openExternal(agent.url)",
+		"`Could not open ${agent.name}`",
+		"BrowserOpenURL",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("interface missing runtime behavior %q", expected)
@@ -289,6 +319,7 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 func TestAgentActionsUseNativeDialogAndFunctionalButtons(t *testing.T) {
 	source := readWebSources(
 		t,
+		"api.js",
 		"components/agent-actions-dialog.js",
 		"components/launcher-app.js",
 	)
@@ -296,15 +327,20 @@ func TestAgentActionsUseNativeDialogAndFunctionalButtons(t *testing.T) {
 		"data-launcher-actions-dialog",
 		"RENAME AGENT",
 		"VIEW LOGS",
+		"OPEN LOCAL FILES",
 		"UPDATE AGENT",
 		"DELETE AGENT",
 		"'rename-agent'",
 		"'load-agent-logs'",
+		"'open-agent-files'",
 		"'update-agent'",
 		"'delete-agent'",
 		"this.renameAgent(event.detail)",
 		"this.loadAgentLogs(event.detail.agent)",
+		"this.openAgentFiles(event.detail.agent)",
 		"this.updateAgent(event.detail.agent)",
+		"this.api.openFiles(agent.id)",
+		"`/api/instances/${encodeURIComponent(id)}/files`",
 		"this.deleteAgent(event.detail.agent)",
 	} {
 		if !strings.Contains(source, expected) {
@@ -355,6 +391,35 @@ func TestFailedStartShowsRuntimeLogToast(t *testing.T) {
 	}
 }
 
+func TestRuntimeSetupDialogGuidesInstallationAndRechecksRuntime(t *testing.T) {
+	source := readWebSources(
+		t,
+		"api.js",
+		"desktop-window.js",
+		"components/launcher-app.js",
+		"components/runtime-setup-dialog.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		"<runtime-setup-dialog></runtime-setup-dialog>",
+		"<dialog class=\"launcher-dialog runtime-setup-dialog\"",
+		"OPEN INSTALLATION PAGE",
+		"installer-signed.pkg",
+		"CHECK AGAIN",
+		"START RUNTIME",
+		"startRuntime()",
+		"'/api/runtime/start'",
+		"desktopWindow.openExternal(installURL)",
+		"BrowserOpenURL",
+		"this.openRuntimeSetup()",
+		".sidebar__footer--unavailable .runtime-light",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing runtime setup behavior %q", expected)
+		}
+	}
+}
+
 func TestAgentPaginationReflectsActualResultCount(t *testing.T) {
 	source := readWebSources(t, "components/launcher-app.js")
 	for _, expected := range []string{
@@ -383,6 +448,7 @@ func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
 		"components/marketplace-card.js",
 		"components/deploy-dialog.js",
 		"components/agent-actions-dialog.js",
+		"components/runtime-setup-dialog.js",
 	)
 	for _, expected := range []string{
 		`customElements.define('launcher-app'`,
@@ -390,6 +456,7 @@ func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
 		`customElements.define('marketplace-card'`,
 		`customElements.define('deploy-dialog'`,
 		`customElements.define('agent-actions-dialog'`,
+		`customElements.define('runtime-setup-dialog'`,
 		`<script type="module" src="/main.js">`,
 	} {
 		if !strings.Contains(source, expected) {
@@ -518,6 +585,85 @@ func TestAPIRequiresSessionToken(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestDoctorReturnsMissingRuntimeSetupInstructions(t *testing.T) {
+	service := &fakeService{doctorErr: &fakeRuntimeInstallError{}}
+	request := apiRequest(http.MethodGet, "/api/doctor", nil)
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var body struct {
+		Ready bool                 `json:"ready"`
+		Setup runtimeSetupResponse `json:"setup"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Ready ||
+		body.Setup.State != "missing" ||
+		body.Setup.Runtime != "Apple container" ||
+		body.Setup.InstallURL !=
+			"https://github.com/apple/container/releases/latest" ||
+		body.Setup.Guidance == "" ||
+		body.Setup.CanStart {
+		t.Fatalf("doctor response = %#v", body)
+	}
+}
+
+func TestDoctorReturnsStartableRuntimeSetup(t *testing.T) {
+	service := &fakeService{doctorErr: &fakeRuntimeStartError{}}
+	request := apiRequest(http.MethodGet, "/api/doctor", nil)
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var body struct {
+		Ready bool                 `json:"ready"`
+		Setup runtimeSetupResponse `json:"setup"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Ready ||
+		body.Setup.State != "stopped" ||
+		body.Setup.Runtime != "Apple container" ||
+		!body.Setup.CanStart ||
+		body.Setup.InstallURL != "" {
+		t.Fatalf("doctor response = %#v", body)
+	}
+}
+
+func TestStartRuntimeStartsServiceAndReturnsReadyReport(t *testing.T) {
+	service := &fakeService{}
+	startError := &fakeRuntimeStartError{service: service}
+	service.doctorErr = startError
+	request := apiRequest(http.MethodPost, "/api/runtime/start", []byte(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var body struct {
+		Ready  bool               `json:"ready"`
+		Report agent.DoctorReport `json:"report"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !startError.started || !body.Ready || body.Report.Runtime != "docker" {
+		t.Fatalf("runtime start response = %#v, started = %v", body, startError.started)
 	}
 }
 
@@ -681,8 +827,26 @@ func TestUpdateInstanceInvokesLifecycleService(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
+	if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(
+		contentType,
+		"application/x-ndjson",
+	) {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
 	if service.updated != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("updated = %q", service.updated)
+	}
+	for _, expected := range []string{
+		`"type":"progress"`,
+		`"stage":"pulling"`,
+		`"stage":"replacing"`,
+		`"stage":"ready"`,
+		`"type":"complete"`,
+		`"image":"pantalk/ghost:new"`,
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("update stream missing %q: %q", expected, response.Body.String())
+		}
 	}
 }
 
@@ -708,6 +872,37 @@ func TestRenameInstanceUpdatesDisplayName(t *testing.T) {
 			service.renamedReference,
 			service.renamedName,
 		)
+	}
+}
+
+func TestOpenInstanceFilesUsesManagedAgentPath(t *testing.T) {
+	service := &fakeService{
+		filesPath: "/tmp/launcher/agents/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	var opened string
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/files",
+		[]byte(`{}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(
+		service,
+		"test-token",
+		WithPathOpener(func(path string) error {
+			opened = path
+			return nil
+		}),
+	).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if opened != service.filesPath ||
+		!strings.Contains(response.Body.String(), service.filesPath) {
+		t.Fatalf("opened = %q, body = %q", opened, response.Body.String())
 	}
 }
 
@@ -747,9 +942,14 @@ type fakeService struct {
 	renamedName      string
 	logs             string
 	logLines         int
+	doctorErr        error
+	filesPath        string
 }
 
-func (*fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
+func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
+	if service.doctorErr != nil {
+		return agent.DoctorReport{}, service.doctorErr
+	}
 	return agent.DoctorReport{
 		Runtime: "docker", Version: "test", DataRoot: "/tmp/launcher",
 		DefaultImage: "pantalk/ghost:test",
@@ -802,6 +1002,20 @@ func (service *fakeService) Update(
 	instance.Image = "pantalk/ghost:new"
 	return instance, nil
 }
+func (service *fakeService) UpdateWithProgress(
+	ctx context.Context,
+	reference string,
+	progress func(agent.UpdateProgress),
+) (domain.Instance, error) {
+	for _, update := range []agent.UpdateProgress{
+		{Stage: agent.UpdateStagePulling, Message: "Pulling updated image"},
+		{Stage: agent.UpdateStageReplacing, Message: "Replacing container"},
+		{Stage: agent.UpdateStageReady, Message: "Agent update is ready"},
+	} {
+		progress(update)
+	}
+	return service.Update(ctx, reference)
+}
 func (*fakeService) Delete(context.Context, string) error { return nil }
 func (service *fakeService) Rename(
 	_ context.Context,
@@ -822,7 +1036,41 @@ func (service *fakeService) RecentLogs(
 	service.logLines = lines
 	return service.logs, nil
 }
+func (service *fakeService) AgentFiles(
+	context.Context,
+	string,
+) (string, error) {
+	return service.filesPath, nil
+}
 func (*fakeService) Logs(context.Context, string, bool) error {
+	return nil
+}
+
+type fakeRuntimeInstallError struct{}
+
+func (*fakeRuntimeInstallError) Error() string {
+	return "Apple container runtime is missing"
+}
+func (*fakeRuntimeInstallError) RuntimeName() string { return "Apple container" }
+func (*fakeRuntimeInstallError) InstallURL() string {
+	return "https://github.com/apple/container/releases/latest"
+}
+func (*fakeRuntimeInstallError) InstallGuidance() string {
+	return "Download and run the signed installer package."
+}
+
+type fakeRuntimeStartError struct {
+	service *fakeService
+	started bool
+}
+
+func (*fakeRuntimeStartError) Error() string {
+	return "Apple container service is stopped"
+}
+func (*fakeRuntimeStartError) RuntimeName() string { return "Apple container" }
+func (runtimeError *fakeRuntimeStartError) StartService(context.Context) error {
+	runtimeError.started = true
+	runtimeError.service.doctorErr = nil
 	return nil
 }
 

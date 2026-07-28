@@ -200,6 +200,10 @@ If the selected runtime is missing, `launcher doctor` offers to open its
 official installation page. It never downloads or executes an installer
 silently. If Apple `container` is installed but its service is stopped,
 `doctor` offers to start the service. Use `--no-prompt` in scripts and CI.
+The desktop application presents the same recovery as a guided setup dialog.
+It opens the official installation page, explains the signed package steps,
+rechecks the standard executable locations without requiring an application
+restart, and can start and verify an installed Apple container service.
 On macOS, Launcher checks both the inherited `PATH` and the standard
 `/usr/local/bin/container` and `/opt/homebrew/bin/container` locations so the
 packaged application works when opened from Finder. A successful `doctor`

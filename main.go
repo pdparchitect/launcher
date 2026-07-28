@@ -52,13 +52,14 @@ func main() {
 			RuntimePath: selection.Path,
 		},
 	)
+	systemOpener := cli.SystemOpener{}
 	appOptions := []cli.Option{
 		cli.WithInput(os.Stdin),
 		cli.WithServer(func(
 			ctx context.Context,
 			options cli.ServeOptions,
 		) error {
-			return webapp.Run(ctx, service, cli.SystemOpener{}, webapp.Options{
+			return webapp.Run(ctx, service, systemOpener, webapp.Options{
 				Listen: options.Listen,
 				Open:   options.Open,
 				Stdout: os.Stdout,
@@ -70,14 +71,15 @@ func main() {
 			appOptions,
 			cli.WithDesktop(func(ctx context.Context) error {
 				return desktop.Run(ctx, service, desktop.Options{
-					Stdout: os.Stdout,
+					Stdout:   os.Stdout,
+					OpenPath: systemOpener.OpenPath,
 				})
 			}),
 		)
 	}
 	app := cli.New(
 		service,
-		cli.SystemOpener{},
+		systemOpener,
 		os.Stdout,
 		os.Stderr,
 		version,

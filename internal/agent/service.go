@@ -81,6 +81,23 @@ type CreateProgress struct {
 	Message string      `json:"message"`
 }
 
+type UpdateStage string
+
+const (
+	UpdateStagePreparing UpdateStage = "preparing"
+	UpdateStagePulling   UpdateStage = "pulling"
+	UpdateStageStopping  UpdateStage = "stopping"
+	UpdateStageReplacing UpdateStage = "replacing"
+	UpdateStageStarting  UpdateStage = "starting"
+	UpdateStageRestoring UpdateStage = "restoring"
+	UpdateStageReady     UpdateStage = "ready"
+)
+
+type UpdateProgress struct {
+	Stage   UpdateStage `json:"stage"`
+	Message string      `json:"message"`
+}
+
 type View struct {
 	domain.Instance
 	CatalogSlug     string
@@ -179,9 +196,15 @@ func (service *Service) Doctor(ctx context.Context) (DoctorReport, error) {
 	if err != nil {
 		return DoctorReport{}, err
 	}
+	runtimePath := service.options.RuntimePath
+	if reporter, ok := service.runtime.(interface{ RuntimePath() string }); ok {
+		if detectedPath := reporter.RuntimePath(); detectedPath != "" {
+			runtimePath = detectedPath
+		}
+	}
 	report := DoctorReport{
 		Runtime: service.options.RuntimeName, Version: version,
-		Executable: service.options.RuntimePath,
+		Executable: runtimePath,
 		DataRoot:   service.store.Root(),
 	}
 	if manifest, exists := service.manifest(service.options.DefaultCatalogID); exists {
@@ -428,6 +451,20 @@ func (service *Service) Update(
 	ctx context.Context,
 	reference string,
 ) (domain.Instance, error) {
+	return service.UpdateWithProgress(ctx, reference, nil)
+}
+
+func (service *Service) UpdateWithProgress(
+	ctx context.Context,
+	reference string,
+	progress func(UpdateProgress),
+) (domain.Instance, error) {
+	report := func(stage UpdateStage, message string) {
+		if progress != nil {
+			progress(UpdateProgress{Stage: stage, Message: message})
+		}
+	}
+	report(UpdateStagePreparing, "Checking the current agent")
 	instance, err := service.store.Get(reference)
 	if err != nil {
 		return domain.Instance{}, err
@@ -443,6 +480,7 @@ func (service *Service) Update(
 		return domain.Instance{}, errors.New("catalogue image is empty")
 	}
 	if targetImage == instance.Image {
+		report(UpdateStageReady, "Agent is already up to date")
 		return instance, nil
 	}
 	status, err := service.runtime.Status(ctx, instance.ContainerName)
@@ -452,16 +490,31 @@ func (service *Service) Update(
 	shouldStart := instance.DesiredState == domain.DesiredRunning ||
 		status == launchruntime.StatusRunning ||
 		status == launchruntime.StatusRestarting
-	if err := service.runtime.Pull(ctx, targetImage); err != nil {
+	report(UpdateStagePulling, "Pulling the updated agent image")
+	pull := service.runtime.Pull
+	if progressRuntime, ok := service.runtime.(pullProgressRuntime); ok {
+		pull = func(ctx context.Context, image string) error {
+			return progressRuntime.PullWithProgress(
+				ctx,
+				image,
+				func(message string) {
+					report(UpdateStagePulling, message)
+				},
+			)
+		}
+	}
+	if err := pull(ctx, targetImage); err != nil {
 		return domain.Instance{}, fmt.Errorf("pull agent update: %w", err)
 	}
 	if status == launchruntime.StatusRunning ||
 		status == launchruntime.StatusRestarting ||
 		status == launchruntime.StatusPaused {
+		report(UpdateStageStopping, "Stopping the current agent")
 		if err := service.runtime.Stop(ctx, instance.ContainerName); err != nil {
 			return domain.Instance{}, fmt.Errorf("stop agent for update: %w", err)
 		}
 	}
+	report(UpdateStageReplacing, "Replacing the runtime container")
 	if err := service.runtime.Remove(
 		ctx,
 		instance.ContainerName,
@@ -476,6 +529,10 @@ func (service *Service) Update(
 		updated.DesiredState = domain.DesiredRunning
 	}
 	if err := service.createRuntimeContainer(ctx, updated, manifest, paths); err != nil {
+		report(
+			UpdateStageRestoring,
+			"Update failed; restoring the previous runtime container",
+		)
 		rollbackErr := service.restoreRuntimeContainer(
 			ctx,
 			instance,
@@ -499,12 +556,14 @@ func (service *Service) Update(
 		return domain.Instance{}, fmt.Errorf("save updated agent image: %w", err)
 	}
 	if shouldStart {
+		report(UpdateStageStarting, "Starting the updated agent")
 		if err := service.runtime.Start(ctx, updated.ContainerName); err != nil {
 			updated.DesiredState = domain.DesiredStopped
 			_ = service.store.Save(updated)
 			return updated, fmt.Errorf("start updated agent: %w", err)
 		}
 	}
+	report(UpdateStageReady, "Agent update is ready")
 	return updated, nil
 }
 
@@ -572,6 +631,20 @@ func (service *Service) RecentLogs(
 		return "", err
 	}
 	return service.runtime.RecentLogs(ctx, instance.ContainerName, lines)
+}
+
+func (service *Service) AgentFiles(
+	ctx context.Context,
+	reference string,
+) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	instance, err := service.store.Get(reference)
+	if err != nil {
+		return "", err
+	}
+	return service.store.AgentRoot(instance.ID)
 }
 
 func (service *Service) Delete(ctx context.Context, reference string) error {

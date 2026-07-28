@@ -332,6 +332,45 @@ func TestDetectReturnsInstallableMissingRuntime(t *testing.T) {
 	}
 }
 
+func TestMissingRuntimeRecoversAfterOfficialInstallerCompletes(t *testing.T) {
+	installed := false
+	runner := &fakeRunner{captureResults: []Result{
+		{Stdout: []byte(`{"status":"running"}`)},
+		{Stdout: []byte(`[{"appName":"container","version":"1.0.0"}]`)},
+	}}
+	selection, err := Detect(DetectOptions{
+		GOOS:      "darwin",
+		GOARCH:    "arm64",
+		Requested: "container",
+		LookPath: func(name string) (string, error) {
+			if installed && name == "/usr/local/bin/container" {
+				return name, nil
+			}
+			return "", errExit
+		},
+		Runner: runner,
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if _, err := selection.Runtime.Doctor(t.Context()); err == nil {
+		t.Fatal("Doctor() error = nil before installation")
+	}
+
+	installed = true
+	version, err := selection.Runtime.Doctor(t.Context())
+
+	if err != nil || version != "1.0.0" {
+		t.Fatalf("Doctor() = %q, %v after installation", version, err)
+	}
+	recovered, ok := selection.Runtime.(*Missing)
+	if !ok || recovered.RuntimePath() != "/usr/local/bin/container" {
+		t.Fatalf("recovered runtime = %#v", selection.Runtime)
+	}
+}
+
 func TestOSRunnerCapturesStandardError(t *testing.T) {
 	result, err := (OSRunner{}).Capture(
 		context.Background(),

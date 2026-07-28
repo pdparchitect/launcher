@@ -33,3 +33,24 @@ func (SystemOpener) Open(url string) error {
 	}
 	return nil
 }
+
+func (SystemOpener) OpenPath(target string) error {
+	var name string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		name, args = "open", []string{target}
+	case "windows":
+		name, args = "explorer.exe", []string{target}
+	default:
+		name, args = "xdg-open", []string{target}
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return fmt.Errorf("find file manager: %w", err)
+	}
+	if err := exec.Command(path, args...).Start(); err != nil {
+		return fmt.Errorf("open local files: %w", err)
+	}
+	return nil
+}

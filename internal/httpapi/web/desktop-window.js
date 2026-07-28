@@ -1,11 +1,11 @@
-function invoke(method) {
+function invoke(method, ...args) {
   const action = globalThis.runtime?.[method]
 
   if (typeof action !== 'function') {
     return false
   }
 
-  action()
+  action(...args)
   return true
 }
 
@@ -24,5 +24,13 @@ export const desktopWindow = {
 
   close() {
     return invoke('Quit')
+  },
+
+  openExternal(url) {
+    if (invoke('BrowserOpenURL', url)) {
+      return true
+    }
+
+    return Boolean(window.open(url, '_blank', 'noopener'))
   },
 }

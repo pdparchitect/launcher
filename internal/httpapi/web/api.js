@@ -46,6 +46,14 @@ export class LauncherAPI {
     return this.request('/api/doctor')
   }
 
+  startRuntime() {
+    return this.request('/api/runtime/start', {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 5 * 60 * 1000,
+    })
+  }
+
   catalog() {
     return this.request('/api/catalog')
   }
@@ -68,12 +76,13 @@ export class LauncherAPI {
     })
   }
 
-  update(id) {
-    return this.request(`/api/instances/${encodeURIComponent(id)}/update`, {
-      method: 'POST',
-      body: '{}',
-      timeoutMs: 15 * 60 * 1000,
-    })
+  update(id, onProgress) {
+    return this.progressRequest(
+      `/api/instances/${encodeURIComponent(id)}/update`,
+      {},
+      onProgress,
+      'Update'
+    )
   }
 
   rename(id, name) {
@@ -87,6 +96,13 @@ export class LauncherAPI {
     return this.request(`/api/instances/${encodeURIComponent(id)}/logs`)
   }
 
+  openFiles(id) {
+    return this.request(`/api/instances/${encodeURIComponent(id)}/files`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }
+
   delete(id) {
     return this.request(`/api/instances/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -94,72 +110,98 @@ export class LauncherAPI {
   }
 
   async install(catalogId, name, onProgress) {
-    const response = await fetch('/api/instances/install', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Launcher-Token': this.token,
-      },
-      body: JSON.stringify({ catalogId, name }),
-    })
+    return this.progressRequest(
+      '/api/instances/install',
+      { catalogId, name },
+      onProgress,
+      'Installation'
+    )
+  }
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
+  async progressRequest(path, body, onProgress, operation) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000)
 
-      throw new Error(
-        body.error || `Installation request failed (${response.status})`
-      )
-    }
-
-    if (!response.body) {
-      throw new Error('Installation progress stream is unavailable')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let installed = null
-
-    while (true) {
-      const result = await reader.read()
-
-      buffer += decoder.decode(result.value || new Uint8Array(), {
-        stream: !result.done,
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Launcher-Token': this.token,
+        },
+        body: JSON.stringify(body),
       })
 
-      const lines = buffer.split('\n')
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
 
-      buffer = result.done ? '' : lines.pop()
+        throw new Error(
+          errorBody.error ||
+            `${operation} request failed (${response.status})`
+        )
+      }
 
-      for (const line of lines) {
-        if (!line.trim()) {
-          continue
+      if (!response.body) {
+        throw new Error(`${operation} progress stream is unavailable`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let completed = null
+
+      while (true) {
+        const result = await reader.read()
+
+        buffer += decoder.decode(result.value || new Uint8Array(), {
+          stream: !result.done,
+        })
+
+        const lines = buffer.split('\n')
+
+        buffer = result.done ? '' : lines.pop()
+
+        for (const line of lines) {
+          if (!line.trim()) {
+            continue
+          }
+
+          const update = JSON.parse(line)
+
+          if (update.type === 'error') {
+            throw new Error(update.error || `${operation} failed`)
+          }
+
+          if (update.type === 'progress') {
+            onProgress?.(update)
+          }
+
+          if (update.type === 'complete') {
+            completed = update.instance
+          }
         }
 
-        const update = JSON.parse(line)
-
-        if (update.type === 'error') {
-          throw new Error(update.error || 'Installation failed')
-        }
-
-        if (update.type === 'progress') {
-          onProgress(update)
-        }
-
-        if (update.type === 'complete') {
-          installed = update.instance
+        if (result.done) {
+          break
         }
       }
 
-      if (result.done) {
-        break
+      if (!completed) {
+        throw new Error(
+          `${operation} ended before the agent was ready`
+        )
       }
-    }
 
-    if (!installed) {
-      throw new Error('Installation ended before the agent was ready')
-    }
+      return completed
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(`${operation} request timed out`)
+      }
 
-    return installed
+      throw error
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 }
