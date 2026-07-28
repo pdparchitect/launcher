@@ -1,0 +1,36 @@
+diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
+index 78ec2c6..41b5b55 100644
+--- a/internal/frontend/desktop/darwin/WailsContext.m
++++ b/internal/frontend/desktop/darwin/WailsContext.m
+@@ -340,6 +340,31 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+         return event;
+     }];
+ 
++    // Cmd+Option+I opens the Web Inspector, the combo every browser uses.
++    // Wails only binds Cmd+Shift+F12, which the system often swallows. The
++    // message is a no-op unless the binary was built with the devtools tag, so
++    // this is inert in a release build.
++    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent * _Nullable(NSEvent * _Nonnull event) {
++        if ([event window] != self.mainWindow) {
++            return event;
++        }
++        NSEventModifierFlags required =
++            NSEventModifierFlagCommand | NSEventModifierFlagOption;
++        NSEventModifierFlags flags =
++            [event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
++        if ((flags & required) != required) {
++            return event;
++        }
++        // charactersIgnoringModifiers rather than a key code, so the shortcut
++        // survives non-QWERTY layouts.
++        NSString *key = [[event charactersIgnoringModifiers] lowercaseString];
++        if ([key isEqualToString:@"i"]) {
++            processMessage("wails:openInspector");
++            return nil;
++        }
++        return event;
++    }];
++
+     self.applicationMenu = [NSMenu new];
+ 
+ }
