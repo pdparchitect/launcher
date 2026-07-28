@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,8 @@ func Run(
 	return run(ctx, service, options)
 }
 
+// RunViewer resolves an agent through the container runtime before opening it.
+// Used by "launcher viewer NAME" from a terminal, where nothing is resolved yet.
 func RunViewer(
 	ctx context.Context,
 	service httpapi.Service,
@@ -43,15 +46,37 @@ func RunViewer(
 			break
 		}
 	}
-	return runViewer(ctx, view, viewer)
+	return runViewer(ctx, view.Name, view.URL(), viewer)
 }
 
-func SpawnViewer(reference string) error {
+// RunViewerTarget opens an already-resolved agent. The launcher process has
+// just inspected the container to serve the request, so repeating that here
+// would add seconds of container-runtime latency before the window appears.
+func RunViewerTarget(ctx context.Context, target httpapi.ViewerTarget) error {
+	if target.URL == "" {
+		return errors.New("agent window needs a resolved agent URL")
+	}
+	viewer := target.Viewer
+	if viewer == "" {
+		viewer = "web"
+	}
+	return runViewer(ctx, target.Name, target.URL, viewer)
+}
+
+// SpawnViewer starts the viewer as a separate process, passing the resolved
+// target so the child skips catalogue and container-runtime lookups entirely.
+func SpawnViewer(target httpapi.ViewerTarget) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate Launcher executable: %w", err)
 	}
-	command := exec.Command(executable, "viewer", reference)
+	command := exec.Command(
+		executable,
+		"viewer",
+		"--url", target.URL,
+		"--name", target.Name,
+		"--viewer", target.Viewer,
+	)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start agent window: %w", err)
 	}

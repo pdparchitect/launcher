@@ -23,7 +23,7 @@ func TestViewerPageNavigatesToRunningAgentURL(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 
-	viewerHandler(view, "kasmvnc").ServeHTTP(response, request)
+	viewerHandler(view.Name, view.URL(), "kasmvnc").ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)

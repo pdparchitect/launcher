@@ -114,10 +114,10 @@ index 0000000..aea1e78
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..7a157b5
+index 0000000..593044d
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,306 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -275,6 +275,11 @@ index 0000000..7a157b5
 +    if ([selected isKindOfClass:[NSString class]]) {
 +        [self selectItemWithID:(NSString *)selected notify:false];
 +    }
++
++    // Lets the page confirm a real native sidebar exists before it hides its
++    // own HTML one. Builds without this patch never fire it.
++    [self.context ExecJS:@"window.wailsNativeSidebar = true;"
++        "window.dispatchEvent(new CustomEvent('wails:sidebar-ready'));"];
 +}
 +
 +- (void) selectItemWithID:(NSString*)itemID notify:(bool)notify {

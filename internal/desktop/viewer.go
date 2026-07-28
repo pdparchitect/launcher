@@ -5,8 +5,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-
-	"github.com/pdparchitect/launcher/internal/agent"
 )
 
 var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
@@ -42,7 +40,7 @@ func viewerURL(rawURL string, viewer string) string {
 	return target.String()
 }
 
-func viewerHandler(view agent.View, viewer string) http.Handler {
+func viewerHandler(name string, target string, viewer string) http.Handler {
 	return http.HandlerFunc(func(
 		response http.ResponseWriter,
 		request *http.Request,
@@ -53,8 +51,8 @@ func viewerHandler(view agent.View, viewer string) http.Handler {
 		}
 		var page bytes.Buffer
 		if err := viewerPage.Execute(&page, map[string]string{
-			"Name":   view.Name,
-			"Target": viewerURL(view.URL(), viewer),
+			"Name":   name,
+			"Target": viewerURL(target, viewer),
 		}); err != nil {
 			http.Error(response, "prepare agent viewer", http.StatusInternalServerError)
 			return

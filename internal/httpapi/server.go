@@ -53,7 +53,7 @@ type Server struct {
 	index      []byte
 	logger     *log.Logger
 	openPath   func(string) error
-	openViewer func(string) error
+	openViewer func(ViewerTarget) error
 }
 
 type Option func(*Server)
@@ -72,7 +72,16 @@ func WithPathOpener(opener func(string) error) Option {
 	}
 }
 
-func WithViewerOpener(opener func(string) error) Option {
+// ViewerTarget carries everything a viewer window needs, so the spawned
+// process never has to re-resolve the agent through the container runtime.
+type ViewerTarget struct {
+	ID     string
+	Name   string
+	URL    string
+	Viewer string
+}
+
+func WithViewerOpener(opener func(ViewerTarget) error) Option {
 	return func(server *Server) {
 		server.openViewer = opener
 	}
@@ -589,7 +598,19 @@ func (server *Server) openInstanceViewer(
 		)
 		return
 	}
-	if err := server.openViewer(view.ID); err != nil {
+	target := ViewerTarget{
+		ID:     view.ID,
+		Name:   view.Name,
+		URL:    view.URL(),
+		Viewer: "web",
+	}
+	for _, entry := range server.service.Catalog() {
+		if entry.ID == view.CatalogID {
+			target.Viewer = entry.Viewer
+			break
+		}
+	}
+	if err := server.openViewer(target); err != nil {
 		writeServiceError(response, err)
 		return
 	}

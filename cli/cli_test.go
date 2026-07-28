@@ -226,6 +226,47 @@ func TestViewerCommandOpensFramedAgentViewer(t *testing.T) {
 	}
 }
 
+func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
+	service := &fakeService{}
+	var gotName, gotURL, gotViewer string
+	resolved := false
+	app := New(
+		service,
+		&fakeOpener{},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		"test",
+		WithViewer(func(context.Context, string) error {
+			resolved = true
+			return nil
+		}),
+		WithViewerTarget(func(_ context.Context, name, url, viewer string) error {
+			gotName, gotURL, gotViewer = name, url, viewer
+			return nil
+		}),
+	)
+
+	if code := app.Run(t.Context(), []string{
+		"viewer",
+		"-url", "http://127.0.0.1:16902",
+		"-name", "Pantalk Ghost",
+		"-viewer", "kasmvnc",
+	}); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	// Taking the resolving path would mean another container inspect, which is
+	// the latency this flag exists to avoid.
+	if resolved {
+		t.Fatal("viewer -url must not resolve the agent through the runtime")
+	}
+	if gotURL != "http://127.0.0.1:16902" {
+		t.Fatalf("url = %q", gotURL)
+	}
+	if gotName != "Pantalk Ghost" || gotViewer != "kasmvnc" {
+		t.Fatalf("name = %q, viewer = %q", gotName, gotViewer)
+	}
+}
+
 type fakeService struct {
 	catalog       []agent.CatalogEntry
 	created       domain.Instance
