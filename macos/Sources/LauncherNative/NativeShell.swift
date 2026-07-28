@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import Observation
 import SwiftUI
 import WebKit
@@ -114,6 +115,7 @@ private struct WailsWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {}
 }
 
+@available(macOS 26.0, *)
 private struct RootView: View {
     @Bindable var model: NativeShellModel
 
@@ -127,27 +129,7 @@ private struct RootView: View {
         )
     }
 
-    private func toggleSidebar() {
-        withAnimation {
-            columnVisibility =
-                columnVisibility == .detailOnly ? .all : .detailOnly
-        }
-    }
-
-    @ViewBuilder
     var body: some View {
-        if #available(macOS 26.0, *) {
-            splitView
-                .toolbarBackgroundVisibility(
-                    Visibility.hidden,
-                    for: ToolbarPlacement.windowToolbar
-                )
-        } else {
-            splitView
-        }
-    }
-
-    private var splitView: some View {
         NavigationSplitView(
             columnVisibility: $columnVisibility
         ) {
@@ -165,49 +147,109 @@ private struct RootView: View {
                 max: 280
             )
         } detail: {
-            webDetail
-        }
-        .navigationSplitViewStyle(.prominentDetail)
-        /*
-         NSHostingController does not participate in a SwiftUI App scene's
-         automatic toolbar commands. Supply the same native control explicitly
-         so the sidebar remains collapsible when hosted by Wails.
-         */
-        .toolbar(
-            removing:
-                ToolbarDefaultItemKind.sidebarToggle
-        )
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button(action: toggleSidebar) {
-                    Label(
-                        "Toggle Sidebar",
-                        systemImage: "sidebar.leading"
-                    )
-                }
-                .labelStyle(.iconOnly)
-                .help("Toggle Sidebar")
-            }
-        }
-        .frame(minWidth: 820, minHeight: 560)
-    }
-
-    @ViewBuilder
-    private var webDetail: some View {
-        if #available(macOS 26.0, *) {
             WailsWebView(webView: model.webView)
                 .backgroundExtensionEffect()
                 .ignoresSafeArea(
                     .container,
                     edges: .all
                 )
-        } else {
+        }
+        .navigationSplitViewStyle(
+            .prominentDetail
+        )
+        .toolbarBackgroundVisibility(
+            Visibility.hidden,
+            for: ToolbarPlacement.windowToolbar
+        )
+    }
+}
+
+private struct LegacyRootView: View {
+    @Bindable var model: NativeShellModel
+
+    @State private var columnVisibility:
+        NavigationSplitViewVisibility = .all
+
+    private var selection: Binding<String?> {
+        Binding(
+            get: { model.selection },
+            set: { model.select($0) }
+        )
+    }
+
+    var body: some View {
+        NavigationSplitView(
+            columnVisibility: $columnVisibility
+        ) {
+            List(model.items, selection: selection) { item in
+                Label(
+                    item.title,
+                    systemImage: item.symbol
+                )
+                .tag(item.id)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(
+                min: 210,
+                ideal: 240,
+                max: 280
+            )
+        } detail: {
             WailsWebView(webView: model.webView)
                 .ignoresSafeArea(
                     .container,
                     edges: .all
                 )
         }
+        .navigationSplitViewStyle(
+            .prominentDetail
+        )
+    }
+}
+
+@available(macOS 26.0, *)
+private struct NativeWindowScene: Scene {
+    static let identifier = "launcher-main-window"
+
+    let model: NativeShellModel
+
+    var body: some Scene {
+        WindowGroup(id: Self.identifier) {
+            RootView(model: model)
+                .frame(minWidth: 820, minHeight: 560)
+        }
+        .defaultSize(width: 1180, height: 760)
+        .windowToolbarStyle(.unified(showsTitle: false))
+    }
+}
+
+@available(macOS 26.0, *)
+@MainActor
+private final class NativeSceneHost {
+    private let representation:
+        NSHostingSceneRepresentation<NativeWindowScene>
+    private weak var wailsWindow: NSWindow?
+
+    init(model: NativeShellModel, wailsWindow: NSWindow) {
+        representation = NSHostingSceneRepresentation {
+            NativeWindowScene(model: model)
+        }
+        self.wailsWindow = wailsWindow
+    }
+
+    func present() {
+        NSApplication.shared.addSceneRepresentation(representation)
+        representation.environment.openWindow(
+            id: NativeWindowScene.identifier
+        )
+
+        /*
+         Wails created the configured WKWebView and still owns the backend
+         lifecycle, but its temporary AppKit window is not part of the visible
+         interface. The SwiftUI WindowGroup above owns the real app window.
+         */
+        wailsWindow?.orderOut(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
 
@@ -215,7 +257,8 @@ private struct RootView: View {
 private final class NativeShell {
     static let shared = NativeShell()
 
-    private var hostingController: NSHostingController<RootView>?
+    private var sceneHost: AnyObject?
+    private var hostingController: NSHostingController<LegacyRootView>?
     private var model: NativeShellModel?
 
     func install(window: NSWindow, webView: WKWebView) {
@@ -230,26 +273,35 @@ private final class NativeShell {
                 name: "launcherNative"
             )
 
-            let hostingController = NSHostingController(
-                rootView: RootView(model: model)
-            )
-            hostingController.view.frame =
-                window.contentView?.bounds ?? .zero
-            hostingController.view.autoresizingMask = [.width, .height]
             if #available(macOS 26.0, *) {
-                hostingController.sceneBridgingOptions = [
-                    .toolbars,
-                    .title,
-                ]
-            }
-            self.hostingController = hostingController
-            window.contentViewController = hostingController
+                let sceneHost = NativeSceneHost(
+                    model: model,
+                    wailsWindow: window
+                )
+                self.sceneHost = sceneHost
+                sceneHost.present()
+            } else {
+                /*
+                 NavigationSplitView remains functional on macOS 15, but the
+                 inset Liquid Glass window treatment requires the macOS 26
+                 SwiftUI scene APIs used above.
+                */
+                let hostingController = NSHostingController(
+                    rootView: LegacyRootView(model: model)
+                )
+                hostingController.view.frame =
+                    window.contentView?.bounds ?? .zero
+                hostingController.view.autoresizingMask = [.width, .height]
+                self.hostingController = hostingController
+                window.contentViewController = hostingController
 
-            if #available(macOS 11.0, *) {
-                window.toolbarStyle = .unified
+                if #available(macOS 11.0, *) {
+                    window.toolbarStyle = .unified
+                }
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+                window.makeKeyAndOrderFront(nil)
             }
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
         }
 
         /*

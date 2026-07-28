@@ -29,14 +29,17 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"NavigationSplitView(",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
-		"NSHostingController(",
-		"window.contentViewController = hostingController",
+		"NSHostingSceneRepresentation",
+		"WindowGroup(id: Self.identifier)",
+		"NSApplication.shared.addSceneRepresentation(representation)",
+		"representation.environment.openWindow(",
+		"wailsWindow?.orderOut(nil)",
 		".backgroundExtensionEffect()",
-		".navigationSplitViewStyle(.prominentDetail)",
-		"ToolbarDefaultItemKind.sidebarToggle",
-		"columnVisibility == .detailOnly ? .all : .detailOnly",
-		`systemImage: "sidebar.leading"`,
+		".navigationSplitViewStyle(",
+		".prominentDetail",
 		".frame(minWidth: 820, minHeight: 560)",
+		".defaultSize(width: 1180, height: 760)",
+		".windowToolbarStyle(.unified(showsTitle: false))",
 		`name: "launcherNative"`,
 		"let windowAddress = UInt(bitPattern: windowPointer)",
 		"let webViewAddress = UInt(bitPattern: webViewPointer)",
@@ -45,11 +48,45 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 			t.Fatalf("SwiftUI native host missing %q", expected)
 		}
 	}
+
+	rootStart := strings.Index(swift, "private struct RootView: View")
+	rootEnd := strings.Index(swift, "private struct LegacyRootView: View")
+	if rootStart < 0 || rootEnd <= rootStart {
+		t.Fatal("locate macOS 26 RootView")
+	}
+	root := swift[rootStart:rootEnd]
+	for _, expected := range []string{
+		"var body: some View {\n        NavigationSplitView(",
+		"} detail: {\n            WailsWebView(webView: model.webView)",
+		".backgroundExtensionEffect()\n                .ignoresSafeArea(",
+		".navigationSplitViewStyle(\n            .prominentDetail\n        )",
+		".toolbarBackgroundVisibility(",
+	} {
+		if !strings.Contains(root, expected) {
+			t.Fatalf("macOS 26 RootView diverges from the reference: missing %q", expected)
+		}
+	}
+	for _, unwanted := range []string{
+		"private var splitView",
+		"private var webDetail",
+		"if #available",
+	} {
+		if strings.Contains(root, unwanted) {
+			t.Fatalf("macOS 26 RootView must directly match the reference, found %q", unwanted)
+		}
+	}
+
 	if strings.Contains(swift, "@main") {
 		t.Fatal("SwiftUI native host must share Wails' process, not add an entry point")
 	}
-	if strings.Contains(swift, "NSHostingView(") {
-		t.Fatal("SwiftUI must own the Wails window through a hosting controller")
+	for _, unwanted := range []string{
+		"Button(action: toggleSidebar)",
+		"ToolbarDefaultItemKind.sidebarToggle",
+		`systemImage: "sidebar.leading"`,
+	} {
+		if strings.Contains(swift, unwanted) {
+			t.Fatalf("native scene must use SwiftUI's automatic sidebar toggle, found %q", unwanted)
+		}
 	}
 
 	wailsHost := readNativeHostSource(
@@ -63,6 +100,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"macOSWindowMinHeight = 560",
 		"geometry := mainWindowGeometry()",
 		"TitleBar: mac.TitleBarHidden()",
+		`StartHidden:              runtime.GOOS == "darwin"`,
 	} {
 		if !strings.Contains(wailsHost, expected) {
 			t.Fatalf("Wails window does not match the SwiftUI reference: missing %q", expected)
