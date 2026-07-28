@@ -1450,6 +1450,16 @@ mark {
   backdrop-filter: blur(6px);
 }
 
+.dialog-heading,
+.viewer-heading {
+  --wails-draggable: drag;
+}
+
+.dialog-heading button,
+.viewer-heading__actions {
+  --wails-draggable: no-drag;
+}
+
 .viewer-dialog {
   width: min(1320px, calc(100vw - 48px));
   height: min(820px, calc(100vh - 48px));
