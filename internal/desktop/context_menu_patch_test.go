@@ -13,19 +13,26 @@ func TestWailsContextMenuPatchUsesCapturePhase(t *testing.T) {
 	if !ok {
 		t.Fatal("locate context-menu patch test")
 	}
-	scriptPath := filepath.Join(
+	patchPath := filepath.Join(
 		filepath.Dir(filename),
 		"..",
 		"..",
-		"scripts",
-		"with-wails-context-menu-fix.sh",
+		"patches",
+		"wails",
+		"001-macos-context-menu.patch",
 	)
-	content, err := os.ReadFile(scriptPath)
+	content, err := os.ReadFile(patchPath)
 	if err != nil {
 		t.Fatalf("read Wails context-menu patch: %v", err)
 	}
-	expected := "window.addEventListener('contextmenu', function(event) { event.preventDefault(); }, true);"
-	if !strings.Contains(string(content), expected) {
-		t.Fatalf("Wails context-menu patch must capture iframe events")
+	for _, expected := range []string{
+		"if (window.wails && window.wails.flags)",
+		"- (NSMenu *)menuForEvent:(NSEvent *)event",
+		"if ( !defaultContextMenuEnabled )",
+		"return nil;",
+	} {
+		if !strings.Contains(string(content), expected) {
+			t.Fatalf("Wails context-menu patch missing %q", expected)
+		}
 	}
 }

@@ -152,11 +152,12 @@ open "build/bin/Agent Launcher.app"
 ```
 
 The desktop targets run Go through
-`scripts/with-wails-context-menu-fix.sh`. On macOS, this creates a temporary
-copy of the pinned Wails module and corrects its cross-frame context-menu
-injection so embedded KasmVNC pages do not receive a script error. The wrapper
-does not modify the Go module cache, and its temporary copy is removed after
-the command exits. On other platforms it executes Go unchanged.
+`scripts/with-go-module-patches.sh`. Patch sets are discovered automatically
+from subdirectories in `patches/`. Each set contains a `module` file, an
+optional `goos` filter with one operating system per line, and one or more
+numbered `.patch` files that are applied in filename order. The runner copies
+each matching pinned module to a temporary directory, applies its patches, and
+uses temporary Go module replacements without modifying the module cache.
 
 This target must run on macOS because Wails links Apple's native Cocoa and
 WebKit frameworks. The project's multi-stage `Build` workflow first checks the

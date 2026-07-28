@@ -6,7 +6,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 WEB_LISTEN ?= 127.0.0.1:16900
 HOST_OS := $(shell go env GOOS)
 DESKTOP_TAGS := desktop
-WAILS_GO := ./scripts/with-wails-context-menu-fix.sh
+PATCHED_GO := ./scripts/with-go-module-patches.sh
 ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
 endif
@@ -35,7 +35,7 @@ web-open:
 	go run . serve --listen "$(WEB_LISTEN)"
 
 desktop:
-	CGO_ENABLED=1 $(WAILS_GO) go run -tags "$(DESKTOP_TAGS)" . desktop
+	CGO_ENABLED=1 $(PATCHED_GO) go run -tags "$(DESKTOP_TAGS)" . desktop
 
 check:
 	@test -z "$$(gofmt -l .)" || { \
@@ -45,9 +45,9 @@ check:
 	}
 	go test ./...
 	go vet ./...
-	bash -n $(WAILS_GO)
-	GOOS=darwin $(WAILS_GO) go list ./internal/desktop >/dev/null
-	GOOS=darwin $(WAILS_GO) go list github.com/wailsapp/wails/v2/cmd/wails >/dev/null
+	bash -n $(PATCHED_GO)
+	GOOS=darwin $(PATCHED_GO) go list ./internal/desktop >/dev/null
+	GOOS=darwin $(PATCHED_GO) go list github.com/wailsapp/wails/v2/cmd/wails >/dev/null
 	$(MAKE) --directory images check
 
 test:
@@ -65,7 +65,7 @@ build:
 
 build-desktop:
 	mkdir -p dist
-	CGO_ENABLED=1 $(WAILS_GO) go build \
+	CGO_ENABLED=1 $(PATCHED_GO) go build \
 		-tags "$(DESKTOP_TAGS),production" -trimpath \
 		-ldflags "$(LDFLAGS)" -o dist/launcher-desktop .
 
@@ -75,7 +75,7 @@ build-macos:
 		exit 1; \
 	fi
 	cp internal/httpapi/web/assets/logo.png build/appicon.png
-	$(WAILS_GO) go run \
+	$(PATCHED_GO) go run \
 		github.com/wailsapp/wails/v2/cmd/wails build \
 		-platform darwin/arm64 \
 		-s \
