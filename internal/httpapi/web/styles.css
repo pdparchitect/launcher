@@ -269,13 +269,16 @@ mark {
   color: #d98b84;
 }
 
+/* `contain` rather than `none`: the elastic bounce at the end of a scroll is
+   kept, which is what makes scrolling feel native, while scroll chaining to
+   the document is still blocked so the window itself never rubber-bands. */
 .main-panel {
   height: 100%;
   min-width: 0;
   grid-column: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
 }
 
 /* No longer a titled bar with a separator - just the drag strip that carries
@@ -855,7 +858,7 @@ mark {
   gap: 8px;
   max-width: 100%;
   overflow-x: auto;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
 }
 
 .filter-list button,
@@ -1403,7 +1406,7 @@ mark {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
   padding: 0;
   border: 1px solid var(--line-bright);
   background: var(--surface);
@@ -1569,7 +1572,7 @@ mark {
 .install-log pre {
   max-height: 180px;
   overflow: auto;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
   margin: 12px 0 0;
   padding: 12px;
   border: 1px solid var(--line);
@@ -1651,7 +1654,7 @@ mark {
   max-height: 52vh;
   min-height: 260px;
   overflow: auto;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
   margin: 0;
   padding: 14px;
   border: 1px solid var(--line);
@@ -2068,6 +2071,16 @@ mark {
    lights replace the HTML window controls and the sidebar clears them. */
 .is-macos-desktop .window-controls {
   display: none;
+}
+
+/* macOS rounds the window, but the page inside it is still a rectangle, so an
+   overlay scrollbar runs right into the corner. Clipping the page to the same
+   shape stops it short, the way the window's own rounding does in a native
+   app. Any mismatch in radius is invisible: the corners fall back to the body
+   colour, which is the window background colour. */
+.is-macos-desktop launcher-app {
+  border-radius: var(--window-radius, 26px);
+  overflow: hidden;
 }
 
 /* The native title bar is hidden and the webview covers the whole window, so

@@ -436,10 +436,7 @@ export class LauncherApp extends HTMLElement {
     const chrome = requestedChrome()
 
     if (chrome) {
-      document.documentElement.classList.toggle(
-        'is-macos-desktop',
-        chrome === 'macos'
-      )
+      this.applyMacosChrome(chrome === 'macos')
 
       return
     }
@@ -451,9 +448,17 @@ export class LauncherApp extends HTMLElement {
     const platform =
       globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
 
-    document.documentElement.classList.toggle(
-      'is-macos-desktop',
-      /mac/i.test(platform)
+    this.applyMacosChrome(/mac/i.test(platform))
+  }
+
+  applyMacosChrome(enabled) {
+    document.documentElement.classList.toggle('is-macos-desktop', enabled)
+
+    // The page clips itself to the window's shape so overlay scrollbars stop
+    // short of the rounded corners instead of running into them.
+    document.documentElement.style.setProperty(
+      '--window-radius',
+      `${SIDEBAR_METRICS.windowRadius}px`
     )
   }
 

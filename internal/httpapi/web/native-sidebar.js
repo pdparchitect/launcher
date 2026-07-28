@@ -31,6 +31,7 @@ export const SIDEBAR_METRICS = {
   width: SIDEBAR_WIDTH,
   radius: SIDEBAR_CORNER_RADIUS,
   topInset: SIDEBAR_TOP_INSET,
+  windowRadius: WINDOW_CORNER_RADIUS,
 }
 
 function messageHandler() {
