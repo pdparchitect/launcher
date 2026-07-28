@@ -120,6 +120,7 @@ func run(
 		MinHeight:                geometry.minHeight,
 		Frameless:                window.frameless,
 		Mac:                      window.mac,
+		StartHidden:              runtime.GOOS == "darwin",
 		HideWindowOnClose:        window.hideWindowOnClose,
 		DisableResize:            false,
 		EnableDefaultContextMenu: false,
