@@ -948,6 +948,7 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 		},
 	}
 	var opened string
+	var openedURL string
 	request := apiRequest(
 		http.MethodPost,
 		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/viewer",
@@ -959,8 +960,9 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 	New(
 		service,
 		"test-token",
-		WithViewerOpener(func(reference string) error {
-			opened = reference
+		WithViewerOpener(func(target ViewerTarget) error {
+			opened = target.ID
+			openedURL = target.URL
 			return nil
 		}),
 	).ServeHTTP(response, request)
@@ -970,6 +972,11 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 	}
 	if opened != instance.ID {
 		t.Fatalf("opened = %q", opened)
+	}
+	// The spawner must receive a resolved URL so the viewer process never has
+	// to inspect the container again just to learn where the agent lives.
+	if openedURL != instance.URL() {
+		t.Fatalf("opened URL = %q, want %q", openedURL, instance.URL())
 	}
 }
 
@@ -992,7 +999,7 @@ func TestOpenInstanceViewerRejectsStoppedAgent(t *testing.T) {
 	New(
 		service,
 		"test-token",
-		WithViewerOpener(func(string) error { return nil }),
+		WithViewerOpener(func(ViewerTarget) error { return nil }),
 	).ServeHTTP(response, request)
 
 	if response.Code != http.StatusConflict {

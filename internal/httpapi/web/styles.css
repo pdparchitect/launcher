@@ -2114,3 +2114,34 @@ mark {
     display: none;
   }
 }
+
+/* The packaged macOS build uses the real window chrome, so the native traffic
+   lights replace the HTML window controls and the sidebar clears them. */
+.is-macos-desktop .window-controls {
+  display: none;
+}
+
+.is-macos-desktop .sidebar {
+  padding-top: 22px;
+}
+
+/* Native macOS sidebar (patches/wails/002-macos-native-sidebar.patch) replaces
+   the HTML one. The grid column stays so the main panel keeps its offset.
+
+   The native sidebar is a fixed-width AppKit view that cannot follow media
+   queries, so the responsive collapse is switched off here: the layout must
+   keep reserving the full width at every window size or the main panel would
+   slide underneath it. Declared after the breakpoints so it always wins. */
+.launcher-shell.has-native-sidebar {
+  --sidebar-width: 250px;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.launcher-shell.has-native-sidebar .sidebar {
+  display: none;
+}
+
+.launcher-shell.has-native-sidebar .topbar {
+  --wails-draggable: drag;
+}

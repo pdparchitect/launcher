@@ -13,6 +13,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/catalog"
 	"github.com/pdparchitect/launcher/internal/config"
 	"github.com/pdparchitect/launcher/internal/desktop"
+	"github.com/pdparchitect/launcher/internal/httpapi"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 	"github.com/pdparchitect/launcher/internal/store"
 	"github.com/pdparchitect/launcher/internal/webapp"
@@ -77,6 +78,18 @@ func main() {
 			}),
 			cli.WithViewer(func(ctx context.Context, reference string) error {
 				return desktop.RunViewer(ctx, service, reference)
+			}),
+			cli.WithViewerTarget(func(
+				ctx context.Context,
+				name string,
+				url string,
+				viewer string,
+			) error {
+				return desktop.RunViewerTarget(ctx, httpapi.ViewerTarget{
+					Name:   name,
+					URL:    url,
+					Viewer: viewer,
+				})
 			}),
 		)
 	}

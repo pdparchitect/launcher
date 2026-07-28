@@ -28,15 +28,16 @@ type Service interface {
 }
 
 type App struct {
-	service Service
-	opener  Opener
-	stdout  io.Writer
-	stderr  io.Writer
-	version string
-	input   io.Reader
-	serve   ServeFunc
-	desktop DesktopFunc
-	viewer  ViewerFunc
+	service      Service
+	opener       Opener
+	stdout       io.Writer
+	stderr       io.Writer
+	version      string
+	input        io.Reader
+	serve        ServeFunc
+	desktop      DesktopFunc
+	viewer       ViewerFunc
+	viewerTarget ViewerTargetFunc
 }
 
 type Option func(*App)
@@ -49,6 +50,7 @@ type ServeOptions struct {
 type ServeFunc func(context.Context, ServeOptions) error
 type DesktopFunc func(context.Context) error
 type ViewerFunc func(context.Context, string) error
+type ViewerTargetFunc func(context.Context, string, string, string) error
 
 func WithInput(input io.Reader) Option {
 	return func(app *App) { app.input = input }
@@ -64,6 +66,10 @@ func WithDesktop(desktop DesktopFunc) Option {
 
 func WithViewer(viewer ViewerFunc) Option {
 	return func(app *App) { app.viewer = viewer }
+}
+
+func WithViewerTarget(viewer ViewerTargetFunc) Option {
+	return func(app *App) { app.viewerTarget = viewer }
 }
 
 func New(
@@ -157,14 +163,31 @@ func (app *App) desktopUI(ctx context.Context, args []string) error {
 
 func (app *App) viewerUI(ctx context.Context, args []string) error {
 	flags := app.flags("viewer", "Open an agent in a framed desktop window.")
-	reference, err := oneReference(flags, args)
-	if err != nil {
+	url := flags.String("url", "", "open an already-resolved agent URL")
+	name := flags.String("name", "", "window title, with -url")
+	viewer := flags.String("viewer", "web", "viewer kind, with -url (web or kasmvnc)")
+	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	// The launcher passes -url when it spawns a window, having already
+	// resolved the agent. Skipping the runtime lookup here is what keeps the
+	// window from taking seconds to appear.
+	if strings.TrimSpace(*url) != "" {
+		if flags.NArg() != 0 {
+			return errors.New("usage: launcher viewer -url URL [-name NAME]")
+		}
+		if app.viewerTarget == nil {
+			return errors.New("desktop agent viewer is not available in this build")
+		}
+		return app.viewerTarget(ctx, *name, *url, *viewer)
+	}
+	if flags.NArg() != 1 || strings.TrimSpace(flags.Arg(0)) == "" {
+		return errors.New("usage: launcher viewer NAME")
 	}
 	if app.viewer == nil {
 		return errors.New("desktop agent viewer is not available in this build")
 	}
-	return app.viewer(ctx, reference)
+	return app.viewer(ctx, flags.Arg(0))
 }
 
 func (app *App) doctor(ctx context.Context, args []string) error {

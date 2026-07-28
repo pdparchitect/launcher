@@ -1,5 +1,6 @@
 import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
+import { nativeSidebar } from '../native-sidebar.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
@@ -12,6 +13,20 @@ const navigation = [
   ['marketplace', 'MARKETPLACE'],
   ['activity', 'ACTIVITY'],
 ]
+
+// SF Symbol per screen, used only by the native macOS sidebar.
+const navigationSymbols = {
+  home: 'house',
+  agents: 'square.stack.3d.up',
+  marketplace: 'bag',
+  activity: 'waveform.path.ecg',
+}
+
+const nativeSidebarItems = navigation.map(([id, label]) => ({
+  id,
+  title: label,
+  symbol: navigationSymbols[id],
+}))
 
 const pageTitles = {
   home: ['AGENT LAUNCHER', 'LOCAL AGENT ORCHESTRATOR'],
@@ -91,8 +106,10 @@ export class LauncherApp extends HTMLElement {
     }
 
     this.initialized = true
+    this.applyPlatformChrome()
     this.renderShell()
     this.bindEvents()
+    this.setUpNativeSidebar()
     this.refresh()
     this.refreshTimer = setInterval(() => this.refreshAgents(), 5000)
   }
@@ -396,6 +413,35 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
+  // The packaged macOS build uses the real window chrome, so the HTML window
+  // controls give way to the native traffic lights. Browsers and the other
+  // desktop platforms keep the frameless controls.
+  applyPlatformChrome() {
+    if (!desktopWindow.available()) {
+      return
+    }
+
+    const platform = globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
+
+    document.documentElement.classList.toggle('is-macos-desktop', /mac/i.test(platform))
+  }
+
+  setUpNativeSidebar() {
+    if (!nativeSidebar.available()) {
+      return
+    }
+
+    nativeSidebar.onSelect((id) => this.setScreen(id))
+
+    // Only swap out the HTML navigation once the native sidebar confirms it
+    // exists, so an unpatched build is left with a working interface.
+    nativeSidebar.onReady(() => {
+      this.querySelector('.launcher-shell')?.classList.add('has-native-sidebar')
+    })
+
+    nativeSidebar.configure(nativeSidebarItems, this.screen)
+  }
+
   setScreen(screen) {
     if (!pageTitles[screen]) {
       return
@@ -405,6 +451,10 @@ export class LauncherApp extends HTMLElement {
 
     if (screen !== 'agents') {
       this.page = 1
+    }
+
+    if (nativeSidebar.ready) {
+      nativeSidebar.select(nativeSidebarItems, screen)
     }
 
     this.updateNavigation()
