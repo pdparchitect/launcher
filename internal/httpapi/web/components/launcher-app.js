@@ -53,6 +53,16 @@ function formatBytes(value) {
   return `${(value / 1024 ** power).toFixed(power > 2 ? 1 : 0)} ${units[power]}`
 }
 
+function lastLogLine(logs) {
+  const lines = String(logs || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const line = lines[lines.length - 1] || ''
+
+  return line.length > 240 ? `${line.slice(0, 237)}…` : line
+}
+
 function catalogueEntry(catalog, agent) {
   return catalog.find((item) => item.id === agent.catalogId)
 }
@@ -70,6 +80,7 @@ export class LauncherApp extends HTMLElement {
     this.filter = 'all'
     this.page = 1
     this.agentRefreshPending = false
+    this.startWatches = new Map()
   }
 
   connectedCallback() {
@@ -163,25 +174,31 @@ export class LauncherApp extends HTMLElement {
         desktopWindow.toggleMaximise()
       }
     })
-    this.querySelector('.window-controls').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-window-action]')
+    this.querySelector('.window-controls').addEventListener(
+      'click',
+      (event) => {
+        const button = event.target.closest('[data-window-action]')
 
-      if (!button) {
-        return
-      }
+        if (!button) {
+          return
+        }
 
-      switch (button.dataset.windowAction) {
-      case 'maximise':
-        desktopWindow.toggleMaximise()
-        break
-      case 'minimise':
-        desktopWindow.minimise()
-        break
-      case 'close':
-        desktopWindow.close()
-        break
+        switch (button.dataset.windowAction) {
+          case 'maximise':
+            desktopWindow.toggleMaximise()
+
+            break
+          case 'minimise':
+            desktopWindow.minimise()
+
+            break
+          case 'close':
+            desktopWindow.close()
+
+            break
+        }
       }
-    })
+    )
     this.addEventListener('click', (event) => {
       const link = event.target.closest('[data-screen-link]')
 
@@ -255,6 +272,7 @@ export class LauncherApp extends HTMLElement {
       const result = await this.api.instances()
 
       this.agents = result.instances || []
+      await this.checkStartWatches()
       this.renderScreen()
     } catch (error) {
       console.warn('Agent refresh failed:', error)
@@ -803,11 +821,12 @@ export class LauncherApp extends HTMLElement {
       item.querySelector('i').dataset.type = activity.type
       item.querySelector('strong').textContent = activity.message
       item.querySelector('time').textContent = formatTime(activity.time)
+
       if (!compact) {
         item.querySelector('small').textContent = activity.detail
-        item.querySelector('[data-activity-agent]').textContent =
-          activity.agent
+        item.querySelector('[data-activity-agent]').textContent = activity.agent
       }
+
       container.append(item)
     }
   }
@@ -817,21 +836,95 @@ export class LauncherApp extends HTMLElement {
 
     try {
       if (shouldStop) {
+        this.startWatches.delete(agent.id)
         await this.api.stop(agent.id)
-      } else {
-        await this.api.start(agent.id)
+        await this.refreshAgents()
+        this.recordActivity(
+          'stop',
+          `Stopped ${agent.name}`,
+          agent.name,
+          'Agent stopped successfully'
+        )
+        this.showToast(`${agent.name} stopped`)
+
+        return
       }
 
-      this.recordActivity(
-        shouldStop ? 'stop' : 'start',
-        `${shouldStop ? 'Stopped' : 'Started'} ${agent.name}`,
-        agent.name,
-        `Agent ${shouldStop ? 'stopped' : 'started'} successfully`
-      )
+      await this.api.start(agent.id)
+
+      const now = Date.now()
+
+      this.startWatches.set(agent.id, {
+        name: agent.name,
+        reportAfter: now + 750,
+        expiresAt: now + 15000,
+        confirmed: false,
+      })
+      setTimeout(() => this.refreshAgents(), 750)
       await this.refreshAgents()
-      this.showToast(`${agent.name} ${shouldStop ? 'stopped' : 'started'}`)
     } catch (error) {
       this.showToast(error.message, true)
+    }
+  }
+
+  async checkStartWatches() {
+    for (const [id, watch] of this.startWatches) {
+      const agent = this.agents.find((current) => current.id === id)
+
+      if (agent?.state === 'running') {
+        if (!watch.confirmed) {
+          watch.confirmed = true
+          this.recordActivity(
+            'start',
+            `Started ${watch.name}`,
+            watch.name,
+            'Agent started successfully'
+          )
+          this.showToast(`${watch.name} started`)
+        }
+
+        if (Date.now() >= watch.expiresAt) {
+          this.startWatches.delete(id)
+        }
+
+        continue
+      }
+
+      if (Date.now() < watch.reportAfter) {
+        continue
+      }
+
+      if (
+        agent &&
+        (agent.state === 'restarting' || agent.state === 'paused') &&
+        Date.now() < watch.expiresAt
+      ) {
+        continue
+      }
+
+      this.startWatches.delete(id)
+
+      let detail = ''
+
+      try {
+        const result = await this.api.logs(id)
+
+        detail = lastLogLine(result.logs)
+      } catch (error) {
+        console.warn('Failed to load startup logs:', error)
+      }
+
+      const message = `${watch.name} failed to start${
+        detail ? `: ${detail}` : ''
+      }`
+
+      this.recordActivity(
+        'error',
+        `Failed to start ${watch.name}`,
+        watch.name,
+        detail || 'The container stopped during startup'
+      )
+      this.showToast(message, true)
     }
   }
 
