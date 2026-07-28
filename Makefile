@@ -6,6 +6,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 WEB_LISTEN ?= 127.0.0.1:16900
 HOST_OS := $(shell go env GOOS)
 DESKTOP_TAGS := desktop
+WAILS_GO := ./scripts/with-wails-context-menu-fix.sh
 ifeq ($(HOST_OS),linux)
 DESKTOP_TAGS := desktop,webkit2_41
 endif
@@ -32,7 +33,7 @@ web-open:
 	go run . serve --listen "$(WEB_LISTEN)"
 
 desktop:
-	CGO_ENABLED=1 go run -tags "$(DESKTOP_TAGS)" . desktop
+	CGO_ENABLED=1 $(WAILS_GO) go run -tags "$(DESKTOP_TAGS)" . desktop
 
 check:
 	@test -z "$$(gofmt -l .)" || { \
@@ -42,6 +43,9 @@ check:
 	}
 	go test ./...
 	go vet ./...
+	bash -n $(WAILS_GO)
+	GOOS=darwin $(WAILS_GO) go list ./internal/desktop >/dev/null
+	$(MAKE) --directory images check
 
 test:
 	go test ./...
@@ -52,7 +56,8 @@ build:
 
 build-desktop:
 	mkdir -p dist
-	CGO_ENABLED=1 go build -tags "$(DESKTOP_TAGS),production" -trimpath \
+	CGO_ENABLED=1 $(WAILS_GO) go build \
+		-tags "$(DESKTOP_TAGS),production" -trimpath \
 		-ldflags "$(LDFLAGS)" -o dist/launcher-desktop .
 
 build-macos:
@@ -61,7 +66,8 @@ build-macos:
 		exit 1; \
 	fi
 	cp internal/httpapi/web/assets/logo.png build/appicon.png
-	go run github.com/wailsapp/wails/v2/cmd/wails@v2.13.0 build \
+	$(WAILS_GO) go run \
+		github.com/wailsapp/wails/v2/cmd/wails build \
 		-platform darwin/arm64 \
 		-s \
 		-skipbindings \
