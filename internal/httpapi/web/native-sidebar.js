@@ -8,12 +8,24 @@
 // interface must reserve inset + width + inset for it.
 const SIDEBAR_WIDTH = 250
 const SIDEBAR_INSET = 8
-const SIDEBAR_CORNER_RADIUS = 14
 const SIDEBAR_TOP_INSET = 44
 
-// macOS Tahoe's toolbar-style windows use roughly a 26pt continuous ("squircle")
-// corner. Title-bar-only windows sit nearer 16pt.
+// The window shape we lay out against. Recent macOS rounds windows itself and
+// Apple advises against clipping that shape by hand, so this figure is mainly
+// used for the concentric maths below. 26 is a community measurement of the
+// Tahoe toolbar-window corner, not a published Apple value.
 const WINDOW_CORNER_RADIUS = 26
+
+// Clipping the window ourselves means a non-opaque window with a masked
+// content layer, which can cost native shadow and resize behaviour and will
+// not follow future macOS design changes. Set false to let the system own the
+// shape and check whether it already looks right.
+const SELF_CLIP_WINDOW = true
+
+// Concentric corners: an inner shape nests inside an outer one when its radius
+// is the outer radius minus the gap between them. Nesting a fixed radius
+// inside a different one is what makes panels look subtly wrong.
+const SIDEBAR_CORNER_RADIUS = Math.max(4, WINDOW_CORNER_RADIUS - SIDEBAR_INSET)
 
 // The traffic lights are placed by the native side rather than left where
 // AppKit puts them, so they sit comfortably inside the floating panel.
@@ -60,7 +72,7 @@ export const nativeSidebar = {
         width: SIDEBAR_WIDTH,
         inset: SIDEBAR_INSET,
         cornerRadius: SIDEBAR_CORNER_RADIUS,
-        windowCornerRadius: WINDOW_CORNER_RADIUS,
+        windowCornerRadius: SELF_CLIP_WINDOW ? WINDOW_CORNER_RADIUS : 0,
         topInset: SIDEBAR_TOP_INSET,
         trafficLightX: TRAFFIC_LIGHT_X,
         trafficLightY: TRAFFIC_LIGHT_Y,
