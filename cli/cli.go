@@ -490,5 +490,6 @@ Commands:
   version             Print the version
 
 Set PDPARCHITECT_LAUNCHER_HOME to override the data folder.
-Set PDPARCHITECT_LAUNCHER_RUNTIME to auto, container, or docker.`)
+Set PDPARCHITECT_LAUNCHER_RUNTIME to auto, container, or docker.
+Docker overrides are disabled on macOS.`)
 }
