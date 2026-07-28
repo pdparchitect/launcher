@@ -13,6 +13,22 @@ Pantalk Ghost and Buzznode are the first built-in catalogue applications.
 Additional applications, such as Hermes Agent and OpenClaw, can be represented
 by independent catalogue manifests as their packaging is developed.
 
+## Image sources
+
+Launcher now carries the first shared image-source hierarchy under
+[`images/`](images/):
+
+```text
+images/core/ubuntu
+  -> images/bases/desktop
+       -> images/products/hermes/desktop
+```
+
+These are build-time sources. Launcher continues to pull and run complete
+product images rather than building containers during application setup.
+Run `make images-check` for the fast source and inheritance checks, or
+`make images-build` to build the complete local chain.
+
 ## Built-in catalogue
 
 The catalogue is embedded in the executable. Each application has a directory

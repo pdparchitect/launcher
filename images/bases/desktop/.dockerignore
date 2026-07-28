@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!init.sh
+!openbox/
+!openbox/autostart
+!shell/
+!shell/chromium
+!shell/desktop-welcome
+!wallpaper/
+!wallpaper/launcher-desktop.svg

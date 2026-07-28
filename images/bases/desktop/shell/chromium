@@ -1,0 +1,31 @@
+#!/bin/bash
+
+set -euo pipefail
+
+gpu_args=(--disable-gpu --disable-software-rasterizer)
+for node in /dev/dri/renderD*; do
+    if [ -r "$node" ] && [ -w "$node" ]; then
+        gpu_args=(--ignore-gpu-blocklist --enable-gpu-rasterization)
+        break
+    fi
+done
+
+if [ -x /opt/google/chrome/google-chrome ]; then
+    browser=/opt/google/chrome/google-chrome
+elif [ -x /usr/bin/chromium ]; then
+    browser=/usr/bin/chromium
+else
+    echo "No supported Chromium-family browser is installed." >&2
+    exit 1
+fi
+
+exec "$browser" \
+    --no-sandbox \
+    --test-type \
+    "${gpu_args[@]}" \
+    --disable-dev-shm-usage \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-infobars \
+    --force-dark-mode \
+    "$@"

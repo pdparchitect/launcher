@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+
+hermes_binary=/opt/hermes/.venv/bin/hermes
+if [ ! -x "$hermes_binary" ]; then
+    echo "Hermes is not installed at $hermes_binary." >&2
+    exit 126
+fi
+
+if [ "$(id -u)" -eq 0 ] &&
+    [ "${HERMES_EXEC_AS_ROOT:-false}" != "true" ]; then
+    exec sudo -u agent \
+        env \
+        HOME=/home/agent \
+        HERMES_HOME="${HERMES_HOME:-/home/agent/.hermes}" \
+        HERMES_LAZY_INSTALL_TARGET="${HERMES_LAZY_INSTALL_TARGET:-/home/agent/.hermes/lazy-packages}" \
+        HERMES_TUI_DIR="${HERMES_TUI_DIR:-/opt/hermes/ui-tui}" \
+        HERMES_WEB_DIST="${HERMES_WEB_DIST:-/opt/hermes/hermes_cli/web_dist}" \
+        PATH="/opt/hermes/.venv/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+        "$hermes_binary" "$@"
+fi
+
+exec "$hermes_binary" "$@"
