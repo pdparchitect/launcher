@@ -58,7 +58,7 @@ func run(
 		MinHeight:                windowMinHeight,
 		Frameless:                true,
 		DisableResize:            false,
-		EnableDefaultContextMenu: true,
+		EnableDefaultContextMenu: false,
 		BackgroundColour: options.NewRGB(
 			5,
 			6,
@@ -95,7 +95,7 @@ func runViewer(ctx context.Context, view agent.View, viewer string) error {
 		MinHeight:                480,
 		Frameless:                false,
 		DisableResize:            false,
-		EnableDefaultContextMenu: true,
+		EnableDefaultContextMenu: false,
 		BackgroundColour: options.NewRGB(
 			5,
 			6,
