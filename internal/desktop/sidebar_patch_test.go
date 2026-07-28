@@ -37,10 +37,11 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		// Dragging the window by the traffic-light strip.
 		"mouseDownCanMoveWindow",
 		// Floating inset panel rather than a full-height column.
-		"setCornerRadius",
-		"setBorderWidth",
-		// Squircle corners.
-		`forKey:@"cornerCurve"`,
+		// Rounding must not go through the layer on an effect view.
+		"WailsSidebarRoundedMask",
+		// The column defaults to 100pt; unset, every label truncates.
+		"setWidth:WailsSidebarDefaultWidth",
+		"sizeLastColumnToFit",
 		// The panel must BE the effect view: nesting one inside another
 		// layer-backed view breaks within-window backdrop sampling, and the
 		// sidebar shows the desktop instead of the page.
@@ -52,6 +53,13 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		// it on focus changes, so setting the property once does not hold.
 		"@interface WailsSidebarRowView : NSTableRowView",
 		"- (BOOL) isEmphasized {",
+		// A subclass AppKit never instantiates does nothing: the delegate has
+		// to hand it back, or the accent highlight returns.
+		"rowViewForRow:(NSInteger)row {",
+		"[[[WailsSidebarRowView alloc] initWithFrame:NSZeroRect] autorelease]",
+		// Layer masking silently kills backdrop sampling, leaving a flat panel.
+		"setMaskImage:",
+		"NSVisualEffectStateActive",
 		// Rows are built during reloadData, before the table has a width, so
 		// any label sized from that width comes out truncated.
 		"setTranslatesAutoresizingMaskIntoConstraints:NO",
