@@ -20,6 +20,7 @@
     ]
   },
   "image": "ghcr.io/pdparchitect/buzznode:latest",
+  "viewer": "kasmvnc",
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",

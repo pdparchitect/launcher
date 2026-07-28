@@ -25,6 +25,9 @@ func TestLoadGhost(t *testing.T) {
 	if manifest.Image != "ghcr.io/pantalk/ghost:0.0.10" {
 		t.Fatalf("Image = %q", manifest.Image)
 	}
+	if manifest.Viewer != "kasmvnc" {
+		t.Fatalf("Viewer = %q", manifest.Viewer)
+	}
 	if manifest.ContainerPort != 6901 || manifest.Memory != "4g" {
 		t.Fatalf("manifest resources = %#v", manifest)
 	}
@@ -56,6 +59,9 @@ func TestLoadBuzznode(t *testing.T) {
 		manifest.Slug != "buzznode" ||
 		manifest.Image != "ghcr.io/pdparchitect/buzznode:latest" {
 		t.Fatalf("manifest identity = %#v", manifest)
+	}
+	if manifest.Viewer != "kasmvnc" {
+		t.Fatalf("Viewer = %q", manifest.Viewer)
 	}
 	if manifest.ContainerPort != 6901 ||
 		manifest.ResolutionEnvironment != "BUZZNODE_RESOLUTION" {

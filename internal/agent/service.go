@@ -118,6 +118,7 @@ type CatalogEntry struct {
 	Tags        []string      `json:"tags"`
 	Media       catalog.Media `json:"media"`
 	Image       string        `json:"image"`
+	Viewer      string        `json:"viewer"`
 }
 
 type DoctorReport struct {
@@ -182,6 +183,7 @@ func (service *Service) Catalog() []CatalogEntry {
 			ID: manifest.ID, Slug: manifest.Slug, Name: manifest.Name,
 			Publisher: manifest.Publisher, Description: manifest.Description,
 			Tags: manifest.Tags, Media: manifest.Media, Image: manifest.Image,
+			Viewer: manifest.Viewer,
 		})
 	}
 	sort.Slice(entries, func(left, right int) bool {

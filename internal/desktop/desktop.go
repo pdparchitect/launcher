@@ -36,7 +36,14 @@ func RunViewer(
 	if view.State != launchruntime.StatusRunning {
 		return fmt.Errorf("start %s before opening it in a window", view.Name)
 	}
-	return runViewer(ctx, view)
+	viewer := "web"
+	for _, entry := range service.Catalog() {
+		if entry.ID == view.CatalogID {
+			viewer = entry.Viewer
+			break
+		}
+	}
+	return runViewer(ctx, view, viewer)
 }
 
 func SpawnViewer(reference string) error {

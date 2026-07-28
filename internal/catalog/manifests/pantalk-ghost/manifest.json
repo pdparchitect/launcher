@@ -20,6 +20,7 @@
     ]
   },
   "image": "ghcr.io/pantalk/ghost:0.0.10",
+  "viewer": "kasmvnc",
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",
