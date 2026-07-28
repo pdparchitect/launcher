@@ -1,15 +1,19 @@
 diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend/desktop/darwin/WailsContext.m
-index 401f115..80a8b7b 100644
+index 642c731..f3e49bf 100644
 --- a/internal/frontend/desktop/darwin/WailsContext.m
 +++ b/internal/frontend/desktop/darwin/WailsContext.m
-@@ -281 +281,5 @@
--    self.userContentController = userContentController;
-+    self.userContentController = userContentController;
-+
+@@ -280,6 +280,10 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+     config.userContentController = userContentController;
+     self.userContentController = userContentController;
+ 
 +    // Let the page use the clipboard without WebKit's native paste prompt
 +    [config.preferences setValue:@YES forKey:@"javaScriptCanAccessClipboard"];
 +    [config.preferences setValue:@YES forKey:@"DOMPasteAllowed"];
-@@ -287,7 +291,7 @@
++
+     if (self.devtoolsEnabled) {
+         [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+     }
+@@ -287,7 +291,7 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
      if (!self.defaultContextMenuEnabled) {
          // Disable default context menus
          WKUserScript *initScript = [WKUserScript new];
@@ -18,28 +22,36 @@ index 401f115..80a8b7b 100644
                       injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                    forMainFrameOnly:false];
          [userContentController addUserScript:initScript];
-@@ -301 +305,2 @@
--    [self.webview initWithFrame:init configuration:config];
-+    [self.webview initWithFrame:init configuration:config];
+@@ -299,6 +303,7 @@ extern void didReceiveNotificationResponse(const char *jsonPayload, const char*
+ 
+     CGRect init = { 0,0,0,0 };
+     [self.webview initWithFrame:init configuration:config];
 +    self.webview.defaultContextMenuEnabled = self.defaultContextMenuEnabled;
+     [contentView addSubview:self.webview];
+     [self.webview setAutoresizingMask: NSViewWidthSizable|NSViewHeightSizable];
+     CGRect contentViewBounds = [contentView bounds];
 diff --git a/internal/frontend/desktop/darwin/WailsWebView.h b/internal/frontend/desktop/darwin/WailsWebView.h
-index c03a595..5b44941 100644
+index b6f746c..7234bce 100644
 --- a/internal/frontend/desktop/darwin/WailsWebView.h
 +++ b/internal/frontend/desktop/darwin/WailsWebView.h
-@@ -11 +11,2 @@
--@property bool enableDragAndDrop;
-+@property bool enableDragAndDrop;
+@@ -9,6 +9,7 @@
+ @interface WailsWebView : WKWebView
+ @property bool disableWebViewDragAndDrop;
+ @property bool enableDragAndDrop;
 +@property bool defaultContextMenuEnabled;
+ @end
+ 
+ #endif /* WailsWebView_h */
 diff --git a/internal/frontend/desktop/darwin/WailsWebView.m b/internal/frontend/desktop/darwin/WailsWebView.m
-index 56ecb83..25675be 100644
+index de23ac7..03d41b0 100644
 --- a/internal/frontend/desktop/darwin/WailsWebView.m
 +++ b/internal/frontend/desktop/darwin/WailsWebView.m
-@@ -7 +7,2 @@
--@synthesize enableDragAndDrop;
-+@synthesize enableDragAndDrop;
+@@ -5,6 +5,16 @@
+ @implementation WailsWebView
+ @synthesize disableWebViewDragAndDrop;
+ @synthesize enableDragAndDrop;
 +@synthesize defaultContextMenuEnabled;
-@@ -9 +10,10 @@
--- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender
++
 +- (NSMenu *)menuForEvent:(NSEvent *)event
 +{
 +  if ( !defaultContextMenuEnabled ) {
@@ -48,5 +60,6 @@ index 56ecb83..25675be 100644
 +
 +  return [super menuForEvent:event];
 +}
-+
-+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender
+ 
+ - (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender
+ {
