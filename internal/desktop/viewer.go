@@ -1,50 +1,33 @@
 package desktop
 
 import (
-	"fmt"
-	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/pdparchitect/launcher/internal/agent"
 )
 
-var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#050604">
-    <title>{{.Name}} — Agent Launcher</title>
-    <style>
-      html, body {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        overscroll-behavior: none;
-        margin: 0;
-        background: #050604;
-      }
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: 0;
-        background: #050604;
-      }
-    </style>
-  </head>
-  <body>
-    <iframe src="{{.URL}}" title="{{.Name}}"
-      allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-  </body>
-</html>`))
-
-type viewerPageData struct {
-	Name string
-	URL  string
+func viewerURL(rawURL string, viewer string) string {
+	if viewer != "kasmvnc" {
+		return rawURL
+	}
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	query := target.Query()
+	query.Set("show_control_bar", "true")
+	query.Set("resize", "remote")
+	query.Set("clipboard_up", "true")
+	query.Set("clipboard_down", "true")
+	query.Set("clipboard_seamless", "true")
+	query.Set("enable_threading", "false")
+	query.Set("enable_webp", "false")
+	target.RawQuery = query.Encode()
+	return target.String()
 }
 
-func viewerHandler(view agent.View) http.Handler {
+func viewerHandler(view agent.View, viewer string) http.Handler {
 	return http.HandlerFunc(func(
 		response http.ResponseWriter,
 		request *http.Request,
@@ -53,13 +36,12 @@ func viewerHandler(view agent.View) http.Handler {
 			http.NotFound(response, request)
 			return
 		}
-		response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		response.Header().Set("Cache-Control", "no-store")
-		if err := viewerPage.Execute(response, viewerPageData{
-			Name: view.Name,
-			URL:  view.URL(),
-		}); err != nil {
-			panic(fmt.Sprintf("render agent viewer: %v", err))
-		}
+		http.Redirect(
+			response,
+			request,
+			viewerURL(view.URL(), viewer),
+			http.StatusTemporaryRedirect,
+		)
 	})
 }

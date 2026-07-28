@@ -1,3 +1,25 @@
+function embeddedViewerURL(rawURL, viewer) {
+  if (viewer !== 'kasmvnc') {
+    return rawURL
+  }
+
+  try {
+    const url = new URL(rawURL)
+
+    url.searchParams.set('show_control_bar', 'true')
+    url.searchParams.set('resize', 'remote')
+    url.searchParams.set('clipboard_up', 'true')
+    url.searchParams.set('clipboard_down', 'true')
+    url.searchParams.set('clipboard_seamless', 'true')
+    url.searchParams.set('enable_threading', 'false')
+    url.searchParams.set('enable_webp', 'false')
+
+    return url.toString()
+  } catch {
+    return rawURL
+  }
+}
+
 export class AgentViewerDialog extends HTMLElement {
   connectedCallback() {
     if (this.initialized) {
@@ -29,7 +51,8 @@ export class AgentViewerDialog extends HTMLElement {
               <strong>CONNECTING TO AGENT…</strong>
             </div>
             <iframe data-viewer-frame title="Agent view"
-              allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+              allow="autoplay; microphone; camera; clipboard-read;
+                clipboard-write; window-management; fullscreen"></iframe>
           </div>
           <p class="form-error viewer-error" data-viewer-error hidden></p>
         </section>
@@ -67,14 +90,15 @@ export class AgentViewerDialog extends HTMLElement {
     })
   }
 
-  open(agent) {
+  open(agent, viewer = 'web') {
     this.agent = agent
+    this.viewerURL = embeddedViewerURL(agent.url, viewer)
     this.querySelector('[data-viewer-title]').textContent =
       String(agent.name || 'AGENT VIEW').toUpperCase()
     this.frame.title = `${agent.name} live view`
     this.showError('')
     this.setBusy(false)
-    this.load(agent.url)
+    this.load(this.viewerURL)
 
     if (!this.dialog.open) {
       this.dialog.showModal()
@@ -88,8 +112,8 @@ export class AgentViewerDialog extends HTMLElement {
   }
 
   reload() {
-    if (this.agent?.url) {
-      this.load(this.agent.url)
+    if (this.viewerURL) {
+      this.load(this.viewerURL)
     }
   }
 

@@ -1048,7 +1048,9 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    this.querySelector('agent-viewer-dialog').open(agent)
+    const entry = catalogueEntry(this.catalog, agent)
+
+    this.querySelector('agent-viewer-dialog').open(agent, entry?.viewer)
     this.recordActivity(
       'open',
       `Opened ${agent.name}`,

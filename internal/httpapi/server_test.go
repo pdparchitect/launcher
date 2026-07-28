@@ -303,9 +303,14 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 		"item.id === agent.catalogId",
 		"setInterval(() => this.refreshAgents(), 5000)",
 		"<agent-viewer-dialog></agent-viewer-dialog>",
-		"this.querySelector('agent-viewer-dialog').open(agent)",
+		"this.querySelector('agent-viewer-dialog').open(agent, entry?.viewer)",
 		"OPEN IN WINDOW",
 		"data-viewer-frame",
+		"'show_control_bar', 'true'",
+		"'resize', 'remote'",
+		"'enable_threading', 'false'",
+		"window-management",
+		"entry?.viewer",
 		"this.api.openViewer(agent.id)",
 		"`/api/instances/${encodeURIComponent(id)}/viewer`",
 	} {
@@ -316,6 +321,23 @@ func TestAgentCardsUseRuntimeMetricsAndStableCatalogueIDs(t *testing.T) {
 	for _, placeholder := range []string{"cpu: 0", "mem: 0"} {
 		if strings.Contains(source, placeholder) {
 			t.Fatalf("interface still contains placeholder %q", placeholder)
+		}
+	}
+}
+
+func TestDesktopEmbeddingAvoidsCrossFrameWailsInjection(t *testing.T) {
+	source := readWebSources(
+		t,
+		"main.js",
+		"components/agent-viewer-dialog.js",
+	)
+	for _, expected := range []string{
+		"document.addEventListener('contextmenu'",
+		"event.target.closest('iframe')",
+		"autoplay; microphone; camera;",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing embedded-frame safeguard %q", expected)
 		}
 	}
 }

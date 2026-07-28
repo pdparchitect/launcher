@@ -24,6 +24,7 @@ type Manifest struct {
 	Tags                  []string          `json:"tags"`
 	Media                 Media             `json:"media"`
 	Image                 string            `json:"image"`
+	Viewer                string            `json:"viewer"`
 	ContainerPort         int               `json:"containerPort"`
 	Memory                string            `json:"memory,omitempty"`
 	SharedMemory          string            `json:"sharedMemory"`
@@ -151,6 +152,9 @@ func (manifest Manifest) Validate() error {
 	}
 	if strings.TrimSpace(manifest.Image) == "" {
 		return errors.New("image is required")
+	}
+	if manifest.Viewer != "web" && manifest.Viewer != "kasmvnc" {
+		return errors.New("viewer must be web or kasmvnc")
 	}
 	if manifest.ContainerPort < 1 || manifest.ContainerPort > 65535 {
 		return errors.New("container port must be between 1 and 65535")

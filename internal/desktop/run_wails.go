@@ -51,13 +51,14 @@ func run(
 	}
 	handler := httpapi.New(service, token, serverOptions...)
 	err = wails.Run(&options.App{
-		Title:         "Agent Launcher",
-		Width:         windowWidth,
-		Height:        windowHeight,
-		MinWidth:      windowMinWidth,
-		MinHeight:     windowMinHeight,
-		Frameless:     true,
-		DisableResize: false,
+		Title:                    "Agent Launcher",
+		Width:                    windowWidth,
+		Height:                   windowHeight,
+		MinWidth:                 windowMinWidth,
+		MinHeight:                windowMinHeight,
+		Frameless:                true,
+		DisableResize:            false,
+		EnableDefaultContextMenu: true,
 		BackgroundColour: options.NewRGB(
 			5,
 			6,
@@ -82,25 +83,26 @@ func run(
 	return nil
 }
 
-func runViewer(ctx context.Context, view agent.View) error {
+func runViewer(ctx context.Context, view agent.View, viewer string) error {
 	finished := make(chan struct{})
 	defer close(finished)
 
 	err := wails.Run(&options.App{
-		Title:         fmt.Sprintf("%s — Agent Launcher", view.Name),
-		Width:         1280,
-		Height:        800,
-		MinWidth:      720,
-		MinHeight:     480,
-		Frameless:     false,
-		DisableResize: false,
+		Title:                    fmt.Sprintf("%s — Agent Launcher", view.Name),
+		Width:                    1280,
+		Height:                   800,
+		MinWidth:                 720,
+		MinHeight:                480,
+		Frameless:                false,
+		DisableResize:            false,
+		EnableDefaultContextMenu: true,
 		BackgroundColour: options.NewRGB(
 			5,
 			6,
 			4,
 		),
 		AssetServer: &assetserver.Options{
-			Handler: viewerHandler(view),
+			Handler: viewerHandler(view, viewer),
 		},
 		OnStartup: func(wailsContext context.Context) {
 			go func() {

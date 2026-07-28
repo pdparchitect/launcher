@@ -592,6 +592,7 @@ func newTestService(t *testing.T, containerRuntime *fakeRuntime) *Service {
 			}},
 		},
 		Image:                 "pantalk/ghost:default",
+		Viewer:                "kasmvnc",
 		ContainerPort:         6901,
 		SharedMemory:          "1g",
 		ResolutionEnvironment: "GHOST_RESOLUTION",
