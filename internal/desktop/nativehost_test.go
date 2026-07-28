@@ -29,10 +29,14 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"NavigationSplitView(",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
-		"NSHostingView(",
-		"window.contentView = hostingView",
+		"NSHostingController(",
+		"window.contentViewController = hostingController",
 		".backgroundExtensionEffect()",
 		".navigationSplitViewStyle(.prominentDetail)",
+		"ToolbarDefaultItemKind.sidebarToggle",
+		"columnVisibility == .detailOnly ? .all : .detailOnly",
+		`systemImage: "sidebar.leading"`,
+		".frame(minWidth: 820, minHeight: 560)",
 		`name: "launcherNative"`,
 		"let windowAddress = UInt(bitPattern: windowPointer)",
 		"let webViewAddress = UInt(bitPattern: webViewPointer)",
@@ -43,6 +47,26 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	}
 	if strings.Contains(swift, "@main") {
 		t.Fatal("SwiftUI native host must share Wails' process, not add an entry point")
+	}
+	if strings.Contains(swift, "NSHostingView(") {
+		t.Fatal("SwiftUI must own the Wails window through a hosting controller")
+	}
+
+	wailsHost := readNativeHostSource(
+		t,
+		filepath.Join(launcher, "internal", "desktop", "run_wails.go"),
+	)
+	for _, expected := range []string{
+		"macOSWindowWidth     = 1180",
+		"macOSWindowHeight    = 760",
+		"macOSWindowMinWidth  = 820",
+		"macOSWindowMinHeight = 560",
+		"geometry := mainWindowGeometry()",
+		"TitleBar: mac.TitleBarHidden()",
+	} {
+		if !strings.Contains(wailsHost, expected) {
+			t.Fatalf("Wails window does not match the SwiftUI reference: missing %q", expected)
+		}
 	}
 
 	bridge := readNativeHostSource(
