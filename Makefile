@@ -47,6 +47,7 @@ check:
 	go vet ./...
 	bash -n $(WAILS_GO)
 	GOOS=darwin $(WAILS_GO) go list ./internal/desktop >/dev/null
+	GOOS=darwin $(WAILS_GO) go list github.com/wailsapp/wails/v2/cmd/wails >/dev/null
 	$(MAKE) --directory images check
 
 test:
