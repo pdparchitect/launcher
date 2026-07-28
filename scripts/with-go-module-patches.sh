@@ -42,18 +42,20 @@ cp "$project_dir/go.mod" "$modfile"
 sumfile="$temporary_dir/launcher.sum"
 cp "$project_dir/go.sum" "$sumfile"
 
-declare -A patched_modules=()
+# Newline-delimited instead of an associative array so this runs on the
+# bash 3.2 that macOS ships.
+patched_modules=$'\n'
 for patch_set in "${patch_sets[@]}"; do
     module="$(tr -d '[:space:]' <"$patch_set/module")"
     if [[ -z "$module" ]]; then
         echo "Go module patch set has an empty module file: $patch_set" >&2
         exit 1
     fi
-    if [[ -n "${patched_modules[$module]:-}" ]]; then
+    if [[ "$patched_modules" == *$'\n'"$module"$'\n'* ]]; then
         echo "Go module has multiple applicable patch sets: $module" >&2
         exit 1
     fi
-    patched_modules["$module"]=1
+    patched_modules="$patched_modules$module"$'\n'
 
     (
         cd "$project_dir"
