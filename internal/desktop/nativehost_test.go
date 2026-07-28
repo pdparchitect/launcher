@@ -34,6 +34,8 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		".backgroundExtensionEffect()",
 		".navigationSplitViewStyle(.prominentDetail)",
 		`name: "launcherNative"`,
+		"let windowAddress = UInt(bitPattern: windowPointer)",
+		"let webViewAddress = UInt(bitPattern: webViewPointer)",
 	} {
 		if !strings.Contains(swift, expected) {
 			t.Fatalf("SwiftUI native host missing %q", expected)

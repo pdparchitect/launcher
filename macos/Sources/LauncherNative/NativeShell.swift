@@ -243,7 +243,28 @@ public func LauncherNativeInstall(
     guard let windowPointer, let webViewPointer else {
         return
     }
+
+    /*
+     Raw pointers are not Sendable in Swift 6. Preserve only their numeric
+     addresses across the isolation boundary, then reconstruct them after
+     assumeIsolated has established the main-actor context. The Objective-C
+     caller already guarantees that this synchronous entry point runs on the
+     AppKit main thread.
+     */
+    let windowAddress = UInt(bitPattern: windowPointer)
+    let webViewAddress = UInt(bitPattern: webViewPointer)
+
     MainActor.assumeIsolated {
+        guard
+            let windowPointer = UnsafeMutableRawPointer(
+                bitPattern: windowAddress
+            ),
+            let webViewPointer = UnsafeMutableRawPointer(
+                bitPattern: webViewAddress
+            )
+        else {
+            return
+        }
         let window = Unmanaged<NSWindow>
             .fromOpaque(windowPointer)
             .takeUnretainedValue()
