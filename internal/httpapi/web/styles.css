@@ -120,10 +120,12 @@ mark {
   color: var(--accent);
 }
 
+/* One column: .sidebar is position:fixed, so a second track only reserved
+   space. Spanning the whole window is what lets artwork bleed under it. */
 .launcher-shell {
   height: 100%;
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -137,7 +139,10 @@ mark {
   flex-direction: column;
   -webkit-user-select: none;
   border-right: 1px solid rgba(255, 255, 255, 0.07);
-  background: linear-gradient(180deg, #0d0d0a 0%, #080808 100%);
+  /* Translucent so the hero bleeding underneath seeps through, rather than
+     being hidden behind an opaque panel. */
+  background: rgba(11, 12, 9, 0.72);
+  backdrop-filter: blur(24px) saturate(140%);
   user-select: none;
 }
 
@@ -267,7 +272,8 @@ mark {
 .main-panel {
   height: 100%;
   min-width: 0;
-  grid-column: 2;
+  grid-column: 1;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: none;
 }
@@ -324,11 +330,13 @@ mark {
   font-size: 20px;
 }
 
+/* Clears the fixed sidebar itself. max-width is gone so the box spans the
+   window: the hero's negative margins cancel this padding exactly, which only
+   reaches the window edge if nothing is centring the box. */
 .content {
   width: 100%;
-  max-width: 1620px;
-  margin: 0 auto;
   padding: 22px 26px 40px;
+  padding-left: calc(var(--sidebar-width) + 26px);
 }
 
 .screen {
@@ -344,21 +352,32 @@ mark {
   text-transform: uppercase;
 }
 
+/* Full bleed to the window edges, passing beneath the sidebar. The negative
+   margins cancel .content's padding; the hero's own padding then keeps the
+   copy clear of the sidebar while the artwork runs underneath it. */
 .hero {
   position: relative;
   min-height: 338px;
   display: grid;
   grid-template-columns: minmax(450px, 1fr) 270px;
   align-items: center;
-  overflow: hidden;
+  margin-top: -22px;
+  margin-right: -26px;
+  margin-left: calc(-1 * (var(--sidebar-width) + 26px));
   padding: 44px 48px;
-  border: 1px solid var(--line-bright);
-  background: #080a07;
+  padding-left: calc(var(--sidebar-width) + 48px);
 }
 
+/* A page backdrop rather than a panel image: it runs well past the section and
+   dissolves, so the artwork reads as the top of the page rather than something
+   boxed in. z-index -1 puts it behind the page's own content — .hero must not
+   paint an opaque background or it would cover this, and .content/.screen are
+   transparent so it shows through. The body colour still backs it, since the
+   root background paints on the canvas below every stacking layer. */
 .hero__art {
   position: absolute;
-  inset: 0;
+  z-index: -1;
+  inset: 0 0 -340px;
   background: linear-gradient(
       90deg,
       #080a07 8%,
@@ -366,8 +385,20 @@ mark {
       rgba(8, 10, 7, 0.42) 72%,
       #080a07 100%
     ),
-    url('/assets/hero.png') center / cover no-repeat;
+    url('/assets/hero.png') center top / cover no-repeat;
   opacity: 0.85;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 40%,
+    rgba(0, 0, 0, 0.4) 72%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 40%,
+    rgba(0, 0, 0, 0.4) 72%,
+    transparent 100%
+  );
 }
 
 .hero::after {
@@ -510,7 +541,9 @@ mark {
 .panel {
   padding: 20px;
   border: 1px solid var(--line);
-  background: var(--surface);
+  /* Slightly translucent so the hero artwork behind still reads through. */
+  background: rgba(9, 11, 8, 0.82);
+  backdrop-filter: blur(8px);
 }
 
 .panel-heading {
@@ -2037,10 +2070,22 @@ mark {
   display: none;
 }
 
-/* Nothing left for it to hold: the traffic lights are native and the title bar
-   already provides the drag region. */
+/* The native title bar is hidden and the webview covers the whole window, so
+   without this there is nothing left to drag the window by. The bar keeps no
+   height in the layout — it is a fixed, transparent strip acting purely as a
+   drag handle. It starts where the sidebar ends, since the traffic lights sit
+   over the native panel and that area is not the webview's to handle.
+   Double-clicking it still zooms, via the existing .topbar handler. */
 .is-macos-desktop .topbar {
-  display: none;
+  --wails-draggable: drag;
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  right: 0;
+  left: var(--sidebar-width);
+  height: 38px;
+  padding: 0;
+  background: transparent;
 }
 
 /* body::after draws the window edge for the frameless Linux and Windows
@@ -2061,16 +2106,71 @@ mark {
    queries, so the responsive collapse is switched off here: the layout must
    keep reserving the full width at every window size or the main panel would
    slide underneath it. Declared after the breakpoints so it always wins. */
-.launcher-shell.has-native-sidebar {
-  /* Width is set from JS to match the native panel's inset + width + inset. */
-  display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-}
-
+/* --sidebar-width is set from JS to the native panel's inset + width + inset.
+   The layout itself is the same one every platform uses. */
 .launcher-shell.has-native-sidebar .sidebar {
   display: none;
 }
 
-.launcher-shell.has-native-sidebar .topbar {
-  --wails-draggable: drag;
+/* Browser preview (?chrome=macos): there is no AppKit panel to hide behind, so
+   the HTML sidebar is dressed up as one — same inset, width and radius, driven
+   from the same constants the native side is configured with. backdrop-filter
+   stands in for the within-window vibrancy, which is why the hero bleeding
+   underneath reads correctly here too. Navigation keeps working. */
+.launcher-shell.is-sidebar-preview .sidebar {
+  position: fixed;
+  z-index: 20;
+  inset: var(--panel-inset) auto var(--panel-inset) var(--panel-inset);
+  width: var(--panel-width);
+  display: flex;
+  padding-top: var(--panel-top-inset);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--panel-radius);
+  background: rgba(24, 26, 22, 0.34);
+  backdrop-filter: blur(30px) saturate(180%);
 }
+
+/* Approximate an AppKit source list rather than showing this interface's own
+   navigation inside a glass box. Rows are system-font, sentence case, with the
+   unemphasised grey selection macOS uses. SF Symbols cannot be reproduced in a
+   browser, so icons are simply absent here. */
+.launcher-shell.is-sidebar-preview .main-navigation {
+  padding: 0 8px;
+  border-top: 0;
+}
+
+.launcher-shell.is-sidebar-preview .main-navigation button {
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.launcher-shell.is-sidebar-preview .nav-marker {
+  display: none;
+}
+
+.launcher-shell.is-sidebar-preview .nav-label {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.launcher-shell.is-sidebar-preview .main-navigation button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.launcher-shell.is-sidebar-preview .main-navigation button.is-active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+/* The native panel carries no runtime footer. */
+.launcher-shell.is-sidebar-preview .sidebar__footer {
+  display: none;
+}
+

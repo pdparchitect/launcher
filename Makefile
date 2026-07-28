@@ -22,6 +22,7 @@ help:
 	@echo "Launcher development"
 	@echo
 	@echo "  make web        Run the web interface for remote development"
+	@echo "                  ?chrome=macos previews the packaged macOS layout"
 	@echo "  make web-open   Run the web interface and open a local browser"
 	@echo "  make desktop    Run the frameless Wails desktop application"
 	@echo "  make check      Format-check, test, and vet Launcher"

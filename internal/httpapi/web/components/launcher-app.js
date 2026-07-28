@@ -1,6 +1,10 @@
 import { LauncherAPI } from '../api.js'
 import { desktopWindow } from '../desktop-window.js'
-import { SIDEBAR_COLUMN_WIDTH, nativeSidebar } from '../native-sidebar.js'
+import {
+  SIDEBAR_COLUMN_WIDTH,
+  SIDEBAR_METRICS,
+  nativeSidebar,
+} from '../native-sidebar.js'
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
@@ -78,6 +82,18 @@ function lastLogLine(logs) {
   const line = lines[lines.length - 1] || ''
 
   return line.length > 240 ? `${line.slice(0, 237)}…` : line
+}
+
+// Browser preview override, for `make web`: ?chrome=macos renders the layout
+// the packaged macOS build gets — native-style sidebar panel, no HTML window
+// controls, hero bleeding under the panel. ?chrome=frameless forces the
+// Linux/Windows layout. Omit it for real platform detection.
+function requestedChrome() {
+  try {
+    return new URLSearchParams(globalThis.location?.search || '').get('chrome')
+  } catch {
+    return null
+  }
 }
 
 function catalogueEntry(catalog, agent) {
@@ -417,6 +433,17 @@ export class LauncherApp extends HTMLElement {
   // controls give way to the native traffic lights. Browsers and the other
   // desktop platforms keep the frameless controls.
   applyPlatformChrome() {
+    const chrome = requestedChrome()
+
+    if (chrome) {
+      document.documentElement.classList.toggle(
+        'is-macos-desktop',
+        chrome === 'macos'
+      )
+
+      return
+    }
+
     if (!desktopWindow.available()) {
       return
     }
@@ -430,8 +457,50 @@ export class LauncherApp extends HTMLElement {
     )
   }
 
+  // In preview there is no native panel, so the HTML sidebar is restyled to
+  // stand in for it rather than hidden — otherwise there is no navigation.
+  applyNativeSidebarLayout(preview) {
+    const shell = this.querySelector('.launcher-shell')
+
+    if (!shell) {
+      return
+    }
+
+    // The reserved column has to match the native panel exactly or content
+    // slides under its floating edge.
+    shell.style.setProperty('--sidebar-width', `${SIDEBAR_COLUMN_WIDTH}px`)
+    shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
+    shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
+    shell.style.setProperty('--panel-radius', `${SIDEBAR_METRICS.radius}px`)
+    shell.style.setProperty('--panel-top-inset', `${SIDEBAR_METRICS.topInset}px`)
+    shell.classList.add('has-native-sidebar')
+    shell.classList.toggle('is-sidebar-preview', preview)
+
+    if (!preview) {
+      return
+    }
+
+    // Show the labels the native panel shows, not the interface's own
+    // upper-case ones, so the preview is not a hybrid of the two.
+    for (const item of nativeSidebarItems) {
+      const label = this.querySelector(
+        `[data-screen-link="${item.id}"] .nav-label`
+      )
+
+      if (label) {
+        label.textContent = item.title
+      }
+    }
+  }
+
   setUpNativeSidebar() {
-    if (!nativeSidebar.available()) {
+    if (requestedChrome() === 'macos') {
+      this.applyNativeSidebarLayout(true)
+
+      return
+    }
+
+    if (requestedChrome() || !nativeSidebar.available()) {
       return
     }
 
@@ -439,18 +508,7 @@ export class LauncherApp extends HTMLElement {
 
     // Only swap out the HTML navigation once the native sidebar confirms it
     // exists, so an unpatched build is left with a working interface.
-    nativeSidebar.onReady(() => {
-      const shell = this.querySelector('.launcher-shell')
-
-      if (!shell) {
-        return
-      }
-
-      // The native panel owns its own inset, so the reserved column has to
-      // match it exactly or the content slides under the floating edge.
-      shell.style.setProperty('--sidebar-width', `${SIDEBAR_COLUMN_WIDTH}px`)
-      shell.classList.add('has-native-sidebar')
-    })
+    nativeSidebar.onReady(() => this.applyNativeSidebarLayout(false))
 
     nativeSidebar.configure(nativeSidebarItems, this.screen)
   }

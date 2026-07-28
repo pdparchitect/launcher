@@ -48,6 +48,10 @@ func TestWailsSidebarPatchLayersOverWebview(t *testing.T) {
 		// Traffic lights placed by hand, since there is no toolbar to inset them.
 		"layoutTrafficLights",
 		"standardWindowButton:NSWindowCloseButton",
+		// Emphasis must be pinned by overriding the getter: AppKit re-applies
+		// it on focus changes, so setting the property once does not hold.
+		"@interface WailsSidebarRowView : NSTableRowView",
+		"- (BOOL) isEmphasized {",
 	} {
 		if !strings.Contains(string(content), expected) {
 			t.Fatalf("Wails sidebar patch missing %q", expected)

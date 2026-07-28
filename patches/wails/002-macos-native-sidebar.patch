@@ -72,7 +72,7 @@ index 0000000..ab9d3e7
 +//  The panel IS the NSVisualEffectView, not a container holding one. Within-
 +//  window backdrop sampling does not survive being nested inside another
 +//  layer-backed view: it stops seeing the webview and shows whatever is behind
-+//  the window instead. That is also why NSGlassEffectView is not used here -
++//  the window instead. That is also why NSGlassEffectView is not used here —
 +//  it blurs behind the window by design.
 +//
 +//  Driven entirely from JavaScript, so no Go-side options are involved:
@@ -130,10 +130,10 @@ index 0000000..ab9d3e7
 +#endif /* WailsSidebar_h */
 diff --git a/internal/frontend/desktop/darwin/WailsSidebar.m b/internal/frontend/desktop/darwin/WailsSidebar.m
 new file mode 100644
-index 0000000..da98bff
+index 0000000..521af8a
 --- /dev/null
 +++ b/internal/frontend/desktop/darwin/WailsSidebar.m
-@@ -0,0 +1,568 @@
+@@ -0,0 +1,577 @@
 +//
 +//  WailsSidebar.m
 +//
@@ -164,6 +164,19 @@ index 0000000..da98bff
 +        [layer setValue:@"continuous" forKey:@"cornerCurve"];
 +    }
 +}
++
++// AppKit re-applies emphasis to row views whenever first-responder status
++// changes, so setting the property once at creation is overwritten the moment
++// the sidebar takes focus. Overriding the getter is the only way to pin the
++// unemphasised grey selection Apple's media apps use.
++@interface WailsSidebarRowView : NSTableRowView
++@end
++
++@implementation WailsSidebarRowView
++- (BOOL) isEmphasized {
++    return NO;
++}
++@end
 +
 +@interface WailsSidebar ()
 +- (void) applyMetrics;
@@ -358,7 +371,7 @@ index 0000000..da98bff
 +}
 +
 +// Off unless the config asks for it. The window carries a unified toolbar,
-+// which insets the traffic lights natively, so this normally does nothing -
++// which insets the traffic lights natively, so this normally does nothing —
 +// AppKit re-lays them out on its own schedule and fighting that makes them
 +// intermittently unclickable.
 +- (void) layoutTrafficLights {
@@ -630,16 +643,12 @@ index 0000000..da98bff
 +    return cell;
 +}
 +
-+// Source-list tables draw the accent colour while focused and grey otherwise.
-+// Apple's media apps keep the grey, so emphasis is switched off per row rather
-+// than letting selection flicker blue whenever the sidebar takes focus.
-+- (void) tableView:(NSTableView *)table
-+        didAddRowView:(NSTableRowView *)rowView
-+               forRow:(NSInteger)row {
-+    [rowView setEmphasized:NO];
++- (NSTableRowView *) tableView:(NSTableView *)table
++                 rowViewForRow:(NSInteger)row {
++    return [[[WailsSidebarRowView alloc] initWithFrame:NSZeroRect] autorelease];
 +}
 +
-+// Grey while idle, accent once selected - the treatment Apple's media apps use.
++// Grey while idle, accent once selected — the treatment Apple's media apps use.
 +// An item may override the selected colour with a "tint" hex.
 +- (NSColor*) iconTintForRow:(NSInteger)row {
 +    if (![self.tableView isRowSelected:row]) {
