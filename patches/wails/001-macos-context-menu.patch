@@ -2,7 +2,14 @@ diff --git a/internal/frontend/desktop/darwin/WailsContext.m b/internal/frontend
 index 401f115..80a8b7b 100644
 --- a/internal/frontend/desktop/darwin/WailsContext.m
 +++ b/internal/frontend/desktop/darwin/WailsContext.m
-@@ -287,7 +287,7 @@
+@@ -281 +281,5 @@
+-    self.userContentController = userContentController;
++    self.userContentController = userContentController;
++
++    // Let the page use the clipboard without WebKit's native paste prompt
++    [config.preferences setValue:@YES forKey:@"javaScriptCanAccessClipboard"];
++    [config.preferences setValue:@YES forKey:@"DOMPasteAllowed"];
+@@ -287,7 +291,7 @@
      if (!self.defaultContextMenuEnabled) {
          // Disable default context menus
          WKUserScript *initScript = [WKUserScript new];
@@ -11,7 +18,7 @@ index 401f115..80a8b7b 100644
                       injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                    forMainFrameOnly:false];
          [userContentController addUserScript:initScript];
-@@ -301 +301,2 @@
+@@ -301 +305,2 @@
 -    [self.webview initWithFrame:init configuration:config];
 +    [self.webview initWithFrame:init configuration:config];
 +    self.webview.defaultContextMenuEnabled = self.defaultContextMenuEnabled;
