@@ -1,13 +1,20 @@
 # syntax=docker/dockerfile:1.7
+#
+# Hermes Agent on the Launcher desktop base.
+#
+# Everything visual comes from the base. This image adds Hermes, then installs
+# its branding through overlay/, which is copied over the base's defaults.
 
-ARG DESKTOP_IMAGE=pdparchitect/launcher-base-desktop:local
+ARG DESKTOP_IMAGE=pdparchitect/launcher-image-base-desktop:local
 
 FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv-source
-FROM node:22-bookworm-slim@sha256:7af03b14a13c8cdd38e45058fd957bf00a72bbe17feac43b1c15a689c029c732 AS node-source
 FROM ${DESKTOP_IMAGE}
 
 USER root
 
+# Build dependencies for Hermes' native extensions. python3-dev and
+# python3-venv are product build dependencies, so they live here rather than in
+# the shared core.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ffmpeg \
@@ -16,23 +23,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libolm-dev \
     make \
+    python3-dev \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Node and npm come from the runtime layer in the base chain.
 COPY --from=uv-source /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=uv-source /usr/local/bin/uvx /usr/local/bin/uvx
-COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-COPY --from=node-source /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/corepack
 
-RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
-    ln -sf /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
-
+ARG HERMES_SOURCE_URL=https://github.com/NousResearch/hermes-agent
 ARG HERMES_VERSION=v2026.7.20
 ARG HERMES_SOURCE_SHA=3ef6bbd201263d354fd83ec55b3c306ded2eb72a
 
 RUN git clone --branch "${HERMES_VERSION}" --depth 1 \
-        https://github.com/NousResearch/hermes-agent.git /opt/hermes && \
+        "${HERMES_SOURCE_URL}.git" /opt/hermes && \
     test "$(git -C /opt/hermes rev-parse HEAD)" = "$HERMES_SOURCE_SHA"
 
 WORKDIR /opt/hermes
@@ -54,7 +58,7 @@ RUN uv sync --frozen \
 
 RUN npm install --prefer-offline --no-audit --fetch-retries=5 && \
     for attempt in 1 2 3; do \
-        npx playwright install --with-deps chromium --only-shell && break; \
+        npx playwright install chromium --only-shell && break; \
         if [ "$attempt" -eq 3 ]; then exit 1; fi; \
         sleep 10; \
     done && \
@@ -62,18 +66,29 @@ RUN npm install --prefer-offline --no-audit --fetch-retries=5 && \
     npm --prefix web run build && \
     npm --prefix ui-tui run build
 
-RUN mkdir -p \
+# The desktop base exports HOME=/home/agent, so the root-run build steps above
+# deposit their caches in the session user's home and leave them owned by root.
+# Kitty then cannot create /home/agent/.cache/kitty, the welcome terminal dies,
+# and the session opens with no terminal at all. None of these caches are used
+# at run time, so drop them and leave the home directory owned by its user.
+RUN rm -rf /home/agent/.cache /home/agent/.npm && \
+    mkdir -p \
         /home/agent/.hermes/lazy-packages \
         /opt/hermes/bin && \
     printf 'docker\n' > /opt/hermes/.install_method && \
     printf '%s\n' "$HERMES_SOURCE_SHA" > /opt/hermes/.hermes_build_sha && \
-    chown -R agent:agent /home/agent/.hermes
+    chown -R agent:agent /home/agent
 
-COPY shell/desktop-welcome /usr/local/bin/desktop-welcome
-COPY shell/hermes /usr/local/bin/hermes
+# Product branding. Everything under overlay/ is installed over the base's
+# defaults, so a file here wins without the base knowing this product exists.
+COPY overlay /
 RUN chmod 0755 /usr/local/bin/desktop-welcome /usr/local/bin/hermes
 
-ENV DESKTOP_TITLE="Hermes Desktop" \
+# Rebrand the KasmVNC client. The base already patched it, so this replaces the
+# brand rather than injecting the asset links a second time.
+RUN kasm-patch "Hermes Desktop"
+
+ENV DESKTOP_TITLE="Hermes" \
     DESKTOP_PERSISTENT_PATHS="/home/agent/.hermes" \
     HERMES_DISABLE_LAZY_INSTALLS=1 \
     HERMES_HOME=/home/agent/.hermes \
@@ -86,8 +101,9 @@ ENV DESKTOP_TITLE="Hermes Desktop" \
 LABEL org.opencontainers.image.title="Hermes Desktop" \
     org.opencontainers.image.description="Hermes Agent in a Launcher-managed browser desktop" \
     org.opencontainers.image.source="https://github.com/pdparchitect/launcher" \
-    org.opencontainers.image.version="${HERMES_VERSION}" \
-    org.opencontainers.image.revision="${HERMES_SOURCE_SHA}"
+    dev.pdparchitect.launcher.upstream.source="${HERMES_SOURCE_URL}" \
+    dev.pdparchitect.launcher.upstream.version="${HERMES_VERSION}" \
+    dev.pdparchitect.launcher.upstream.revision="${HERMES_SOURCE_SHA}"
 
 VOLUME ["/workspace", "/home/agent/.hermes"]
 

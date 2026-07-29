@@ -1,0 +1,18 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G.
+#
+# The product's interface is the Control UI, so the shortcut opens it - unless
+# this desktop has never been onboarded, in which case there is no gateway to
+# show and the shortcut opens the thing that creates one.
+
+set -euo pipefail
+
+config="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+
+if [ ! -s "$config" ]; then
+    exec kitty \
+        --title "OpenClaw setup" \
+        -e bash -lc 'openclaw onboard --mode local --no-install-daemon; exec bash'
+fi
+
+exec openclaw-control-ui

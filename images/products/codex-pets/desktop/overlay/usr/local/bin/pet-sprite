@@ -1,0 +1,544 @@
+#!/usr/bin/env python3
+"""pet-sprite - draws one pet on the desktop.
+
+The pet is an override-redirect X window with a shaped outline: the window is
+cut to the silhouette of the sprite, so there is no rectangle around it and
+clicks that miss the pet land on whatever is underneath. That is what makes
+this work without a compositor - and no compositor is running in this session,
+because every composited frame is one KasmVNC has to encode and ship to a
+browser.
+
+The sprite reads `.state/state.json` and never writes it. What it draws is a
+view of what the supervisor and the pet's turns have already decided:
+
+    idle    wanders along the floor, pauses, blinks
+    think   rocks in place - a turn is running
+    sleep   lies down - disabled, paused, or Codex is not signed in
+    error   stands still and says what went wrong
+
+Everything is drawn on the pixel grid. Movement is one sprite pixel at a time,
+which at 4x scale is four screen pixels, so a pet never lands half-way between
+two pixels of its own art.
+"""
+
+import os
+import random
+import subprocess
+import sys
+import time
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402  (must follow require_version)
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petlib  # noqa: E402
+import petsprites  # noqa: E402
+
+# 8 frames a second. Fast enough to read as animation, slow enough that a pen
+# of pets does not saturate the VNC encoder on an idle desktop.
+FRAME_MILLISECONDS = 125
+
+SCALE = max(1, int(os.environ.get("PETS_SPRITE_SCALE", "4")))
+
+# Re-read the pet's configuration and the screen size on this cadence. Editing
+# pet.toml and watching the pet change colour is the intended workflow, and
+# KasmVNC resizes the display when a browser connects.
+REFRESH_FRAMES = 16
+
+BUBBLE_COLOURS = {
+    "ink": (0x0B, 0x0C, 0x1A),
+    "fill": (0x12, 0x14, 0x34),
+    "text": (0xD7, 0xDC, 0xF5),
+    "error": (0xE8, 0x72, 0x4C),
+}
+
+BUBBLE_FONT_SIZE = 13
+BUBBLE_WRAP = 30
+BUBBLE_MAX_LINES = 4
+
+
+def rgb(colour):
+    """Accepts `#RRGGBB` or a byte triple, returns cairo's 0-1 floats."""
+
+    if isinstance(colour, str):
+        colour = tuple(int(colour[index : index + 2], 16) for index in (1, 3, 5))
+    return tuple(channel / 255 for channel in colour)
+
+
+def region_for(rows, scale):
+    """A cairo region covering every non-transparent pixel of a frame.
+
+    Built per row-run rather than per pixel: a 16x16 sprite is a handful of
+    rectangles this way instead of a couple of hundred, and the X server has to
+    intersect every one of them on each reshape.
+    """
+
+    region = cairo.Region()
+    for y, row in enumerate(rows):
+        start = None
+        for x, pixel in enumerate(row + petsprites.TRANSPARENT):
+            solid = pixel != petsprites.TRANSPARENT
+            if solid and start is None:
+                start = x
+            elif not solid and start is not None:
+                region.union(
+                    cairo.RectangleInt(
+                        start * scale, y * scale, (x - start) * scale, scale
+                    )
+                )
+                start = None
+    return region
+
+
+def wrap(text, width):
+    lines, current = [], ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > width and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+
+    if len(lines) > BUBBLE_MAX_LINES:
+        lines = lines[:BUBBLE_MAX_LINES]
+        lines[-1] = lines[-1][: width - 1] + "…"
+    return lines
+
+
+class Bubble:
+    """The speech balloon, drawn in its own shaped window above the pet."""
+
+    def __init__(self):
+        self.window = Gtk.Window(type=Gtk.WindowType.POPUP)
+        self.window.set_app_paintable(True)
+        self.window.connect("draw", self.on_draw)
+        self.lines = []
+        self.tone = "text"
+        self.width = 0
+        self.height = 0
+        self.position = None
+
+    def measure(self, lines):
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)
+        context = cairo.Context(surface)
+        self._select_font(context)
+        widest = 0
+        for line in lines:
+            widest = max(widest, context.text_extents(line).x_advance)
+        line_height = BUBBLE_FONT_SIZE + 4
+        return int(widest) + 16, len(lines) * line_height + 12 + SCALE * 3
+
+    @staticmethod
+    def _select_font(context):
+        context.select_font_face(
+            "monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL
+        )
+        context.set_font_size(BUBBLE_FONT_SIZE)
+        options = cairo.FontOptions()
+        # Antialiasing would undo the point of everything else on this desktop.
+        options.set_antialias(cairo.ANTIALIAS_NONE)
+        context.set_font_options(options)
+
+    def show(self, text, tone="text"):
+        lines = wrap(text, BUBBLE_WRAP)
+        if not lines:
+            self.hide()
+            return
+
+        self.lines = lines
+        self.tone = tone
+        self.width, self.height = self.measure(lines)
+        self.window.resize(self.width, self.height)
+
+        region = cairo.Region(cairo.RectangleInt(0, 0, self.width, self.height))
+        self.window.show_all()
+        self.window.get_window().shape_combine_region(region, 0, 0)
+        self.window.queue_draw()
+
+    def hide(self):
+        self.lines = []
+        self.window.hide()
+
+    def place(self, x, y):
+        """Position the balloon above a point, kept on screen."""
+
+        position = (max(0, x - self.width // 2), max(0, y - self.height))
+        if position != self.position:
+            self.position = position
+            self.window.move(*position)
+
+    def on_draw(self, _widget, context):
+        border = max(2, SCALE // 2)
+        tail = SCALE * 3
+
+        context.set_antialias(cairo.ANTIALIAS_NONE)
+        context.set_source_rgb(*rgb(BUBBLE_COLOURS["ink"]))
+        context.rectangle(0, 0, self.width, self.height - tail)
+        context.fill()
+
+        context.set_source_rgb(*rgb(BUBBLE_COLOURS["fill"]))
+        context.rectangle(
+            border,
+            border,
+            self.width - border * 2,
+            self.height - tail - border * 2,
+        )
+        context.fill()
+
+        # A stepped tail rather than a triangle: this desktop has no diagonals.
+        context.set_source_rgb(*rgb(BUBBLE_COLOURS["ink"]))
+        steps = max(1, tail // border)
+        for step in range(steps):
+            context.rectangle(
+                self.width // 2 - (steps - step) * border,
+                self.height - tail + step * border,
+                (steps - step) * 2 * border,
+                border,
+            )
+        context.fill()
+
+        self._select_font(context)
+        context.set_source_rgb(*rgb(BUBBLE_COLOURS[self.tone]))
+        line_height = BUBBLE_FONT_SIZE + 4
+        for index, line in enumerate(self.lines):
+            context.move_to(8, 8 + BUBBLE_FONT_SIZE + index * line_height)
+            context.show_text(line)
+
+        return True
+
+
+class Sprite:
+    def __init__(self, pet):
+        self.pet = pet
+        self.random = random.Random(pet.name)
+
+        self.species = pet.species
+        self.palette = petsprites.palette(pet.colourway)
+
+        art = petsprites.SPECIES[self.species]["idle"]
+        self.columns = len(art[0])
+        self.rows = len(art)
+        self.width = self.columns * SCALE
+        self.height = self.rows * SCALE
+
+        self.window = Gtk.Window(type=Gtk.WindowType.POPUP)
+        self.window.set_app_paintable(True)
+        self.window.set_size_request(self.width, self.height)
+        self.window.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+        )
+        self.window.connect("draw", self.on_draw)
+        self.window.connect("button-press-event", self.on_press)
+        self.window.connect("button-release-event", self.on_release)
+        self.window.connect("motion-notify-event", self.on_motion)
+
+        self.bubble = Bubble()
+
+        self.frames = petsprites.frames_for(self.species, "idle")
+        self.frame_index = 0
+        self.current = None
+        self.motion = "idle"
+        self.facing = 1
+        self.hold = 0
+        self.dragging = False
+        self.drag_offset = (0, 0)
+        self.local_message = ""
+        self.local_message_at = 0
+        self.tick_count = 0
+        self.blink_until = 0
+
+        self.read_geometry()
+        # Spread pets across the floor by name, so a pen does not start as a
+        # pile in one corner.
+        self.x = self.left + (
+            abs(hash(pet.name)) % max(1, self.right - self.left - self.width)
+        )
+        self.y = self.floor
+
+    # Geometry --------------------------------------------------------------
+
+    def read_geometry(self):
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        # The work area excludes the panel, because tint2 reserves it with a
+        # strut. Falling back to the full geometry only costs a pet that walks
+        # behind the panel.
+        area = monitor.get_workarea() if monitor else None
+        if area is None or area.height <= 0:
+            area = monitor.get_geometry()
+
+        self.left = area.x
+        self.right = area.x + area.width
+        self.floor = area.y + area.height - self.height
+
+    # Behaviour -------------------------------------------------------------
+
+    def choose_motion(self):
+        state = self.pet.read_state()
+        activity = state.get("activity", "idle")
+
+        if activity == "think":
+            return "think"
+        if activity == "sleep":
+            return "sleep"
+        if activity == "error":
+            return "idle"
+
+        if self.hold > 0:
+            self.hold -= 1
+            return self.motion
+
+        # Wander and stand in alternating stretches. The pause is longer than
+        # the walk on purpose: a pet that never stops is exhausting to sit next
+        # to, and every moving frame is one the VNC encoder pays for.
+        if self.motion == "walk":
+            self.hold = self.random.randint(16, 64)
+            return "idle"
+
+        self.hold = self.random.randint(16, 48)
+        self.facing = self.random.choice((-1, 1))
+        return "walk"
+
+    def bubble_text(self):
+        state = self.pet.read_state()
+        now = time.time()
+
+        if state.get("activity") == "error" and state.get("detail"):
+            return state["detail"], "error"
+
+        if now - self.local_message_at < petlib.SPEECH_SECONDS:
+            return self.local_message, "text"
+
+        message = self.pet.speaking(now)
+        if message:
+            return message, "text"
+
+        return "", "text"
+
+    def tick(self):
+        self.tick_count += 1
+
+        if self.tick_count % REFRESH_FRAMES == 0:
+            self.refresh_appearance()
+
+        if not self.dragging:
+            motion = self.choose_motion()
+            if motion != self.motion:
+                self.motion = motion
+                self.frames = petsprites.frames_for(self.species, motion)
+                self.frame_index = 0
+
+            self.frame_index = (self.frame_index + 1) % len(self.frames)
+
+            if motion == "walk":
+                self.x += self.facing * SCALE
+                if self.x <= self.left or self.x + self.width >= self.right:
+                    self.facing = -self.facing
+                    self.x = max(self.left, min(self.x, self.right - self.width))
+                self.window.move(self.x, self.y)
+            elif motion == "idle" and self.random.random() < 0.04:
+                # An occasional blink, so a standing pet is not a still image.
+                # Held outside the motion state because it is two frames long
+                # and must not disturb whatever the pet was doing.
+                self.blink_until = self.tick_count + 2
+
+        self.draw_frame()
+        self.update_bubble()
+        return True
+
+    def refresh_appearance(self):
+        """Pick up edits to pet.toml and changes to the screen size."""
+
+        try:
+            species = self.pet.species
+            colourway = self.pet.colourway
+        except petlib.PetError:
+            return
+
+        if species != self.species:
+            self.species = species
+            self.frames = petsprites.frames_for(species, self.motion)
+            self.frame_index = 0
+        self.palette = petsprites.palette(colourway)
+
+        # Nothing keeps an override-redirect window on top: the window manager
+        # ignores it, and a normal window mapped afterwards - the welcome
+        # terminal, a browser - simply stacks above it. A pet started before
+        # those windows would spend the session buried under them, so raise on
+        # each refresh rather than only at startup.
+        surface = self.window.get_window()
+        if surface is not None:
+            surface.raise_()
+
+        previous_floor = self.floor
+        self.read_geometry()
+        if self.floor != previous_floor:
+            self.y = self.floor
+            self.x = max(self.left, min(self.x, self.right - self.width))
+            self.window.move(self.x, self.y)
+
+    # Drawing ---------------------------------------------------------------
+
+    def frame_rows(self):
+        if self.tick_count < self.blink_until:
+            rows = petsprites.frames_for(self.species, "blink")[0]
+        else:
+            rows = self.frames[self.frame_index % len(self.frames)]
+        return rows if self.facing > 0 else petsprites.flip(rows)
+
+    def draw_frame(self):
+        rows = self.frame_rows()
+        if rows == self.current:
+            return
+
+        self.current = rows
+        window = self.window.get_window()
+        if window is not None:
+            window.shape_combine_region(region_for(rows, SCALE), 0, 0)
+        self.window.queue_draw()
+
+    def on_draw(self, _widget, context):
+        context.set_antialias(cairo.ANTIALIAS_NONE)
+        rows = self.current or self.frame_rows()
+
+        for y, row in enumerate(rows):
+            x = 0
+            while x < len(row):
+                pixel = row[x]
+                if pixel == petsprites.TRANSPARENT:
+                    x += 1
+                    continue
+                run = x
+                while run < len(row) and row[run] == pixel:
+                    run += 1
+                context.set_source_rgb(*rgb(self.palette[pixel]))
+                context.rectangle(
+                    x * SCALE, y * SCALE, (run - x) * SCALE, SCALE
+                )
+                context.fill()
+                x = run
+
+        return True
+
+    def update_bubble(self):
+        text, tone = self.bubble_text()
+        if not text:
+            self.bubble.hide()
+            return
+
+        if self.bubble.lines != wrap(text, BUBBLE_WRAP) or self.bubble.tone != tone:
+            self.bubble.show(text, tone)
+
+        self.bubble.place(self.x + self.width // 2, self.y - SCALE)
+
+    # Interaction -----------------------------------------------------------
+
+    def on_press(self, _widget, event):
+        if event.type == Gdk.EventType._2BUTTON_PRESS:
+            self.open_chat()
+            return True
+
+        if event.button == 3:
+            self.poke()
+            return True
+
+        if event.button == 2:
+            self.open_chat()
+            return True
+
+        self.dragging = True
+        self.drag_offset = (event.x, event.y)
+        self.repeat_last_line()
+        return True
+
+    def on_motion(self, _widget, event):
+        if not self.dragging:
+            return False
+
+        pointer_x, pointer_y = event.x_root, event.y_root
+        self.x = int(pointer_x - self.drag_offset[0])
+        self.y = int(pointer_y - self.drag_offset[1])
+        self.window.move(self.x, self.y)
+        return True
+
+    def on_release(self, _widget, _event):
+        if not self.dragging:
+            return False
+
+        self.dragging = False
+        # Put the pet back down on the floor rather than leaving it hanging in
+        # mid-air, which is what a dropped 8-bit creature should do.
+        self.y = self.floor
+        self.x = max(self.left, min(self.x, self.right - self.width))
+        self.window.move(self.x, self.y)
+        return True
+
+    def repeat_last_line(self):
+        """A click asks the pet to say its last line again.
+
+        Handled here rather than by rewriting state, so poking at a pet never
+        edits anything the supervisor is reading.
+        """
+
+        state = self.pet.read_state()
+        self.local_message = state.get("message") or "…"
+        self.local_message_at = time.time()
+
+    def poke(self):
+        self.pet.enqueue("poke")
+        self.local_message = "?"
+        self.local_message_at = time.time()
+
+    def open_chat(self):
+        subprocess.Popen(
+            ["kitty", "--title", f"{self.pet.name}", "-e", "petctl", "chat", self.pet.name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    # Lifecycle -------------------------------------------------------------
+
+    def run(self):
+        self.window.move(self.x, self.y)
+        self.window.show_all()
+        self.draw_frame()
+        GLib.timeout_add(FRAME_MILLISECONDS, self.tick)
+        Gtk.main()
+
+
+def main(argv):
+    if len(argv) != 2:
+        print("usage: pet-sprite <name>", file=sys.stderr)
+        return 2
+
+    pet = petlib.Pet(argv[1])
+    if not pet.exists():
+        print(f"no pet named '{argv[1]}'", file=sys.stderr)
+        return 2
+
+    # Said plainly rather than left to fail as an AttributeError on None. The
+    # supervisor restarts a dead sprite, so an unreadable message here would
+    # repeat in the log until somebody looked at the session.
+    if Gdk.Display.get_default() is None:
+        print(
+            f"pet-sprite: cannot open display {os.environ.get('DISPLAY', '(unset)')}",
+            file=sys.stderr,
+        )
+        return 3
+
+    Sprite(pet).run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

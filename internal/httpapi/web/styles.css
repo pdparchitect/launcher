@@ -92,15 +92,6 @@ launcher-app {
   overflow: hidden;
 }
 
-body::after {
-  position: fixed;
-  z-index: 1000;
-  inset: 0;
-  border: 1px solid var(--line-bright);
-  content: '';
-  pointer-events: none;
-}
-
 button,
 input {
   color: inherit;
@@ -284,56 +275,8 @@ mark {
   overscroll-behavior: contain;
 }
 
-/* No longer a titled bar with a separator - just the drag strip that carries
-   the window controls on the frameless platforms. */
-.topbar {
-  --wails-draggable: drag;
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 18px;
-  user-select: none;
-}
-
-.window-controls {
-  --wails-draggable: no-drag;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  color: var(--muted);
-  user-select: none;
-}
-
-.window-controls button {
-  --wails-draggable: no-drag;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-family: var(--font-technical);
-  line-height: 1;
-  user-select: none;
-}
-
-.window-controls button:hover {
-  border-color: var(--line-bright);
-  color: var(--accent);
-}
-
-.window-controls button[data-window-action='maximise'] {
-  font-size: 9px;
-}
-
-.window-controls button:last-child {
-  font-size: 20px;
+.native-window-drag-region {
+  display: none;
 }
 
 /* Clears the fixed sidebar itself. max-width is gone so the box spans the
@@ -1117,10 +1060,15 @@ mark {
 
 .marketplace-card__cover {
   position: relative;
+  width: 100%;
   aspect-ratio: 16 / 7.2;
+  display: block;
   overflow: hidden;
+  padding: 0;
+  border: 0;
   border-bottom: 1px solid var(--line);
   background: var(--surface-raised);
+  text-align: left;
 }
 
 .marketplace-card__cover > span {
@@ -1203,8 +1151,195 @@ mark {
   letter-spacing: 0.1em;
 }
 
+.marketplace-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .marketplace-card__footer .primary-button {
   min-height: 40px;
+}
+
+.marketplace-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.marketplace-detail__hero-art {
+  background: linear-gradient(
+      90deg,
+      #080a07 8%,
+      rgba(8, 10, 7, 0.82) 38%,
+      rgba(8, 10, 7, 0.38) 72%,
+      #080a07 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(205, 220, 45, 0.12),
+      rgba(8, 10, 7, 0.24)
+    ),
+    var(--marketplace-detail-art) center top / cover no-repeat;
+  filter: saturate(0.78);
+  opacity: 0.78;
+}
+
+.marketplace-detail__information,
+.marketplace-detail__screenshots,
+.marketplace-detail__instances {
+  padding: 22px 24px;
+}
+
+.marketplace-detail__information .panel-heading,
+.marketplace-detail__screenshots .panel-heading,
+.marketplace-detail__instances .panel-heading {
+  margin-bottom: 16px;
+}
+
+.marketplace-detail__information dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0;
+  border: 1px solid var(--line);
+  background: rgba(5, 6, 4, 0.62);
+}
+
+.marketplace-detail__information dt,
+.marketplace-detail__information dd {
+  min-width: 0;
+  margin: 0;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-technical);
+  font-size: 10px;
+}
+
+.marketplace-detail__information dt {
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+
+.marketplace-detail__information dd {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  text-align: right;
+  user-select: text;
+}
+
+.marketplace-screenshot-list {
+  display: grid;
+  gap: 16px;
+}
+
+.marketplace-screenshot-list figure {
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--line-bright);
+  background: var(--surface-raised);
+}
+
+.marketplace-screenshot-list img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.marketplace-screenshot-list figcaption {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-technical);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.marketplace-instance-list {
+  display: grid;
+  border: 1px solid var(--line);
+}
+
+.marketplace-instance {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.marketplace-instance:last-child {
+  border-bottom: 0;
+}
+
+.marketplace-instance__identity,
+.marketplace-instance__actions {
+  display: flex;
+  align-items: center;
+}
+
+.marketplace-instance__identity {
+  min-width: 0;
+  gap: 12px;
+}
+
+.marketplace-instance__identity > i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  background: var(--muted);
+}
+
+.marketplace-instance__identity > i[data-status='online'] {
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(234, 255, 0, 0.5);
+}
+
+.marketplace-instance__identity > i[data-status='idle'] {
+  background: #f0a23b;
+}
+
+.marketplace-instance__identity > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.marketplace-instance__identity strong {
+  overflow: hidden;
+  font-family: var(--font-interface);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-instance__identity small {
+  color: var(--muted);
+  font-family: var(--font-technical);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.marketplace-instance__identity small[data-status='online'] {
+  color: var(--accent);
+}
+
+.marketplace-instance__actions {
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.marketplace-instance__actions .secondary-button {
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+.marketplace-instance-list__empty {
+  margin: 0;
+  padding: 28px 20px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .activity-heading h2,
@@ -1423,14 +1558,6 @@ mark {
 .launcher-dialog::backdrop {
   background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(6px);
-}
-
-.dialog-heading {
-  --wails-draggable: drag;
-}
-
-.dialog-heading button {
-  --wails-draggable: no-drag;
 }
 
 .dialog-panel {
@@ -1925,6 +2052,7 @@ mark {
   .marketplace-grid {
     grid-template-columns: 1fr;
   }
+
 }
 
 @media (max-width: 700px) {
@@ -2041,6 +2169,7 @@ mark {
     flex-direction: column;
     padding: 26px;
   }
+
 }
 
 @media (max-width: 470px) {
@@ -2058,6 +2187,29 @@ mark {
     width: 100%;
   }
 
+  .marketplace-card__footer {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .marketplace-card__actions,
+  .marketplace-card__actions .primary-button {
+    width: 100%;
+  }
+
+  .marketplace-card__actions {
+    justify-content: space-between;
+  }
+
+  .marketplace-instance {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .marketplace-instance__actions .secondary-button {
+    flex: 1;
+  }
+
   .agent-card--row {
     grid-template-columns: 90px minmax(0, 1fr) 36px;
     gap: 10px;
@@ -2071,12 +2223,6 @@ mark {
   .agent-card--row .tag-list {
     display: none;
   }
-}
-
-/* The packaged macOS build uses the real window chrome, so the native traffic
-   lights replace the HTML window controls and the sidebar clears them. */
-.is-macos-desktop .window-controls {
-  display: none;
 }
 
 /* macOS rounds the window, but the page inside it is still a rectangle, so an
@@ -2097,14 +2243,13 @@ mark {
   border-radius: 0;
 }
 
-/* The native title bar is hidden and the webview covers the whole window, so
-   without this there is nothing left to drag the window by. The bar keeps no
-   height in the layout — it is a fixed, transparent strip acting purely as a
-   drag handle. It starts where the sidebar ends, since the traffic lights sit
-   over the native panel and that area is not the webview's to handle.
-   Double-clicking it still zooms, via the existing .topbar handler. */
-.is-macos-desktop .topbar {
+/* The macOS webview draws underneath the unified toolbar, so its AppKit surface
+   intercepts the detail column's title-bar band. This transparent strip
+   forwards drags to the SwiftUI window through the native sidebar bridge. It
+   starts where the sidebar ends because that column remains native SwiftUI. */
+.is-macos-desktop .native-window-drag-region {
   --wails-draggable: drag;
+  display: block;
   position: fixed;
   z-index: 50;
   top: 0;
@@ -2121,13 +2266,6 @@ mark {
    it; the value here is the fallback and what the browser preview uses. */
 .is-macos-desktop {
   --content-top: 58px;
-}
-
-/* body::after draws the window edge for the frameless Linux and Windows
-   builds. macOS has a real frame with rounded corners, so this square hairline
-   just cuts across them. */
-.is-macos-desktop body::after {
-  display: none;
 }
 
 .is-macos-desktop .sidebar {
@@ -2157,8 +2295,8 @@ mark {
    insets apply to. Everywhere else this interface scrolls .main-panel, an inner
    element as tall as the window, so its scrollbar is drawn corner to corner and
    the window's own mask cuts the ends off. Giving scrolling back to the
-   document is what earns the native inset; the fixed .topbar and .sidebar do
-   not move, and the hero still bleeds to every window edge. */
+   document is what earns the native inset; the fixed drag region and sidebar
+   do not move, and the hero still bleeds to every window edge. */
 .is-swiftui-host,
 .is-swiftui-host body,
 .is-swiftui-host launcher-app,

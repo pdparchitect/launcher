@@ -1,0 +1,40 @@
+{
+  "id": "f726241a-ff31-423d-92ad-f2b43cca742f",
+  "slug": "hermes",
+  "name": "Hermes",
+  "publisher": "Nous Research",
+  "description": "A persistent browser desktop for running Hermes locally, with guided setup, its full-screen TUI, tools, skills, and workspace.",
+  "tags": [
+    "ASSISTANT",
+    "AUTOMATION",
+    "TERMINAL"
+  ],
+  "media": {
+    "icon": "hermes/icon.png",
+    "cover": "hermes/screenshot.png",
+    "screenshots": [
+      {
+        "source": "hermes/screenshot.png",
+        "alt": "Hermes running its guided setup in a persistent blue desktop"
+      }
+    ]
+  },
+  "image": "ghcr.io/pdparchitect/launcher-image-hermes-desktop:latest",
+  "viewer": "kasmvnc",
+  "containerPort": 6901,
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "resolutionEnvironment": "DESKTOP_RESOLUTION",
+  "resolution": "1920x1080",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/hermes",
+      "target": "/home/agent/.hermes"
+    }
+  ]
+}

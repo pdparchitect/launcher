@@ -1,0 +1,55 @@
+#!/bin/bash
+# Keeps the OpenClaw Gateway running for as long as the container does.
+#
+# The gateway refuses to start until onboarding has written `gateway.mode`
+# into ~/.openclaw/openclaw.json, and onboarding happens inside the session,
+# minutes after this program starts. So this waits for the configuration
+# instead of failing on the absence of it: whenever onboarding finishes, the
+# gateway comes up on its own and neither half has to know which ran first.
+#
+# It also restarts the gateway when it exits, which is what stands in for the
+# systemd user service OpenClaw would install on a normal Linux host. There is
+# no init system in this container, so `openclaw gateway stop` and an
+# in-process restart both land here.
+
+#
+# The bind mode is passed explicitly and defaults to loopback. OpenClaw detects
+# that it is in a container and binds 0.0.0.0 for port-forwarding convenience,
+# which is the wrong default here: this image publishes the desktop on 6901 and
+# never the gateway, so the whole control plane would be listening on an
+# interface nothing is supposed to reach it on. It is also a refusal to start -
+# a non-loopback bind requires configured auth, and onboarding has not
+# necessarily written any. Set OPENCLAW_GATEWAY_BIND to something else, or to
+# an empty value, to hand the decision back to openclaw.json.
+
+set -uo pipefail
+
+config="${OPENCLAW_CONFIG_PATH:-${HOME:-/home/agent}/.openclaw/openclaw.json}"
+log_file=/var/log/launcher-desktop/openclaw-gateway.log
+
+bind="${OPENCLAW_GATEWAY_BIND-loopback}"
+gateway_args=()
+if [ -n "$bind" ]; then
+    gateway_args+=(--bind "$bind")
+fi
+
+mkdir -p "$(dirname "$log_file")" "$(dirname "$config")" 2>/dev/null || true
+
+announced=""
+while true; do
+    if [ -s "$config" ]; then
+        printf '[openclaw] starting the gateway\n' >>"$log_file"
+        openclaw gateway "${gateway_args[@]}" >>"$log_file" 2>&1
+        printf '[openclaw] the gateway exited; restarting\n' >>"$log_file"
+        announced=""
+    elif [ -z "$announced" ]; then
+        printf '[openclaw] waiting for onboarding to write %s\n' "$config" \
+            >>"$log_file"
+        announced=yes
+    fi
+
+    # A gateway that dies immediately and repeatedly - a bad model provider, a
+    # channel that cannot authenticate - must not spin the CPU for the length
+    # of the session.
+    sleep 3
+done

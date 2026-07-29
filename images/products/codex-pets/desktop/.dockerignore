@@ -1,0 +1,14 @@
+*
+!Dockerfile
+!overlay
+!overlay/**
+# Python leaves these behind next to the sources whenever a program here is
+# byte-compiled by hand. They would be copied into the image by COPY overlay /.
+#
+# Excluding the directory alone is not enough: .dockerignore decides per path,
+# and `overlay/**/__pycache__` matches only the directory entry, never the files
+# inside it - which `!overlay/**` has already re-included. The contents need
+# their own pattern.
+overlay/**/__pycache__
+overlay/**/__pycache__/**
+overlay/**/*.pyc

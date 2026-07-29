@@ -45,3 +45,55 @@ func TestViewerPageNavigatesToRunningAgentURL(t *testing.T) {
 		}
 	}
 }
+
+// Every viewer window is a separate process showing the same container, so a
+// second one for the same agent is only ever in the way. The bookkeeping is
+// what decides between starting one and raising the one already there, and it
+// has to survive a click that lands while the first window is still opening.
+func TestOpeningAnAgentTwiceRaisesTheWindowAlreadyOpen(t *testing.T) {
+	focused := 0
+	raisable := true
+	windows := &viewerWindows{
+		open: map[string]int{},
+		focus: func(pid int) bool {
+			focused = pid
+			return raisable
+		},
+	}
+
+	if windows.focusOrClaim("Pantalk Ghost") {
+		t.Fatal("first open must start a process")
+	}
+	if !windows.focusOrClaim("Pantalk Ghost") {
+		t.Fatal("a click while the window is opening must not start a second")
+	}
+	if focused != 0 {
+		t.Fatalf("nothing to focus yet, focused pid = %d", focused)
+	}
+
+	windows.track("Pantalk Ghost", 4242)
+	if !windows.focusOrClaim("Pantalk Ghost") {
+		t.Fatal("an open window must be focused, not duplicated")
+	}
+	if focused != 4242 {
+		t.Fatalf("focused pid = %d, want the tracked process", focused)
+	}
+
+	// A different agent is a different window.
+	if windows.focusOrClaim("Buzznode") {
+		t.Fatal("each agent gets its own window")
+	}
+
+	// Closing the window ends the process, which frees the name again.
+	windows.release("Pantalk Ghost")
+	if windows.focusOrClaim("Pantalk Ghost") {
+		t.Fatal("a closed window must open again")
+	}
+
+	// A window that cannot be raised is worth no more than none at all.
+	windows.track("Pantalk Ghost", 99)
+	raisable = false
+	if windows.focusOrClaim("Pantalk Ghost") {
+		t.Fatal("an unfocusable window must fall back to opening one")
+	}
+}

@@ -1,0 +1,9 @@
+#!/bin/bash
+# The panel's status slot: how many pets there are and whether any is thinking.
+#
+# tint2 runs this every few seconds and renders the result with pango markup,
+# so it has to stay to one short line - petctl owns the formatting.
+
+set -euo pipefail
+
+exec petctl status --panel

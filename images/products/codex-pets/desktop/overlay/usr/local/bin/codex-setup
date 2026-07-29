@@ -1,0 +1,79 @@
+#!/bin/bash
+# codex-setup - sign Codex in.
+#
+# Runs once per persistent volume: the credentials land in $CODEX_HOME, which
+# this image keeps on its own volume, so a rebuilt image resumes signed in.
+#
+# Device authorisation is offered first. The desktop has a browser, but the
+# browser-callback flow wants to hand a redirect back to a loopback port inside
+# this container, and the person driving the desktop may be looking at it from
+# a browser on another machine. A device code works either way.
+
+set -euo pipefail
+
+export CODEX_HOME="${CODEX_HOME:-/home/agent/.codex}"
+
+accent='\033[38;5;222m'
+reset='\033[0m'
+
+green() { printf '\033[38;5;79m%s\033[0m\n' "$1"; }
+dim() { printf '\033[2m%s\033[0m\n' "$1"; }
+
+mkdir -p "$CODEX_HOME"
+
+if [ -s "$CODEX_HOME/auth.json" ]; then
+    green "Codex is already signed in."
+    codex login status || true
+    echo
+    dim "To sign in as somebody else: codex logout, then run codex-setup again."
+    exit 0
+fi
+
+printf "${accent}"
+cat <<'BANNER'
+  ██████  ██████  ████    ██████  ██  ██          ██████  ██████  ██████  ██████
+  ██      ██  ██  ██  ██  ██      ██  ██          ██  ██  ██        ██    ██
+  ██      ██  ██  ██  ██  ████      ██            ██████  ████      ██    ██████
+  ██      ██  ██  ██  ██  ██      ██  ██          ██      ██        ██        ██
+  ██████  ██████  ████    ██████  ██  ██          ██      ██████    ██    ██████
+BANNER
+printf "${reset}\n"
+
+dim "  Every pet on this desktop thinks with Codex, so the pen stays asleep"
+dim "  until Codex can sign in."
+echo
+
+echo "  1) Sign in with ChatGPT   (a code you type into a browser)"
+echo "  2) Use an API key         (paste an OpenAI API key)"
+echo "  3) Not now                (pets wander, but do not think)"
+echo
+
+read -r -p "Choose 1, 2 or 3: " choice
+echo
+
+case "$choice" in
+    1)
+        codex login --device-auth
+        ;;
+    2)
+        read -r -s -p "OpenAI API key: " api_key
+        echo
+        printf '%s' "$api_key" | codex login --with-api-key
+        unset api_key
+        ;;
+    *)
+        dim "Left signed out. Run codex-setup whenever you are ready."
+        exit 0
+        ;;
+esac
+
+echo
+if [ -s "$CODEX_HOME/auth.json" ]; then
+    green "Codex is signed in."
+    echo
+    dim "The pen picks this up within a couple of seconds - no restart needed."
+    dim "Make your first pet with: petctl new"
+else
+    echo "Sign-in did not complete. Run codex-setup to try again." >&2
+    exit 1
+fi

@@ -159,6 +159,8 @@ func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
 		t.Fatalf("Catalog() = %#v", entries)
 	}
 	if entries[1].Description != ghost.Description ||
+		entries[1].Memory != ghost.Memory ||
+		entries[1].Resolution != ghost.Resolution ||
 		len(entries[1].Media.Screenshots) != 1 {
 		t.Fatalf("Ghost entry = %#v", entries[1])
 	}

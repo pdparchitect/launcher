@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Root menu for OpenClaw.
+
+  The Control UI is the product, so it is the first entry and the one bound to
+  Control-Shift-G. Everything under it is the part of OpenClaw that is quicker
+  from a terminal than from a browser: onboarding, channel pairing, the doctor,
+  and the gateway log the supervisor writes.
+
+  Everything below the OpenClaw section is the desktop base's neutral menu,
+  kept in the same order so the substrate stays recognisable across products.
+-->
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="OpenClaw">
+    <item label="Control UI">
+      <action name="Execute">
+        <command>openclaw-control-ui</command>
+      </action>
+    </item>
+    <item label="Chat">
+      <action name="Execute">
+        <command>kitty --title "OpenClaw" -e bash -lc "openclaw tui; exec bash"</command>
+      </action>
+    </item>
+    <separator />
+    <menu id="gateway-menu" label="Gateway">
+      <item label="Welcome">
+        <action name="Execute">
+          <command>desktop-welcome</command>
+        </action>
+      </item>
+      <item label="Status">
+        <action name="Execute">
+          <command>kitty --title "OpenClaw status" -e bash -lc "openclaw status; read -n 1 -s -r"</command>
+        </action>
+      </item>
+      <item label="Gateway Log">
+        <action name="Execute">
+          <command>kitty --title "openclaw gateway" -e less +F /var/log/launcher-desktop/openclaw-gateway.log</command>
+        </action>
+      </item>
+      <separator />
+      <item label="Restart Gateway">
+        <action name="Execute">
+          <command>openclaw gateway stop</command>
+        </action>
+      </item>
+    </menu>
+    <menu id="setup-menu" label="Setup">
+      <item label="Onboarding">
+        <action name="Execute">
+          <command>kitty --title "OpenClaw setup" -e bash -lc "openclaw onboard --mode local --no-install-daemon; exec bash"</command>
+        </action>
+      </item>
+      <item label="Channels">
+        <action name="Execute">
+          <command>kitty --title "OpenClaw channels" -e bash -lc "openclaw channels; exec bash"</command>
+        </action>
+      </item>
+      <item label="Check Everything">
+        <action name="Execute">
+          <command>kitty --title "openclaw doctor" -e bash -lc "openclaw doctor; read -n 1 -s -r"</command>
+        </action>
+      </item>
+      <item label="Security Audit">
+        <action name="Execute">
+          <command>kitty --title "openclaw security audit" -e bash -lc "openclaw security audit; read -n 1 -s -r"</command>
+        </action>
+      </item>
+    </menu>
+    <separator />
+    <item label="Terminal">
+      <action name="Execute">
+        <command>kitty</command>
+      </action>
+    </item>
+    <separator />
+    <item label="File Manager">
+      <action name="Execute">
+        <command>kitty -e ranger /workspace</command>
+      </action>
+    </item>
+    <item label="Task Manager">
+      <action name="Execute">
+        <command>kitty -e htop</command>
+      </action>
+    </item>
+    <separator />
+    <item label="Browser">
+      <action name="Execute">
+        <command>chromium file:///opt/browser/index.html</command>
+      </action>
+    </item>
+    <separator />
+    <menu id="tiling-menu" label="Tiling Mode">
+      <item label="Enable Tiling">
+        <action name="Execute">
+          <command>cortilectl on</command>
+        </action>
+      </item>
+      <item label="Disable Tiling (Floating)">
+        <action name="Execute">
+          <command>cortilectl off</command>
+        </action>
+      </item>
+      <item label="Toggle Tiling">
+        <action name="Execute">
+          <command>cortilectl toggle</command>
+        </action>
+      </item>
+      <separator />
+      <item label="Next Layout">
+        <action name="Execute">
+          <command>cortilectl next-layout</command>
+        </action>
+      </item>
+      <item label="Previous Layout">
+        <action name="Execute">
+          <command>cortilectl prev-layout</command>
+        </action>
+      </item>
+      <separator />
+      <item label="Stop Tiling Helper">
+        <action name="Execute">
+          <command>cortilectl stop</command>
+        </action>
+      </item>
+      <item label="Start Tiling Helper">
+        <action name="Execute">
+          <command>cortilectl start</command>
+        </action>
+      </item>
+    </menu>
+  </menu>
+</openbox_menu>

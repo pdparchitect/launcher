@@ -1,0 +1,49 @@
+#!/bin/bash
+# Opens the Gateway Control UI in its own browser window.
+#
+# `openclaw dashboard` is what opens it, rather than a URL assembled here,
+# because the address is not the whole story: the gateway requires auth, and
+# the token reaches the browser only as a URL fragment that command builds.
+# Rebuilding it here would mean reimplementing token resolution, base paths and
+# TLS, and putting a secret on a command line.
+#
+# That command opens the URL with xdg-open, which on this desktop is an
+# ordinary browser window - tab strip, omnibox, the lot. This is a product, so
+# a shim earlier on PATH turns that one call into an app window instead. The
+# shim backgrounds the browser deliberately: openclaw gives xdg-open five
+# seconds and kills what it started, and a foreground browser would go with it.
+# If the shim is ever bypassed, the real xdg-open still opens the Control UI -
+# in a browser window rather than an app window, which is a worse frame around
+# a working UI, not a failure.
+#
+# When the gateway is not ready, `openclaw dashboard` opens nothing and does
+# not prompt without a TTY, so the fallback opens the bare loopback URL and
+# lets the Control UI ask for the token itself. Control-Shift-G should always
+# put something on screen.
+
+set -uo pipefail
+
+port="${OPENCLAW_CONTROL_PORT:-18789}"
+window=(--window-size=1440,900 --window-position=64,64)
+
+shim_dir="$(mktemp -d)"
+opened_stamp="$shim_dir/opened"
+
+cat > "$shim_dir/xdg-open" <<SHIM
+#!/bin/bash
+touch "$opened_stamp"
+setsid chromium --app="\$1" ${window[*]} >/dev/null 2>&1 &
+SHIM
+chmod 0755 "$shim_dir/xdg-open"
+
+# The command returns success whether or not it opened anything, so the stamp
+# the shim leaves behind is what says a window exists.
+PATH="$shim_dir:$PATH" openclaw dashboard >/dev/null 2>&1
+
+if [ -e "$opened_stamp" ]; then
+    rm -rf "$shim_dir"
+    exit 0
+fi
+
+rm -rf "$shim_dir"
+exec chromium --app="http://127.0.0.1:${port}/" "${window[@]}"

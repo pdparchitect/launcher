@@ -1,0 +1,70 @@
+#!/bin/bash
+# desktop-selftest - what the smoke test runs inside a live session.
+#
+# The shared smoke test can prove a desktop came up. It cannot prove this
+# product came up, and the failure that matters here is specific: the gateway
+# supervisor is the only thing that ever starts OpenClaw on this image, and a
+# supervisor that died on its first iteration leaves a desktop that looks
+# perfectly healthy and will never start a gateway, no matter how many times
+# somebody completes onboarding.
+#
+# A freshly built image has never been onboarded, so "up" means the supervisor
+# is waiting rather than the gateway is listening. Both are checked, because
+# the same program runs against a session that has state on its volume.
+
+set -uo pipefail
+
+failures=0
+port="${OPENCLAW_CONTROL_PORT:-18789}"
+config="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+log_file=/var/log/launcher-desktop/openclaw-gateway.log
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "openclaw selftest"
+
+check "openclaw runs" openclaw --version
+check "the state directory is writable" test -w "$(dirname "$config")"
+check "the supervisor is running" pgrep -f '/usr/local/bin/openclaw-gateway-supervise'
+check "the panel status renders" desktop-panel-status
+
+if [ -s "$config" ]; then
+    # An onboarded volume: the gateway itself has to be answering. The
+    # supervisor retries every three seconds, so allow for one restart cycle.
+    listening=""
+    for _ in $(seq 1 30); do
+        if timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+            listening=yes
+            break
+        fi
+        sleep 1
+    done
+    if [ -n "$listening" ]; then
+        echo "  ok   the gateway is listening on ${port}"
+    else
+        echo "  FAIL the gateway never listened on ${port}" >&2
+        tail -5 "$log_file" >&2 2>/dev/null || true
+        failures=$((failures + 1))
+    fi
+else
+    # A fresh image: the supervisor must have reached its wait, which is what
+    # distinguishes a live loop from one that exited on its first pass.
+    check "the supervisor is waiting for onboarding" \
+        grep -q 'waiting for onboarding' "$log_file"
+fi
+
+if [ "$failures" -gt 0 ]; then
+    echo "openclaw selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "openclaw selftest: the gateway supervisor is up"

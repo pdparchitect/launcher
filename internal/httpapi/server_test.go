@@ -52,7 +52,7 @@ func TestIndexPreservesDesignAndInjectsSessionToken(t *testing.T) {
 	}
 }
 
-func TestWindowChromeUsesDesktopRuntimeAdapter(t *testing.T) {
+func TestInterfaceLeavesWindowControlsToNativeWindow(t *testing.T) {
 	source := readWebSources(
 		t,
 		"desktop-window.js",
@@ -60,61 +60,45 @@ func TestWindowChromeUsesDesktopRuntimeAdapter(t *testing.T) {
 		"styles.css",
 	)
 	for _, expected := range []string{
+		"isDesktop()",
+		"BrowserOpenURL",
+		"ClipboardGetText",
+		".is-macos-desktop .native-window-drag-region",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing retained desktop behavior %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
 		"WindowMinimise",
 		"WindowToggleMaximise",
 		"invoke('Quit')",
-		`data-window-action="close"`,
-		"border: 1px solid transparent",
-		"border-color: var(--line-bright)",
-		"--wails-draggable: drag",
-		"--wails-draggable: no-drag",
+		"data-window-action",
+		"window-controls",
 	} {
-		if !strings.Contains(source, expected) {
-			t.Fatalf("interface missing desktop window behavior %q", expected)
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("interface still implements native window behavior %q", forbidden)
 		}
-	}
-	controls := readWebSources(t, "components/launcher-app.js")
-	minimise := strings.Index(controls, `data-window-action="minimise"`)
-	maximise := strings.Index(controls, `data-window-action="maximise"`)
-	closeWindow := strings.Index(controls, `data-window-action="close"`)
-	if minimise < 0 || maximise < minimise || closeWindow < maximise {
-		t.Fatal("window controls must be ordered minimise, maximise, close")
 	}
 }
 
-func TestDialogHeadersRemainDraggableOverModalBackdrop(t *testing.T) {
+func TestOnlyMacOSNativeShellUsesWebDragRegion(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 	for _, expected := range []string{
-		".dialog-heading {",
+		".is-macos-desktop .native-window-drag-region {",
 		"--wails-draggable: drag;",
-		".dialog-heading button {",
-		"--wails-draggable: no-drag;",
 	} {
 		if !strings.Contains(styles, expected) {
-			t.Fatalf("dialog chrome missing draggable rule %q", expected)
+			t.Fatalf("macOS native shell missing drag bridge rule %q", expected)
 		}
 	}
-}
-
-func TestLauncherWindowUsesDialogBorder(t *testing.T) {
-	styles := readWebSources(t, "styles.css")
-	start := strings.Index(styles, "body::after {")
-	if start < 0 {
-		t.Fatal("interface missing Launcher window frame")
-	}
-	end := strings.Index(styles[start:], "}")
-	if end < 0 {
-		t.Fatal("Launcher window frame style is incomplete")
-	}
-	frame := styles[start : start+end]
-	for _, expected := range []string{
-		"position: fixed",
-		"inset: 0",
-		"border: 1px solid var(--line-bright)",
-		"pointer-events: none",
+	for _, forbidden := range []string{
+		".dialog-heading {\n  --wails-draggable:",
+		"--wails-draggable: no-drag",
+		"body::after",
 	} {
-		if !strings.Contains(frame, expected) {
-			t.Fatalf("Launcher window frame missing %q", expected)
+		if strings.Contains(styles, forbidden) {
+			t.Fatalf("interface retains frameless-window support %q", forbidden)
 		}
 	}
 }
@@ -317,7 +301,8 @@ func TestInterfacePreviewsMacosChromeFromTheBrowser(t *testing.T) {
 
 	for _, expected := range []string{
 		`.get('chrome')`,
-		"requestedChrome() === 'macos'",
+		"function macOSChromePreviewRequested()",
+		"macOSChromePreviewRequested()",
 		"applyNativeSidebarLayout(true)",
 		"'is-sidebar-preview'",
 	} {
@@ -608,6 +593,7 @@ func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
 		"components/launcher-app.js",
 		"components/agent-card.js",
 		"components/marketplace-card.js",
+		"components/marketplace-detail.js",
 		"components/deploy-dialog.js",
 		"components/agent-actions-dialog.js",
 		"components/runtime-setup-dialog.js",
@@ -616,6 +602,7 @@ func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
 		`customElements.define('launcher-app'`,
 		`customElements.define('agent-card'`,
 		`customElements.define('marketplace-card'`,
+		`customElements.define('marketplace-detail'`,
 		`customElements.define('deploy-dialog'`,
 		`customElements.define('agent-actions-dialog'`,
 		`customElements.define('runtime-setup-dialog'`,
@@ -636,6 +623,36 @@ func TestInterfaceUsesStandardsOnlyWebComponents(t *testing.T) {
 	} {
 		if strings.Contains(source, generated) {
 			t.Fatalf("interface still contains generated runtime syntax %q", generated)
+		}
+	}
+}
+
+func TestMarketplaceEntriesOpenDetailedImagePages(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/launcher-app.js",
+		"components/marketplace-card.js",
+		"components/marketplace-detail.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		`data-screen="marketplace-detail"`,
+		"view-marketplace-entry",
+		"showMarketplaceEntry(entry)",
+		"entry.media?.screenshots?.[0]",
+		"agent.catalogId === entry.id",
+		"instance.state === 'running'",
+		`class="hero marketplace-detail__hero"`,
+		`class="hero__art marketplace-detail__hero-art"`,
+		`class="hero__copy"`,
+		`class="hero__stat"`,
+		"--marketplace-detail-art",
+		`data-screenshots`,
+		".marketplace-screenshot-list img",
+		`data-screen-link="marketplace"`,
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("marketplace detail page missing %q", expected)
 		}
 	}
 }
@@ -664,6 +681,12 @@ func TestDesignAssetsAreServed(t *testing.T) {
 			path:         "/components/agent-card.js",
 			contentType:  "text/javascript",
 			body:         "customElements.define('agent-card'",
+			cacheControl: "no-store",
+		},
+		{
+			path:         "/components/marketplace-detail.js",
+			contentType:  "text/javascript",
+			body:         "customElements.define('marketplace-detail'",
 			cacheControl: "no-store",
 		},
 		{

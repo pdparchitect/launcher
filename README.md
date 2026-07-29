@@ -125,12 +125,12 @@ The equivalent built-binary command is `./dist/launcher serve --no-open`.
 
 ## Desktop application
 
-Launcher uses Wails to host the same embedded interface. Linux keeps the
-frameless web window and its HTML controls. On macOS, a statically linked
-SwiftUI shell reparents Wails' configured WKWebView into the detail column of a
-native `NavigationSplitView`. Wails still owns the process, custom asset scheme
-and JavaScript runtime, while SwiftUI supplies the system sidebar, toolbar and
-background extension effect.
+Launcher uses Wails to host the same embedded interface. Linux uses the native
+GTK or window-manager title bar and its standard window controls. On macOS, a
+statically linked SwiftUI shell reparents Wails' configured WKWebView into the
+detail column of a native `NavigationSplitView`. Wails still owns the process,
+custom asset scheme and JavaScript runtime, while SwiftUI supplies the system
+sidebar, toolbar and background extension effect.
 
 On Ubuntu, install the Wails development libraries once:
 
@@ -291,7 +291,7 @@ cli/                       commands, prompting, and browser opening
 internal/agent/            application lifecycle
 internal/catalog/          self-contained embedded application manifests
 internal/config/           platform data-folder selection
-internal/desktop/           Wails frameless desktop host
+internal/desktop/           Wails native desktop host
 internal/domain/           persisted instance model
 internal/httpapi/           loopback API and embedded Launcher interface
 internal/runtime/          Docker and Apple container adapters

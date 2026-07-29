@@ -1,0 +1,21 @@
+#!/bin/bash
+# The terminal the session opens with.
+#
+# First boot lands in Codex sign-in, because nothing else on this desktop works
+# until that is done. Afterwards it is the pen: who lives here, what they are
+# doing, and the four commands worth knowing.
+
+set -euo pipefail
+
+if [ ! -s "${CODEX_HOME:-/home/agent/.codex}/auth.json" ]; then
+    command='codex-setup; echo; petctl status; exec bash'
+else
+    command='pen-greeting; exec bash'
+fi
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Codex Pets}" \
+    --override remember_window_size=no \
+    --override initial_window_width=92c \
+    --override initial_window_height=30c \
+    -e bash -lc "$command"

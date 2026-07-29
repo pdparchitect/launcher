@@ -10,3 +10,6 @@ func BadgeDockIcon() {}
 
 // InstallViewerChrome is a no-op outside a cgo-enabled macOS build.
 func InstallViewerChrome() bool { return false }
+
+// ActivateProcess is a no-op outside a cgo-enabled macOS build.
+func ActivateProcess(int) bool { return false }

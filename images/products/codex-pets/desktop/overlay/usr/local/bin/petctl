@@ -1,0 +1,594 @@
+#!/usr/bin/env python3
+"""petctl - make, watch and talk to the pets.
+
+Everything a person does to the pen goes through here, including the Openbox
+menu, which calls `petctl menu` as a pipe menu and gets the live list of pets
+back as XML. There is no daemon protocol to learn: every command either writes
+a file into a pet's directory or reads one back.
+"""
+
+import argparse
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petlib
+import petprompts
+import petsprites
+
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    return 1
+
+
+def relative(seconds):
+    if not seconds:
+        return "never"
+    delta = max(0, int(time.time() - seconds))
+    if delta < 60:
+        return f"{delta}s ago"
+    if delta < 3600:
+        return f"{delta // 60}m ago"
+    return f"{delta // 3600}h ago"
+
+
+# Creating ------------------------------------------------------------------
+
+
+def scaffold(name, species, colour, persona, heartbeat):
+    """Write a new pet's directory. Nothing here is ever rewritten later."""
+
+    pet = petlib.Pet(name)
+    if pet.exists():
+        raise petlib.PetError(f"'{name}' already lives in {petlib.PETS_ROOT}")
+
+    description = petsprites.SPECIES[species]["description"]
+    persona = persona or f"You are {description}."
+
+    try:
+        for directory in (pet.directory, pet.skills, pet.memory, pet.journal, pet.inbox):
+            directory.mkdir(parents=True, exist_ok=True)
+        (pet.inbox / "done").mkdir(exist_ok=True)
+    except PermissionError:
+        raise petlib.PetError(
+            f"{petlib.PETS_ROOT} is not writable by {os.environ.get('USER', 'you')}"
+        )
+
+    petlib.atomic_write(
+        pet.agents_path,
+        petprompts.AGENTS_TEMPLATE.format(
+            name=name, species=species, persona=persona
+        ),
+    )
+    petlib.atomic_write(
+        pet.config_path,
+        petprompts.PET_TOML_TEMPLATE.format(
+            name=name, species=species, colour=colour, heartbeat=heartbeat
+        ),
+    )
+    petlib.atomic_write(
+        pet.skills / "README.md", petprompts.SKILLS_README.format(name=name)
+    )
+    (pet.skills / "keeping-a-journal").mkdir(exist_ok=True)
+    petlib.atomic_write(
+        pet.skills / "keeping-a-journal" / "SKILL.md", petprompts.EXAMPLE_SKILL
+    )
+    petlib.atomic_write(
+        pet.memory / "README.md", petprompts.MEMORY_SEED.format(name=name)
+    )
+
+    pet.write_state(activity="idle", detail="just arrived")
+    pet.say(f"hello, I am {name}")
+    return pet
+
+
+def ask(question, options=None, default=None):
+    suffix = f" [{default}]" if default else ""
+    if options:
+        print(f"{DIM}  {', '.join(options)}{RESET}")
+    answer = input(f"{question}{suffix}: ").strip()
+    return answer or (default or "")
+
+
+def command_new(arguments):
+    interactive = not arguments.name
+
+    if interactive:
+        print(f"{BOLD}A new pet{RESET}\n")
+
+    name = arguments.name
+    while True:
+        if not name:
+            name = ask("Name")
+        try:
+            petlib.validate_name(name)
+            if petlib.Pet(name).exists():
+                raise petlib.PetError(f"'{name}' already lives here")
+            break
+        except petlib.PetError as error:
+            if not interactive:
+                return fail(str(error))
+            print(f"  {error}")
+            name = ""
+
+    species = arguments.species
+    if interactive and not species:
+        species = ask("Species", petsprites.SPECIES_NAMES, "blob")
+    species = species if species in petsprites.SPECIES else "blob"
+
+    colour = arguments.colour
+    if interactive and not colour:
+        colour = ask(
+            "Colour", petsprites.COLOURWAY_NAMES, petsprites.colourway_for(name)
+        )
+    if colour not in petsprites.COLOURWAYS:
+        colour = petsprites.colourway_for(name)
+
+    persona = arguments.persona
+    if interactive and not persona:
+        persona = ask("In one line, who is this pet?", None, "")
+
+    heartbeat = arguments.heartbeat
+    if interactive and not heartbeat:
+        heartbeat = ask("Wake up how often? (20m, 2h, off)", None, petlib.DEFAULT_HEARTBEAT)
+    heartbeat = heartbeat or petlib.DEFAULT_HEARTBEAT
+    petlib.parse_duration(heartbeat)  # reject nonsense before writing it out
+
+    pet = scaffold(name, species, colour, persona, heartbeat)
+
+    print(f"\n{BOLD}{name}{RESET} the {colour} {species} now lives in {pet.directory}")
+    print(f"  {DIM}edit {pet.agents_path} to say who they are{RESET}")
+    if not petlib.codex_is_signed_in():
+        print(f"  {DIM}run codex-setup to sign Codex in, then they start thinking{RESET}")
+    elif petlib.daemon_pid() is None:
+        print(f"  {DIM}the supervisor is not running - run petctl restart{RESET}")
+    else:
+        print(f"  {DIM}they will wake up on their own within a couple of minutes{RESET}")
+
+    if interactive:
+        input("\nPress enter to close. ")
+    return 0
+
+
+# Looking at ----------------------------------------------------------------
+
+
+def describe(pet):
+    state = pet.read_state()
+    activity = state["activity"]
+    detail = state["detail"]
+    suffix = f" ({detail})" if detail else ""
+    return (
+        f"{BOLD}{pet.name:<14}{RESET} {pet.species:<6} {pet.colourway:<7} "
+        f"{activity}{suffix}"
+    )
+
+
+def command_list(_arguments):
+    pets = petlib.iter_pets()
+    if not pets:
+        print("The pen is empty. Make one with: petctl new")
+        return 0
+
+    for pet in pets:
+        print(describe(pet))
+        message = pet.read_state()["message"]
+        if message:
+            print(f'  {DIM}"{message}"{RESET}')
+    return 0
+
+
+def command_show(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    state = pet.read_state()
+    print(f"{BOLD}{pet.name}{RESET}")
+    print(f"  species    {pet.species} ({petsprites.SPECIES[pet.species]['description']})")
+    print(f"  colour     {pet.colourway}")
+    print(f"  heartbeat  {petlib.format_duration(pet.heartbeat_seconds)}")
+    print(f"  sandbox    {pet.sandbox}")
+    print(f"  enabled    {'yes' if pet.enabled else 'no'}")
+    print(f"  activity   {state['activity']} {state['detail']}".rstrip())
+    print(f"  last said  {state['message'] or '-'} {DIM}{relative(state['message_at'])}{RESET}")
+    print(f"  home       {pet.directory}")
+
+    journals = sorted(pet.journal.glob("*.md")) if pet.journal.is_dir() else []
+    if journals:
+        print(f"  journal    {journals[-1].name} ({len(journals)} days)")
+    return 0
+
+
+def command_log(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    journals = sorted(pet.journal.glob("*.md")) if pet.journal.is_dir() else []
+    if not journals:
+        print(f"{pet.name} has not written anything yet.")
+        return 0
+
+    print(journals[-1].read_text())
+    return 0
+
+
+def command_status(arguments):
+    pets = petlib.iter_pets()
+
+    if arguments.panel:
+        # tint2 renders this with pango markup, so it has to stay one line and
+        # it has to stay short: the slot is a couple of centimetres wide.
+        if not petlib.codex_is_signed_in():
+            print("<span foreground='#E8724C'>◆</span> codex: sign in")
+            return 0
+        if not pets:
+            print("<span foreground='#7C84B8'>◆</span> no pets")
+            return 0
+
+        thinking = sum(1 for pet in pets if pet.read_state()["activity"] == "think")
+        colour = "#F5C542" if thinking else "#63E29E"
+        word = f"{thinking} thinking" if thinking else "idle"
+        print(f"<span foreground='{colour}'>◆</span> {len(pets)} pets · {word}")
+        return 0
+
+    signed_in = petlib.codex_is_signed_in()
+    daemon = petlib.daemon_pid()
+    supervisor = f"running (pid {daemon})" if daemon else "not running"
+    print(f"pen        {petlib.PETS_ROOT} ({len(pets)} pets)")
+    print(f"codex      {'signed in' if signed_in else 'not signed in - run codex-setup'}")
+    print(f"supervisor {supervisor}")
+    print(f"paused     {'yes' if petlib.paused() else 'no'}")
+    return 0
+
+
+# Prodding ------------------------------------------------------------------
+
+
+def command_poke(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    pet.enqueue("poke")
+    if petlib.daemon_pid() is None:
+        print("the supervisor is not running, so this will wait until it is")
+    else:
+        print(f"poked {pet.name}")
+    return 0
+
+
+def command_tell(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    body = " ".join(arguments.message) or sys.stdin.read()
+    if not body.strip():
+        return fail("nothing to say")
+
+    pet.inbox.mkdir(parents=True, exist_ok=True)
+    path = pet.inbox / f"{time.strftime('%Y%m%d-%H%M%S')}.md"
+    sender = os.environ.get("USER", "someone")
+    petlib.atomic_write(path, f"{sender}\n\n{body.strip()}\n")
+    print(f"left a message for {pet.name} in {path.name}")
+    return 0
+
+
+def command_chat(arguments):
+    """Open an interactive Codex session inside the pet's own directory.
+
+    The same AGENTS.md the pet's own turns run under, so the thing you talk to
+    is the thing that has been wandering around the screen.
+    """
+
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    if not petlib.codex_is_signed_in():
+        print("Codex is not signed in yet. Starting setup instead.\n")
+        os.execvp("codex-setup", ["codex-setup"])
+
+    environment = dict(os.environ)
+    environment["PET_NAME"] = pet.name
+    environment["PET_HOME"] = str(pet.directory)
+    os.chdir(pet.directory)
+    os.execvpe("codex", ["codex", "--skip-git-repo-check"], environment)
+
+
+def command_edit(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    editor = os.environ.get("EDITOR", "vim")
+    target = pet.config_path if arguments.config else pet.agents_path
+    os.execvp(editor, [editor, str(target)])
+
+
+def set_enabled(pet, enabled):
+    """Flip `enabled` in pet.toml without disturbing the rest of the file.
+
+    A rewrite would lose the comments, and the comments are how somebody
+    editing this by hand knows what the keys mean.
+    """
+
+    text = pet.config_path.read_text()
+    replacement = f"enabled = {'true' if enabled else 'false'}"
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("enabled"):
+            lines[index] = replacement
+            break
+    else:
+        lines.append(replacement)
+    petlib.atomic_write(pet.config_path, "\n".join(lines) + "\n")
+
+
+def command_enable(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    set_enabled(pet, not arguments.off)
+    print(f"{pet.name} is {'awake' if not arguments.off else 'asleep'}")
+    return 0
+
+
+def command_pause(arguments):
+    marker = petlib.PETS_ROOT / ".paused"
+    if arguments.off:
+        marker.unlink(missing_ok=True)
+        print("the pen is running again")
+    else:
+        petlib.atomic_write(marker, f"paused {time.ctime()}\n")
+        print("the pen is paused - pets keep wandering, nothing thinks")
+    return 0
+
+
+def command_remove(arguments):
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        return fail(f"no pet named '{arguments.name}'")
+
+    if not arguments.force:
+        answer = input(f"Remove {pet.name} and everything they wrote? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("left alone")
+            return 0
+
+    shutil.rmtree(pet.directory)
+    print(f"{pet.name} is gone")
+    return 0
+
+
+def command_restart(_arguments):
+    pid = petlib.daemon_pid()
+    if pid is None:
+        return fail(
+            "the supervisor is not running. It starts with the desktop "
+            "session; start one by hand with: petd"
+        )
+
+    os.kill(pid, signal.SIGTERM)
+    print("supervisor stopped; the session restarts it within a few seconds")
+    return 0
+
+
+# Diagnosis -----------------------------------------------------------------
+
+
+def command_doctor(_arguments):
+    def report(label, ok, detail=""):
+        mark = "ok  " if ok else "FAIL"
+        print(f"  [{mark}] {label}{(' - ' + detail) if detail else ''}")
+        return ok
+
+    print(f"{BOLD}Codex{RESET}")
+    try:
+        version = subprocess.run(
+            ["codex", "--version"], capture_output=True, text=True, timeout=30
+        ).stdout.strip()
+        report("installed", True, version)
+    except (OSError, subprocess.SubprocessError) as error:
+        report("installed", False, str(error))
+
+    report(
+        "signed in",
+        petlib.codex_is_signed_in(),
+        "" if petlib.codex_is_signed_in() else "run codex-setup",
+    )
+
+    # Whether Codex' own sandbox works here, checked without spending a token.
+    # Not a failure when it does not: the sandbox is bubblewrap, which needs
+    # unprivileged user namespaces that a container normally lacks, and pets
+    # default to running unsandboxed inside a desktop that is itself the
+    # boundary. Knowing which of the two is in force is the point.
+    try:
+        probe = subprocess.run(
+            ["codex", "sandbox", "/bin/true"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if probe.returncode == 0:
+            report("sandboxing available", True, "pets may use workspace-write")
+        else:
+            print(
+                "  [note] sandboxing unavailable here - pets run with "
+                f"{petlib.DEFAULT_SANDBOX}"
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        report("sandboxing available", False, str(error))
+
+    print(f"\n{BOLD}Pen{RESET}")
+    report("pen directory", petlib.PETS_ROOT.is_dir(), str(petlib.PETS_ROOT))
+    report("pen is writable", os.access(petlib.PETS_ROOT, os.W_OK))
+    report("supervisor", petlib.daemon_pid() is not None)
+
+    # Only meaningful from inside the desktop session. A shell that arrived any
+    # other way has no display and no sprites, and that is not a fault.
+    display = os.environ.get("DISPLAY", "")
+    if display:
+        report("display", True, display)
+    else:
+        print("  [note] no DISPLAY - run this from a terminal on the desktop")
+
+    pets = petlib.iter_pets()
+    print(f"\n{BOLD}Pets{RESET}")
+    for pet in pets:
+        try:
+            pet.config()
+            report(pet.name, True, pet.read_state()["activity"])
+        except petlib.PetError as error:
+            report(pet.name, False, str(error))
+    if not pets:
+        print("  (none)")
+
+    return 0
+
+
+# Openbox -------------------------------------------------------------------
+
+
+def command_menu(_arguments):
+    """The live pets submenu, as an Openbox pipe menu.
+
+    Openbox runs this every time the menu is opened, which is why the pen does
+    not have to regenerate menu.xml when a pet is born.
+    """
+
+    print("<openbox_pipe_menu>")
+
+    pets = petlib.iter_pets()
+    if not pets:
+        print('  <item label="No pets yet"><action name="Execute">'
+              '<command>kitty -e petctl new</command></action></item>')
+
+    for pet in pets:
+        state = pet.read_state()
+        label = escape(f"{pet.name} - {state['activity']}")
+        print(f'  <menu id="pet-{escape(pet.name)}" label="{label}">')
+        for item, command in (
+            ("Chat", f"kitty -e petctl chat {pet.name}"),
+            ("Poke", f"petctl poke {pet.name}"),
+            ("Journal", f'kitty -e bash -lc "petctl log {pet.name}; read -n 1 -s -r"'),
+            ("Edit character", f"kitty -e petctl edit {pet.name}"),
+            ("Edit body", f"kitty -e petctl edit --config {pet.name}"),
+            ("Files", f"kitty -e ranger {pet.directory}"),
+        ):
+            print(f'    <item label="{item}"><action name="Execute">'
+                  f"<command>{escape(command)}</command></action></item>")
+        print("  </menu>")
+
+    print("</openbox_pipe_menu>")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="petctl", description="Make, watch and talk to the pets"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    new = subparsers.add_parser("new", help="create a pet (interactive with no name)")
+    new.add_argument("name", nargs="?")
+    new.add_argument("--species", choices=petsprites.SPECIES_NAMES)
+    new.add_argument("--colour", "--color", dest="colour", choices=petsprites.COLOURWAY_NAMES)
+    new.add_argument("--persona", help="one line describing who this pet is")
+    new.add_argument("--heartbeat", help="how often it wakes up: 20m, 2h, off")
+    new.set_defaults(handler=command_new)
+
+    listing = subparsers.add_parser("list", help="every pet and what it is doing")
+    listing.set_defaults(handler=command_list)
+
+    show = subparsers.add_parser("show", help="everything about one pet")
+    show.add_argument("name")
+    show.set_defaults(handler=command_show)
+
+    log = subparsers.add_parser("log", help="a pet's latest journal entry")
+    log.add_argument("name")
+    log.set_defaults(handler=command_log)
+
+    status = subparsers.add_parser("status", help="the state of the pen")
+    status.add_argument("--panel", action="store_true", help="one line for the panel")
+    status.set_defaults(handler=command_status)
+
+    poke = subparsers.add_parser("poke", help="wake a pet up now")
+    poke.add_argument("name")
+    poke.set_defaults(handler=command_poke)
+
+    tell = subparsers.add_parser("tell", help="leave a message in a pet's inbox")
+    tell.add_argument("name")
+    tell.add_argument("message", nargs="*")
+    tell.set_defaults(handler=command_tell)
+
+    chat = subparsers.add_parser("chat", help="open a Codex session as this pet")
+    chat.add_argument("name")
+    chat.set_defaults(handler=command_chat)
+
+    edit = subparsers.add_parser("edit", help="edit a pet's AGENTS.md")
+    edit.add_argument("name")
+    edit.add_argument("--config", action="store_true", help="edit pet.toml instead")
+    edit.set_defaults(handler=command_edit)
+
+    enable = subparsers.add_parser("enable", help="wake a pet up for good")
+    enable.add_argument("name")
+    enable.add_argument("--off", action="store_true", help="put it to sleep instead")
+    enable.set_defaults(handler=command_enable)
+
+    pause = subparsers.add_parser("pause", help="stop every pet from thinking")
+    pause.add_argument("--off", action="store_true", help="resume")
+    pause.set_defaults(handler=command_pause)
+
+    remove = subparsers.add_parser("rm", help="remove a pet and its directory")
+    remove.add_argument("name")
+    remove.add_argument("--force", "-f", action="store_true")
+    remove.set_defaults(handler=command_remove)
+
+    restart = subparsers.add_parser("restart", help="restart the supervisor")
+    restart.set_defaults(handler=command_restart)
+
+    doctor = subparsers.add_parser("doctor", help="check Codex, the pen and the pets")
+    doctor.set_defaults(handler=command_doctor)
+
+    menu = subparsers.add_parser("menu", help="the Openbox pipe menu")
+    menu.set_defaults(handler=command_menu)
+
+    return parser
+
+
+def main(argv=None):
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+
+    if not getattr(arguments, "handler", None):
+        return command_list(arguments)
+
+    try:
+        return arguments.handler(arguments)
+    except petlib.PetError as error:
+        return fail(str(error))
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

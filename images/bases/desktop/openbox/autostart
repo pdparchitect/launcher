@@ -1,43 +1,136 @@
 #!/bin/bash
+# Openbox autostart - runs when the desktop session begins.
+#
+# Openbox executes this with sh, not bash, whatever the shebang says. Keep it
+# POSIX.
 
 set -e
 
+# Register the chromium wrapper as the default browser when MIME associations
+# have not already been configured.
+if [ ! -f "$HOME/.config/mimeapps.list" ]; then
+  mkdir -p "$HOME/.local/share/applications" "$HOME/.config"
+  cat > "$HOME/.local/share/applications/chromium-desktop.desktop" <<'CHROMEDESKTOP'
+[Desktop Entry]
+Name=Browser
+Exec=chromium %u
+Type=Application
+MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;
+NoDisplay=true
+CHROMEDESKTOP
+  cat > "$HOME/.config/mimeapps.list" <<'MIMEAPPS'
+[Default Applications]
+x-scheme-handler/http=chromium-desktop.desktop
+x-scheme-handler/https=chromium-desktop.desktop
+text/html=chromium-desktop.desktop
+MIMEAPPS
+  xdg-settings set default-web-browser chromium-desktop.desktop 2>/dev/null || true
+fi
+export BROWSER=chromium
+
+# Make kitty open detected URLs with a simple click and delegate to xdg-open.
+#
+# @note The rendering block matters more than it looks. Kitty is an OpenGL
+# terminal and this desktop has no GPU, so every repaint is llvmpipe work that
+# KasmVNC then has to re-encode into a frame. A blinking cursor on its own
+# produced 17 screen changes in 12 seconds on an otherwise idle terminal;
+# disabling the blink and slowing the repaint clock takes that to zero.
 mkdir -p "$HOME/.config/kitty"
-cat > "$HOME/.config/kitty/kitty.conf" <<'KITTY'
+cat > "$HOME/.config/kitty/kitty.conf" <<'KITTYCONF'
 detect_urls yes
 open_url_with chromium
+url_color #5599ff
 cursor_shape block
 shell_integration no-cursor
 confirm_os_window_close 0
 map ctrl+c copy_or_interrupt
 map ctrl+v paste_from_clipboard
 window_padding_width 8
+
+# Rendering - tuned for a software-rendered remote display.
 repaint_delay 40
 input_delay 8
 sync_to_monitor no
 cursor_blink_interval 0
+mouse_hide_wait 0
 disable_ligatures always
-KITTY
+resize_debounce_time 0.1
 
-wallpaper=/usr/share/backgrounds/launcher-desktop.svg
+# Product palette. This file is regenerated on every session start, so a
+# product cannot theme the terminal by shipping its own kitty.conf. The base
+# installs an empty theme.conf; a product replaces that one file through its
+# overlay instead of owning this script.
+include /etc/xdg/kitty/theme.conf
+KITTYCONF
+
+# Wallpaper resolution, most specific first:
+#
+#   1. DESKTOP_WALLPAPER, for a run-time override
+#   2. /usr/share/backgrounds/desktop-wallpaper.*, the drop-in a product image
+#      installs; any format feh reads, so the extension is not fixed here
+#   3. the neutral wallpaper shipped by this base
+#
+# A product therefore only has to install a file at the drop-in path. It does
+# not need to know this path, set an environment variable, or edit the base.
+select_wallpaper() {
+  candidate=""
+
+  if [ -n "${DESKTOP_WALLPAPER:-}" ] && [ -f "${DESKTOP_WALLPAPER}" ]; then
+    printf '%s\n' "$DESKTOP_WALLPAPER"
+    return
+  fi
+
+  for candidate in /usr/share/backgrounds/desktop-wallpaper.*; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+
+  printf '%s\n' /usr/share/backgrounds/launcher-desktop.svg
+}
+
+wallpaper="$(select_wallpaper)"
+
+# Wallpaper watcher - KasmVNC resizes the display when the browser connects,
+# which invalidates any root pixmap set earlier. This loop detects resolution
+# changes and re-applies the wallpaper so it is always scaled to fill the
+# screen instead of being tiled.
 if [ -f "$wallpaper" ]; then
-    (
-        last_resolution=""
-        while true; do
-            current_resolution="$(
-                xdpyinfo -display "${DISPLAY:-:1}" 2>/dev/null |
-                    awk '/dimensions/{print $2}'
-            )"
-            if [ -n "$current_resolution" ] &&
-                [ "$current_resolution" != "$last_resolution" ]; then
-                feh --no-fehbg --bg-fill "$wallpaper"
-                last_resolution="$current_resolution"
-            fi
-            sleep 2
-        done
-    ) &
+  rm -f "$HOME/.fehbg"
+  (
+    last_res=""
+    while true; do
+      cur_res="$(xdpyinfo -display "${DISPLAY:-:1}" 2>/dev/null \
+        | awk '/dimensions/{print $2}')"
+      if [ -n "$cur_res" ] && [ "$cur_res" != "$last_res" ]; then
+        feh --no-fehbg --bg-fill "$wallpaper"
+        last_res="$cur_res"
+      fi
+      sleep 2
+    done
+  ) &
 fi
 
-tint2 &
-cortile >/tmp/cortile.log 2>&1 &
+# The image owns the panel layout. Load it explicitly so tint2 does not prefer
+# a stale tint2rc copied into the user config on an earlier run.
+tint2 -c /etc/xdg/tint2/tint2rc &
+
+# Start Cortile so tiling can be toggled on demand. Floating remains the
+# default because tiling_enabled is false in the Cortile config.
+cortilectl start &
+
+# Product session programs. The entrypoint's /etc/desktop/startup.d hook runs
+# before X exists, which is right for a daemon and wrong for anything that
+# draws: these run inside the session, so they have DISPLAY and a window
+# manager. A product drops executables here through its overlay rather than
+# replacing this file.
+if [ -d /etc/desktop/session.d ]; then
+  for session_program in /etc/desktop/session.d/*; do
+    [ -x "$session_program" ] || continue
+    "$session_program" &
+  done
+fi
+
+# Open a terminal window on startup with a welcome greeting.
 desktop-welcome &
