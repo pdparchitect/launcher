@@ -85,19 +85,35 @@ bool LauncherNativeHostInstall(void) {
 }
 
 /*
- QuickTime-style chrome for the agent viewer. The window keeps a real title bar
- - the agent's interface stops below it rather than running underneath - but the
- bar is transparent and its controls are hidden, so the window reads as nothing
- but the agent's interface, rounded by the window itself. Moving the pointer
- into the bar turns it opaque and fades the controls back in.
+ QuickTime-style chrome for the agent viewer.
 
- The alternative, a full-size content view with the bar hidden over the top of
- it, is what this replaced: the controls then float over the agent's own
- interface and the window has nothing left to drag it by.
+ Collapsed, the window is nothing but the agent's interface: the content view
+ fills the frame, the title bar is transparent and its controls are hidden.
+ Approaching the top edge grows the window upward by exactly one title bar and
+ hands that strip back to AppKit, so the bar appears above the content rather
+ than over it or in place of it.
+
+ The frame's origin is never touched, and AppKit measures it from the bottom, so
+ the content keeps both its size and its position on screen throughout. Only the
+ window's top edge moves. Two earlier attempts got this wrong in opposite ways:
+ a full-size content view left the controls floating over the agent's own
+ interface with nothing to drag the window by, and a permanent title bar pushed
+ the content down and resized it.
  */
 static const NSTimeInterval kTitlebarFadeDuration = 0.18;
 
+/*
+ Hysteresis, not one threshold. Revealing lifts the top edge by the height of
+ the title bar, so a stationary pointer is suddenly that much further from it -
+ collapsing at anything less than the reveal distance plus a bar's height would
+ leave the window flipping between the two states without the mouse moving.
+ */
+static const CGFloat kTitlebarRevealDistance = 48.0;
+static const CGFloat kTitlebarCollapseDistance = 120.0;
+
+static id gTitlebarMonitor = nil;
 static NSWindow *gViewerWindow = nil;
+static CGFloat gTitlebarHeight = 0.0;
 static BOOL gTitlebarRevealed = YES;
 
 static const NSWindowButton kTitlebarButtons[] = {
@@ -106,17 +122,7 @@ static const NSWindowButton kTitlebarButtons[] = {
     NSWindowZoomButton,
 };
 
-static void SetTitlebarRevealed(BOOL revealed) {
-    if (gViewerWindow == nil || gTitlebarRevealed == revealed) {
-        return;
-    }
-    gTitlebarRevealed = revealed;
-
-    // A transparent title bar shows the window's own background, which against
-    // the agent's dark interface reads as no title bar at all. Turning it off
-    // brings back the standard material along with the controls.
-    gViewerWindow.titlebarAppearsTransparent = !revealed;
-
+static void SetTitlebarButtonsRevealed(BOOL revealed) {
     for (size_t index = 0;
          index < sizeof(kTitlebarButtons) / sizeof(kTitlebarButtons[0]);
          index++) {
@@ -146,47 +152,37 @@ static void SetTitlebarRevealed(BOOL revealed) {
     }
 }
 
-@interface LauncherTitlebarHover : NSView
-@end
-
-@implementation LauncherTitlebarHover
-
-/*
- Never take clicks. The window controls and the title bar's own drag handling
- are underneath this view and have to keep receiving them; tracking areas are
- resolved geometrically, so hover still works from a view that hit-tests away.
- */
-- (NSView *)hitTest:(NSPoint)point {
-    return nil;
-}
-
-- (void)updateTrackingAreas {
-    [super updateTrackingAreas];
-    for (NSTrackingArea *area in [self.trackingAreas copy]) {
-        [self removeTrackingArea:area];
+static void SetTitlebarRevealed(BOOL revealed) {
+    if (gViewerWindow == nil
+        || gTitlebarHeight <= 0.0
+        || gTitlebarRevealed == revealed) {
+        return;
     }
-    [self addTrackingArea:
-        [[NSTrackingArea alloc]
-            initWithRect:NSZeroRect
-                 options:NSTrackingMouseEnteredAndExited
-                         | NSTrackingActiveAlways
-                         | NSTrackingInVisibleRect
-                   owner:self
-                userInfo:nil]];
-}
+    gTitlebarRevealed = revealed;
 
-- (void)mouseEntered:(NSEvent *)event {
-    SetTitlebarRevealed(YES);
-}
+    NSRect frame = gViewerWindow.frame;
+    frame.size.height += revealed ? gTitlebarHeight : -gTitlebarHeight;
 
-- (void)mouseExited:(NSEvent *)event {
-    SetTitlebarRevealed(NO);
-}
+    /*
+     Style first, then frame, both within one event so AppKit lays out once:
+     each change alone would move the content, and together they cancel.
+     Collapsing gives the strip to the content and then takes it off the window;
+     revealing takes it from the content and then gives it back to the window.
+     */
+    if (revealed) {
+        gViewerWindow.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
+        gViewerWindow.titlebarAppearsTransparent = NO;
+    } else {
+        gViewerWindow.styleMask |= NSWindowStyleMaskFullSizeContentView;
+        gViewerWindow.titlebarAppearsTransparent = YES;
+    }
+    [gViewerWindow setFrame:frame display:NO];
 
-@end
+    SetTitlebarButtonsRevealed(revealed);
+}
 
 static bool InstallViewerChromeOnMainThread(void) {
-    if (gViewerWindow != nil) {
+    if (gTitlebarMonitor != nil) {
         return true;
     }
     WKWebView *webView = nil;
@@ -194,25 +190,67 @@ static bool InstallViewerChromeOnMainThread(void) {
     if (window == nil) {
         return false;
     }
-    NSView *titlebar = [window standardWindowButton:NSWindowCloseButton]
-        .superview;
-    if (titlebar == nil) {
+
+    /*
+     Measured while the window still has its title bar, which is why the viewer
+     is configured without FullSizeContent: once the strip belongs to the
+     content view, the frame and the content rect are the same and there is
+     nothing left to measure.
+     */
+    gTitlebarHeight = NSHeight(window.frame)
+        - NSHeight([window contentRectForFrameRect:window.frame]);
+    if (gTitlebarHeight <= 0.0) {
         return false;
     }
 
     gViewerWindow = window;
     window.titleVisibility = NSWindowTitleHidden;
+    // Without this the window system never delivers moved events to the app, so
+    // the monitor below would only ever see drags.
+    window.acceptsMouseMovedEvents = YES;
     SetTitlebarRevealed(NO);
 
     /*
-     The title bar is the one part of this window the WKWebView does not cover,
-     so hover can be tracked on the view itself instead of by watching moved
-     events that the web view would otherwise consume.
+     A local monitor rather than a tracking area: collapsed, the WKWebView
+     covers the whole window, and it consumes moved events before any view of
+     ours could see them. Screen coordinates because the window's own top edge
+     is what moves.
      */
-    LauncherTitlebarHover *hover =
-        [[LauncherTitlebarHover alloc] initWithFrame:titlebar.bounds];
-    hover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [titlebar addSubview:hover positioned:NSWindowAbove relativeTo:nil];
+    gTitlebarMonitor = [NSEvent
+        addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+                                             | NSEventMaskLeftMouseDragged
+        handler:^NSEvent *(NSEvent *event) {
+            if (event.window != gViewerWindow) {
+                return event;
+            }
+            // Fullscreen reveals the title bar on its own, and the window has
+            // no room to grow into.
+            if ((gViewerWindow.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+                return event;
+            }
+
+            CGFloat distance =
+                NSMaxY(gViewerWindow.frame) - NSEvent.mouseLocation.y;
+            if (distance <= kTitlebarRevealDistance) {
+                SetTitlebarRevealed(YES);
+            } else if (distance > kTitlebarCollapseDistance) {
+                SetTitlebarRevealed(NO);
+            }
+
+            return event;
+        }];
+
+    /*
+     Moved events stop arriving once the pointer leaves the window, which would
+     otherwise strand a revealed title bar on screen.
+     */
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidResignKeyNotification
+                    object:window
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+                    SetTitlebarRevealed(NO);
+                }];
 
     return true;
 }

@@ -370,7 +370,10 @@ mark {
   margin-top: calc(-1 * var(--content-top));
   margin-right: -26px;
   margin-left: calc(-1 * (var(--sidebar-width) + 26px));
-  padding: 44px 48px;
+  /* The artwork bleeds past the top of the page but the copy must not: adding
+     back what the negative margin took puts the first line where every other
+     screen's content begins, and the 22px is the same rhythm they use. */
+  padding: calc(var(--content-top) + 22px) 48px 44px;
   padding-left: calc(var(--sidebar-width) + 48px);
 }
 

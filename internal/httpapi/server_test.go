@@ -242,6 +242,33 @@ func TestInterfaceImportsEverySharedConstantItUses(t *testing.T) {
 	}
 }
 
+// Screens are swapped in place rather than navigated to, so nothing resets the
+// scroll position on its own: paging down a long agent list and switching to
+// Marketplace would otherwise open it halfway down.
+func TestChangingScreenReturnsToTheTop(t *testing.T) {
+	source := readWebSources(t, "components/launcher-app.js")
+
+	start := strings.Index(source, "setScreen(screen) {")
+	if start < 0 {
+		t.Fatal("interface has no setScreen")
+	}
+	body := source[start:]
+	body = body[:strings.Index(body, "\n  }")]
+	if !strings.Contains(body, "this.scrollToTop()") {
+		t.Fatal("setScreen must return the new screen to the top")
+	}
+
+	// Which scroller is live depends on the shell, so both are reset.
+	for _, expected := range []string{
+		"this.querySelector('.main-panel')?.scrollTo({ top: 0 })",
+		"globalThis.scrollTo({ top: 0 })",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("scroll reset missing %q", expected)
+		}
+	}
+}
+
 // The hero runs to the window edges on every platform, passing beneath the
 // sidebar, which is translucent so it seeps through. It is not a per-platform
 // treatment, so it must not be gated behind a layout class.
@@ -253,6 +280,10 @@ func TestInterfaceBleedsTheHeroToTheWindowEdges(t *testing.T) {
 		// ignore that padding and land the hero off by half of it.
 		"margin-left: calc(-1 * (var(--sidebar-width) + 26px));",
 		"padding-left: calc(var(--sidebar-width) + 48px);",
+		// The artwork bleeds past the top of the page, the copy does not: the
+		// padding adds back what the negative margin took, so the first line
+		// clears whatever the window is putting above the page.
+		"padding: calc(var(--content-top) + 22px) 48px 44px;",
 		// A single column, since .sidebar is position:fixed and overlays it.
 		"grid-template-columns: minmax(0, 1fr);",
 		// Without this the artwork is hidden behind the panel, not seen through it.

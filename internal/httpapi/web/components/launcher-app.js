@@ -564,6 +564,16 @@ export class LauncherApp extends HTMLElement {
 
     this.updateNavigation()
     this.renderScreen()
+    this.scrollToTop()
+  }
+
+  // A new screen starts at its own top: where the last one had been scrolled to
+  // means nothing here. Both scrollers are reset because the document owns
+  // scrolling under the native macOS shell and .main-panel owns it everywhere
+  // else - whichever is not in use simply sits at zero already.
+  scrollToTop() {
+    this.querySelector('.main-panel')?.scrollTo({ top: 0 })
+    globalThis.scrollTo({ top: 0 })
   }
 
   updateNavigation() {
