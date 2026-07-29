@@ -284,7 +284,10 @@ func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
 
 	for _, expected := range []string{
 		"@interface LauncherTitlebarBackdrop : NSVisualEffectView",
+		"if (@available(macOS 10.14, *))",
 		"NSVisualEffectMaterialHeaderView",
+		"if (@available(macOS 11.0, *))",
+		"NSTitlebarSeparatorStyleNone",
 		"SetTitlebarLayoutRevealed(YES);",
 		"AnimateTitlebarChrome(YES",
 		"AnimateTitlebarChrome(NO",
@@ -302,6 +305,9 @@ func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
 		"gViewerWindow.titlebarAppearsTransparent = NO;",
 	) {
 		t.Fatal("revealed viewer title bar must remain translucent")
+	}
+	if strings.Contains(bridge, "NSWindowTitlebarSeparatorStyleNone") {
+		t.Fatal("viewer chrome uses a nonexistent AppKit separator constant")
 	}
 
 	revealLayout := strings.Index(

@@ -149,7 +149,11 @@ static void InstallTitlebarBackdrop(NSWindow *window) {
     LauncherTitlebarBackdrop *backdrop =
         [[LauncherTitlebarBackdrop alloc] initWithFrame:titlebar.bounds];
     backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    backdrop.material = NSVisualEffectMaterialHeaderView;
+    if (@available(macOS 10.14, *)) {
+        backdrop.material = NSVisualEffectMaterialHeaderView;
+    } else {
+        backdrop.material = NSVisualEffectMaterialTitlebar;
+    }
     backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
     backdrop.state = NSVisualEffectStateActive;
 
@@ -325,7 +329,9 @@ static bool InstallViewerChromeOnMainThread(void) {
     gViewerWebView = webView;
     window.titleVisibility = NSWindowTitleHidden;
     gViewerWindow.titlebarAppearsTransparent = YES;
-    window.titlebarSeparatorStyle = NSWindowTitlebarSeparatorStyleNone;
+    if (@available(macOS 11.0, *)) {
+        window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
+    }
     // Without this the window system never delivers moved events to the app, so
     // the monitor below would only ever see drags.
     window.acceptsMouseMovedEvents = YES;
