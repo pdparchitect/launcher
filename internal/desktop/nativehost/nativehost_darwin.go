@@ -4,7 +4,7 @@ package nativehost
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework SwiftUI
+#cgo LDFLAGS: -framework Cocoa -framework QuartzCore -framework WebKit -framework SwiftUI
 #cgo LDFLAGS: -L${SRCDIR}/../../../macos/.build/arm64-apple-macosx/release
 #cgo LDFLAGS: -lLauncherNative
 #include "nativehost_darwin.h"
