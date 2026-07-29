@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
 
 #import "nativehost_darwin.h"
@@ -101,7 +102,7 @@ bool LauncherNativeHostInstall(void) {
  an unconstrained full-size web view left the controls floating over the
  agent's own interface, and a permanent inset title bar resized the content.
  */
-static const NSTimeInterval kTitlebarFadeDuration = 0.18;
+static const NSTimeInterval kTitlebarFadeDuration = 0.30;
 
 /*
  Hysteresis, not one threshold. Revealing lifts the top edge by the height of
@@ -116,6 +117,7 @@ static id gTitlebarMonitor = nil;
 static NSWindow *gViewerWindow = nil;
 static WKWebView *gViewerWebView = nil;
 static NSVisualEffectView *gTitlebarBackdrop = nil;
+static NSView *gViewerBorder = nil;
 static CGFloat gTitlebarHeight = 0.0;
 static BOOL gTitlebarRevealed = NO;
 static BOOL gTitlebarLayoutRevealed = NO;
@@ -139,6 +141,45 @@ static const NSWindowButton kTitlebarButtons[] = {
 
 @end
 
+@interface LauncherViewerBorder : NSView
+@end
+
+@implementation LauncherViewerBorder
+
+- (NSView *)hitTest:(NSPoint)point {
+    return nil;
+}
+
+@end
+
+static void InstallViewerBorder(NSWindow *window) {
+    NSView *contentView = window.contentView;
+    if (contentView == nil) {
+        return;
+    }
+
+    CGFloat scale = MAX(1.0, window.backingScaleFactor);
+    CGFloat borderWidth = 1.0 / scale;
+    CGFloat inset = borderWidth / 2.0;
+    CGFloat cornerRadius = contentView.superview.layer.cornerRadius;
+    if (cornerRadius <= 0.0) {
+        cornerRadius = 12.0;
+    }
+
+    LauncherViewerBorder *border = [[LauncherViewerBorder alloc]
+        initWithFrame:NSInsetRect(contentView.bounds, inset, inset)];
+    border.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    border.wantsLayer = YES;
+    border.layer.backgroundColor = NSColor.clearColor.CGColor;
+    border.layer.borderColor =
+        [NSColor colorWithWhite:1.0 alpha:0.24].CGColor;
+    border.layer.borderWidth = 1.0 / scale;
+    border.layer.cornerRadius = MAX(0.0, cornerRadius - inset);
+
+    [contentView addSubview:border positioned:NSWindowAbove relativeTo:nil];
+    gViewerBorder = border;
+}
+
 static void InstallTitlebarBackdrop(NSWindow *window) {
     NSView *titlebar =
         [window standardWindowButton:NSWindowCloseButton].superview;
@@ -149,6 +190,7 @@ static void InstallTitlebarBackdrop(NSWindow *window) {
     LauncherTitlebarBackdrop *backdrop =
         [[LauncherTitlebarBackdrop alloc] initWithFrame:titlebar.bounds];
     backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    backdrop.wantsLayer = YES;
     if (@available(macOS 10.14, *)) {
         backdrop.material = NSVisualEffectMaterialHeaderView;
     } else {
@@ -184,6 +226,7 @@ static void SetTitlebarChromeImmediately(BOOL revealed) {
             continue;
         }
 
+        button.wantsLayer = YES;
         button.alphaValue = revealed ? 1.0 : 0.0;
         // A zero-alpha control still takes clicks, so invisible controls must
         // leave hit testing as well as the screen.
@@ -209,6 +252,8 @@ static void AnimateTitlebarChrome(
     [NSAnimationContext
         runAnimationGroup:^(NSAnimationContext *context) {
             context.duration = kTitlebarFadeDuration;
+            context.timingFunction = [CAMediaTimingFunction
+                functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
             gTitlebarBackdrop.animator.alphaValue = revealed ? 1.0 : 0.0;
             for (size_t index = 0;
                  index
@@ -258,7 +303,7 @@ static void SetTitlebarLayoutRevealed(BOOL revealed) {
      */
     gViewerWebView.autoresizingMask =
         NSViewWidthSizable | NSViewMaxYMargin;
-    [gViewerWindow setFrame:frame display:NO];
+    [gViewerWindow setFrame:frame display:NO animate:YES];
 
     NSView *contentView = gViewerWebView.superview;
     NSRect contentBounds = contentView.bounds;
@@ -331,6 +376,10 @@ static bool InstallViewerChromeOnMainThread(void) {
     gViewerWindow.titlebarAppearsTransparent = YES;
     if (@available(macOS 11.0, *)) {
         window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
+    }
+    InstallViewerBorder(window);
+    if (gViewerBorder == nil) {
+        return false;
     }
     // Without this the window system never delivers moved events to the app, so
     // the monitor below would only ever see drags.

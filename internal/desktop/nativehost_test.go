@@ -184,7 +184,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		// still takes clicks.
 		"LauncherNativeHostInstallViewerChrome",
 		"frame.size.height += revealed ? gTitlebarHeight : -gTitlebarHeight;",
-		"[gViewerWindow setFrame:frame display:NO];",
+		"[gViewerWindow setFrame:frame display:NO animate:YES];",
 		"contentRectForFrameRect:window.frame]",
 		"kTitlebarRevealDistance",
 		"kTitlebarCollapseDistance",
@@ -284,6 +284,10 @@ func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
 
 	for _, expected := range []string{
 		"@interface LauncherTitlebarBackdrop : NSVisualEffectView",
+		"@interface LauncherViewerBorder : NSView",
+		"InstallViewerBorder(window);",
+		"border.layer.borderWidth = 1.0 / scale;",
+		"border.layer.cornerRadius = MAX(0.0, cornerRadius - inset);",
 		"if (@available(macOS 10.14, *))",
 		"NSVisualEffectMaterialHeaderView",
 		"if (@available(macOS 11.0, *))",
@@ -295,6 +299,7 @@ func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
 		"gViewerWindow.titlebarAppearsTransparent = YES;",
 		"NSViewWidthSizable | NSViewMaxYMargin",
 		"MAX(0.0, NSHeight(contentBounds) - chromeHeight)",
+		"kCAMediaTimingFunctionEaseInEaseOut",
 	} {
 		if !strings.Contains(bridge, expected) {
 			t.Fatalf("viewer chrome missing %q", expected)
@@ -402,6 +407,9 @@ func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 	)
 	if !strings.Contains(linkage, "-lLauncherNative") {
 		t.Fatal("cgo bridge does not link the static Swift library")
+	}
+	if !strings.Contains(linkage, "-framework QuartzCore") {
+		t.Fatal("cgo bridge does not link the title-bar animation framework")
 	}
 
 	linker := readNativeHostSource(
