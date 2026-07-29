@@ -176,16 +176,20 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"LauncherNativeInstall",
 		"wails:openInspector",
 		"NSApp.applicationIconImage = badged",
-		// The viewer's title bar, transparent until hovered. Hover is tracked on
-		// the bar itself because it is the one part of the window the WKWebView
-		// does not cover, and the controls are hidden as well as faded because
-		// a zero-alpha control still takes clicks.
+		// The viewer's title bar. Approaching the top edge grows the window
+		// upward by one title bar rather than resizing the agent's interface,
+		// so the frame height changes while its origin never does. Two
+		// thresholds because revealing moves the edge the pointer is measured
+		// against. Controls are hidden as well as faded: a zero-alpha control
+		// still takes clicks.
 		"LauncherNativeHostInstallViewerChrome",
-		"standardWindowButton:NSWindowCloseButton",
-		"gViewerWindow.titlebarAppearsTransparent = !revealed",
-		"@interface LauncherTitlebarHover : NSView",
-		"NSTrackingMouseEnteredAndExited",
-		"- (NSView *)hitTest:(NSPoint)point {\n    return nil;\n}",
+		"frame.size.height += revealed ? gTitlebarHeight : -gTitlebarHeight;",
+		"[gViewerWindow setFrame:frame display:NO];",
+		"NSWindowStyleMaskFullSizeContentView",
+		"contentRectForFrameRect:window.frame]",
+		"kTitlebarRevealDistance",
+		"kTitlebarCollapseDistance",
+		"NSEventMaskMouseMoved",
 		"button.hidden = YES",
 	} {
 		if !strings.Contains(bridge, expected) {
