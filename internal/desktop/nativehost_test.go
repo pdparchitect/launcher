@@ -30,7 +30,8 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"final class WailsWebViewContainer: NSView",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
-		"nativeSidebarInteractionWidth: CGFloat = 280",
+		"var nativeSidebarInteractionWidth: CGFloat = 280",
+		"container.nativeSidebarInteractionWidth = sidebarInteractionWidth",
 		"override func hitTest(_ point: NSPoint) -> NSView?",
 		"guard pointInWindow.x >= nativeSidebarInteractionWidth",
 		"container.layer?.masksToBounds = true",
@@ -40,6 +41,9 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"NSApplication.shared.addSceneRepresentation(representation)",
 		"representation.environment.openWindow(",
 		"wailsWindow?.orderOut(nil)",
+		"func applicationShouldHandleReopen(",
+		"override func forwardingTarget(for selector: Selector!) -> Any?",
+		"NSApplication.shared.delegate = reopenDelegate",
 		".backgroundExtensionEffect()",
 		".navigationSplitViewStyle(",
 		".prominentDetail",
@@ -73,14 +77,16 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 	root := swift[rootStart:rootEnd]
 	for _, expected := range []string{
 		"var body: some View {\n        NavigationSplitView(",
-		"columnVisibility: lockedColumnVisibility",
+		"columnVisibility: $columnVisibility",
+		"NavigationSplitViewVisibility = .all",
+		"columnVisibility == .detailOnly ? 0 : 280",
 		"Button {\n                    model.select(item.id)",
 		".buttonStyle(.plain)",
-		"} detail: {\n            WailsWebView(webView: model.webView)",
+		"} detail: {\n            WailsWebView(",
+		"sidebarInteractionWidth: sidebarInteractionWidth",
 		".backgroundExtensionEffect()",
 		"edges: [.top, .trailing, .bottom]",
 		".navigationSplitViewStyle(\n            .prominentDetail\n        )",
-		"ToolbarDefaultItemKind.sidebarToggle",
 		".toolbarBackgroundVisibility(",
 	} {
 		if !strings.Contains(root, expected) {
@@ -92,6 +98,12 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"private var webDetail",
 		"if #available",
 		"edges: .all",
+		// The sidebar toggle is a default item of the sidebar column's toolbar,
+		// and that toolbar is what holds the window's titlebar band open.
+		// Removing it costs the sidebar its inset and displaces the traffic
+		// lights, so the button stays and collapses the sidebar for real.
+		"ToolbarDefaultItemKind.sidebarToggle",
+		"Binding.constant(",
 	} {
 		if strings.Contains(root, unwanted) {
 			t.Fatalf("RootView must directly match the reference, found %q", unwanted)
