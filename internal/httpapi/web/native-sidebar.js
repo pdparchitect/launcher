@@ -38,6 +38,10 @@ function messageHandler() {
   return globalThis.webkit?.messageHandlers?.launcherNative
 }
 
+function numeric(value) {
+  return typeof value === 'number' ? value : 0
+}
+
 function isMac() {
   const platform =
     globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''
@@ -103,22 +107,26 @@ export const nativeSidebar = {
     return isMac() && Boolean(messageHandler())
   },
 
-  // How far the native sidebar reaches across the window. The webview spans the
-  // whole window and draws underneath it, so this is the page's own left inset.
-  // Zero until SwiftUI has measured its layout, and again once the sidebar is
-  // collapsed.
-  get inset() {
-    const inset = globalThis.wailsSidebarInset
-
-    return typeof inset === 'number' ? inset : 0
+  // How far the native sidebar and title bar reach into the window. The webview
+  // spans the whole window and draws underneath both, so these are the page's
+  // own insets. Zero until SwiftUI has measured its layout, and the sidebar is
+  // zero again once it is collapsed.
+  get insets() {
+    return {
+      sidebar: numeric(globalThis.wailsSidebarInset),
+      titlebar: numeric(globalThis.wailsTitlebarInset),
+    }
   },
 
-  onInset(callback) {
+  onInsets(callback) {
     globalThis.addEventListener('wails:sidebar-inset', (event) => {
-      const inset = event.detail?.inset
+      const detail = event.detail
 
-      if (typeof inset === 'number') {
-        callback(inset)
+      if (detail) {
+        callback({
+          sidebar: numeric(detail.sidebar),
+          titlebar: numeric(detail.titlebar),
+        })
       }
     })
   },

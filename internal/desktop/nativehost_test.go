@@ -34,8 +34,9 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"container.nativeSidebarTrailingEdge = sidebarTrailingEdge",
 		"override func hitTest(_ point: NSPoint) -> NSView?",
 		"guard pointInWindow.x >= nativeSidebarTrailingEdge",
-		"func publish(sidebarInset: CGFloat)",
-		"window.wailsSidebarInset = \\(inset);",
+		"func publish(insets: PageInsets)",
+		"window.wailsSidebarInset = \\(sidebar);",
+		"window.wailsTitlebarInset = \\(titlebar);",
 		"wails:sidebar-inset",
 		"container.layer?.masksToBounds = true",
 		"container.addSubview(webView)",
@@ -85,7 +86,8 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"columnVisibility == .detailOnly ? 0 : sidebarEdge",
 		".onGeometryChange(for: CGFloat.self)",
 		"max(0, proxy.frame(in: .global).maxX)",
-		".onChange(of: sidebarInset, initial: true)",
+		"proxy.safeAreaInsets.top",
+		".onChange(of: pageInsets, initial: true)",
 		"Button {\n                    model.select(item.id)",
 		".buttonStyle(.plain)",
 		"} detail: {\n            WailsWebView(",
@@ -149,6 +151,10 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"func viewerWindowChrome() *mac.Options",
 		"Mac:                      viewerWindowChrome(),",
 		"nativehost.InstallViewerChrome()",
+		// FullSizeContent would put the agent's interface under the title bar,
+		// which is what puts the window controls over the agent's own and
+		// leaves nothing to drag the window by.
+		"FullSizeContent:            false,",
 	} {
 		if !strings.Contains(wailsHost, expected) {
 			t.Fatalf("Wails window does not match the SwiftUI reference: missing %q", expected)
@@ -170,16 +176,17 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"LauncherNativeInstall",
 		"wails:openInspector",
 		"NSApp.applicationIconImage = badged",
-		// The viewer's auto-hiding title bar. Hiding the container as well as
-		// fading it is what stops invisible traffic lights taking clicks, and
-		// the monitor is local because the WKWebView eats moved events.
+		// The viewer's title bar, transparent until hovered. Hover is tracked on
+		// the bar itself because it is the one part of the window the WKWebView
+		// does not cover, and the controls are hidden as well as faded because
+		// a zero-alpha control still takes clicks.
 		"LauncherNativeHostInstallViewerChrome",
 		"standardWindowButton:NSWindowCloseButton",
-		"window.acceptsMouseMovedEvents = YES",
-		"NSEventMaskMouseMoved",
-		"container.hidden = YES",
-		"NSWindowStyleMaskFullScreen",
-		"NSWindowDidResignKeyNotification",
+		"gViewerWindow.titlebarAppearsTransparent = !revealed",
+		"@interface LauncherTitlebarHover : NSView",
+		"NSTrackingMouseEnteredAndExited",
+		"- (NSView *)hitTest:(NSPoint)point {\n    return nil;\n}",
+		"button.hidden = YES",
 	} {
 		if !strings.Contains(bridge, expected) {
 			t.Fatalf("native AppKit bridge missing %q", expected)
@@ -223,9 +230,11 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		),
 	)
 	for _, expected := range []string{
-		"preview ? SIDEBAR_COLUMN_WIDTH : nativeSidebar.inset",
-		"nativeSidebar.onInset((inset) => this.applyNativeSidebarInset(inset))",
-		"document.documentElement.style.setProperty('--sidebar-width'",
+		"{ sidebar: SIDEBAR_COLUMN_WIDTH, titlebar: 0 }",
+		": nativeSidebar.insets",
+		"nativeSidebar.onInsets((insets) => this.applyNativeInsets(insets))",
+		"style.setProperty('--sidebar-width', `${sidebar}px`)",
+		"style.setProperty('--content-top', `${titlebar}px`)",
 		"classList.toggle('is-swiftui-host', !preview)",
 	} {
 		if !strings.Contains(app, expected) {
