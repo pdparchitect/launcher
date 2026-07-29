@@ -86,17 +86,29 @@ func mainWindowChrome() windowChrome {
 	}
 }
 
-// viewerWindowChrome gives macOS the real title bar rather than the frameless
-// HTML controls. The viewer navigates to the agent's own interface, which is
-// cross-origin, so there is no page of ours left to draw window chrome into.
-// The title bar is then hidden until the pointer nears the top edge, which is
-// what InstallViewerChrome sets up. Other platforms keep their normal frame.
+// viewerWindowChrome gives macOS a real but invisible title bar. The viewer
+// navigates to the agent's own interface, which is cross-origin, so there is no
+// page of ours left to draw window chrome into.
+//
+// Deliberately not TitleBarHidden(): that turns on FullSizeContent, which runs
+// the agent's interface underneath the title bar. The window controls then sit
+// over the agent's own controls and there is nothing left to drag the window
+// by. Keeping the content below the bar and making the bar transparent gets the
+// same undecorated look with neither problem, and InstallViewerChrome brings
+// the bar back on hover. Other platforms keep their normal frame.
 func viewerWindowChrome() *mac.Options {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
 	return &mac.Options{
-		TitleBar: mac.TitleBarHidden(),
+		TitleBar: &mac.TitleBar{
+			TitlebarAppearsTransparent: true,
+			HideTitle:                  true,
+			HideTitleBar:               false,
+			FullSizeContent:            false,
+			UseToolbar:                 false,
+			HideToolbarSeparator:       true,
+		},
 	}
 }
 

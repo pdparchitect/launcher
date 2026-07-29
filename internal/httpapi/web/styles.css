@@ -30,6 +30,9 @@
   --accent-soft: rgba(234, 255, 0, 0.1);
   --danger: #ff584d;
   --sidebar-width: 250px;
+  /* Where a screen's own content begins. The hero cancels it exactly, so the
+     artwork still reaches the top edge of the window. */
+  --content-top: 22px;
   --font-interface: Archivo, Helvetica, Arial, sans-serif;
   --font-technical: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   font-family: var(--font-interface);
@@ -338,7 +341,7 @@ mark {
    reaches the window edge if nothing is centring the box. */
 .content {
   width: 100%;
-  padding: 22px 26px 40px;
+  padding: var(--content-top) 26px 40px;
   padding-left: calc(var(--sidebar-width) + 26px);
 }
 
@@ -364,7 +367,7 @@ mark {
   display: grid;
   grid-template-columns: minmax(450px, 1fr) 270px;
   align-items: center;
-  margin-top: -22px;
+  margin-top: calc(-1 * var(--content-top));
   margin-right: -26px;
   margin-left: calc(-1 * (var(--sidebar-width) + 26px));
   padding: 44px 48px;
@@ -2104,9 +2107,17 @@ mark {
   top: 0;
   right: 0;
   left: var(--sidebar-width);
-  height: 38px;
+  height: var(--content-top);
   padding: 0;
   background: transparent;
+}
+
+/* The page runs underneath the title bar, where the window controls and the
+   sidebar toggle live, so every screen has to start below them rather than
+   under them. The measured title bar height replaces this once SwiftUI reports
+   it; the value here is the fallback and what the browser preview uses. */
+.is-macos-desktop {
+  --content-top: 58px;
 }
 
 /* body::after draws the window edge for the frameless Linux and Windows

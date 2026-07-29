@@ -10,6 +10,13 @@ private struct SidebarItem: Identifiable {
     let symbol: String
 }
 
+// What the page has to keep clear: the sidebar it underlaps, and the title bar
+// carrying the window controls and the sidebar toggle.
+private struct PageInsets: Equatable {
+    var leading: CGFloat = 0
+    var top: CGFloat = 0
+}
+
 @MainActor
 @Observable
 private final class NativeShellModel: NSObject, WKScriptMessageHandler {
@@ -31,7 +38,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
 
     let webView: WKWebView
     private var mouseDownEvent: NSEvent?
-    private var sidebarInset: CGFloat = 0
+    private var insets = PageInsets()
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -87,26 +94,34 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     }
 
     /*
-     How far the sidebar reaches across the window, in points. The web view now
-     spans the whole window and draws underneath the sidebar, so the page needs
-     the same number to keep its own content and dialogs clear of it. Published
-     rather than assumed because the column is resizable and collapsible.
+     How far the sidebar and the title bar reach into the window, in points. The
+     web view spans the whole window and draws underneath both, so the page
+     needs the same numbers to keep its own content, dialogs and controls clear
+     of them. Published rather than assumed: the sidebar column is resizable and
+     collapsible, and the title bar's height is the system's to decide.
      */
-    func publish(sidebarInset: CGFloat) {
-        self.sidebarInset = sidebarInset
-        publishSidebarInset()
+    func publish(insets: PageInsets) {
+        self.insets = insets
+        publishInsets()
     }
 
-    private func publishSidebarInset() {
-        let inset = Int(sidebarInset.rounded())
+    private func publishInsets() {
+        let sidebar = Int(insets.leading.rounded())
+        let titlebar = Int(insets.top.rounded())
 
         webView.evaluateJavaScript(
             """
-            window.wailsSidebarInset = \(inset);
+            window.wailsSidebarInset = \(sidebar);
+            window.wailsTitlebarInset = \(titlebar);
             window.dispatchEvent(
                 new CustomEvent(
                     'wails:sidebar-inset',
-                    { detail: { inset: \(inset) } }
+                    {
+                        detail: {
+                            sidebar: \(sidebar),
+                            titlebar: \(titlebar)
+                        }
+                    }
                 )
             );
             """
@@ -191,7 +206,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
          before this document exists. A page that has just configured itself is
          a page that missed it, so it is sent again here.
          */
-        publishSidebarInset()
+        publishInsets()
     }
 }
 
@@ -297,6 +312,18 @@ private struct RootView: View {
         columnVisibility == .detailOnly ? 0 : sidebarEdge
     }
 
+    /*
+     The title bar's height, from the window's own safe area. Read rather than
+     assumed: the page draws underneath it, and a constant would put the search
+     fields of half the screens behind the sidebar toggle on any release that
+     sizes the bar differently.
+     */
+    @State private var titlebarEdge: CGFloat = 0
+
+    private var pageInsets: PageInsets {
+        PageInsets(leading: sidebarInset, top: titlebarEdge)
+    }
+
     var body: some View {
         NavigationSplitView(
             columnVisibility: $columnVisibility
@@ -347,8 +374,13 @@ private struct RootView: View {
                 edges: .all
             )
         }
-        .onChange(of: sidebarInset, initial: true) { _, inset in
-            model.publish(sidebarInset: inset)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.safeAreaInsets.top
+        } action: { edge in
+            titlebarEdge = edge
+        }
+        .onChange(of: pageInsets, initial: true) { _, insets in
+            model.publish(insets: insets)
         }
         .navigationSplitViewStyle(
             .prominentDetail

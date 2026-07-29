@@ -473,10 +473,12 @@ export class LauncherApp extends HTMLElement {
 
     // The webview fills the whole window in both layouts and draws underneath
     // the sidebar, so the interface always reserves the space itself. Preview
-    // mirrors the constants; the packaged app is told the measured width as the
-    // native column is resized or collapsed.
-    this.applyNativeSidebarInset(
-      preview ? SIDEBAR_COLUMN_WIDTH : nativeSidebar.inset
+    // mirrors the constants; the packaged app is told the measured insets as
+    // the native column is resized or collapsed.
+    this.applyNativeInsets(
+      preview
+        ? { sidebar: SIDEBAR_COLUMN_WIDTH, titlebar: 0 }
+        : nativeSidebar.insets
     )
     shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
     shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
@@ -505,8 +507,16 @@ export class LauncherApp extends HTMLElement {
 
   // Set on the document rather than the shell: the dialogs are siblings of the
   // shell, and they have to clear the sidebar too.
-  applyNativeSidebarInset(inset) {
-    document.documentElement.style.setProperty('--sidebar-width', `${inset}px`)
+  applyNativeInsets({ sidebar, titlebar }) {
+    const style = document.documentElement.style
+
+    style.setProperty('--sidebar-width', `${sidebar}px`)
+
+    // Zero means SwiftUI has not measured the window yet. The stylesheet's own
+    // value stands in until it has, rather than the page jumping to the top.
+    if (titlebar > 0) {
+      style.setProperty('--content-top', `${titlebar}px`)
+    }
   }
 
   setUpNativeSidebar() {
@@ -528,7 +538,7 @@ export class LauncherApp extends HTMLElement {
     nativeSidebar.onSelect((id) => this.setScreen(id))
 
     // Resizing or collapsing the native column moves the page's left edge.
-    nativeSidebar.onInset((inset) => this.applyNativeSidebarInset(inset))
+    nativeSidebar.onInsets((insets) => this.applyNativeInsets(insets))
 
     // Only swap out the HTML navigation once the native sidebar confirms it
     // exists, so an unpatched build is left with a working interface.
