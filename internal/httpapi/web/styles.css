@@ -2083,9 +2083,10 @@ mark {
   overflow: hidden;
 }
 
-/* SwiftUI clips the complete NavigationSplitView to the window. Its embedded
-   WKWebView is only the detail column, so rounding that view independently
-   would also round the internal edge where it meets the native sidebar. */
+/* SwiftUI clips the complete NavigationSplitView to the window, and the page
+   underlaps its sidebar rather than starting after it, so the leading corners
+   of this element are behind the sidebar's glass. Rounding them would only cut
+   into what the glass is sampling. */
 .is-macos-desktop.is-swiftui-host launcher-app {
   border-radius: 0;
 }
@@ -2128,9 +2129,12 @@ mark {
   pointer-events: none;
 }
 
-/* The WKWebView starts at the detail column's leading edge. */
-.is-swiftui-host .topbar {
-  left: 0;
+/* Dialogs are centred in the viewport, and the viewport now runs underneath the
+   sidebar, so they sit half a sidebar too far left. Shifting by half the inset
+   recentres them in the part of the window the user can actually see. */
+.is-macos-desktop .launcher-dialog {
+  width: min(560px, calc(100vw - var(--sidebar-width) - 32px));
+  transform: translateX(calc(var(--sidebar-width) / 2));
 }
 
 /* macOS insets a web view's overlay scrollbar so it clears the transparent

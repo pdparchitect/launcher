@@ -7,3 +7,6 @@ func Install() bool { return false }
 
 // BadgeDockIcon is a no-op outside macOS.
 func BadgeDockIcon() {}
+
+// InstallViewerChrome is a no-op outside a cgo-enabled macOS build.
+func InstallViewerChrome() bool { return false }

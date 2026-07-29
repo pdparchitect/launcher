@@ -103,6 +103,26 @@ export const nativeSidebar = {
     return isMac() && Boolean(messageHandler())
   },
 
+  // How far the native sidebar reaches across the window. The webview spans the
+  // whole window and draws underneath it, so this is the page's own left inset.
+  // Zero until SwiftUI has measured its layout, and again once the sidebar is
+  // collapsed.
+  get inset() {
+    const inset = globalThis.wailsSidebarInset
+
+    return typeof inset === 'number' ? inset : 0
+  },
+
+  onInset(callback) {
+    globalThis.addEventListener('wails:sidebar-inset', (event) => {
+      const inset = event.detail?.inset
+
+      if (typeof inset === 'number') {
+        callback(inset)
+      }
+    })
+  },
+
   // items: [{id, title, symbol, tint} | {group}]
   configure(items, selected) {
     const handler = messageHandler()

@@ -471,11 +471,13 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    // Browser preview must reserve space for its HTML approximation. In the
-    // packaged app NavigationSplitView has already positioned the WKWebView
-    // after the native sidebar, so another web offset would create two gaps.
-    const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0
-    shell.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
+    // The webview fills the whole window in both layouts and draws underneath
+    // the sidebar, so the interface always reserves the space itself. Preview
+    // mirrors the constants; the packaged app is told the measured width as the
+    // native column is resized or collapsed.
+    this.applyNativeSidebarInset(
+      preview ? SIDEBAR_COLUMN_WIDTH : nativeSidebar.inset
+    )
     shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
     shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
     shell.style.setProperty('--panel-radius', `${SIDEBAR_METRICS.radius}px`)
@@ -501,6 +503,12 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
+  // Set on the document rather than the shell: the dialogs are siblings of the
+  // shell, and they have to clear the sidebar too.
+  applyNativeSidebarInset(inset) {
+    document.documentElement.style.setProperty('--sidebar-width', `${inset}px`)
+  }
+
   setUpNativeSidebar() {
     if (requestedChrome() === 'macos') {
       this.applyNativeSidebarLayout(true)
@@ -518,6 +526,9 @@ export class LauncherApp extends HTMLElement {
     this.nativeSidebarSetup = true
 
     nativeSidebar.onSelect((id) => this.setScreen(id))
+
+    // Resizing or collapsing the native column moves the page's left edge.
+    nativeSidebar.onInset((inset) => this.applyNativeSidebarInset(inset))
 
     // Only swap out the HTML navigation once the native sidebar confirms it
     // exists, so an unpatched build is left with a working interface.
