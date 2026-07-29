@@ -42,8 +42,16 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
         }
         selection = identifier
 
+        /*
+         A bare string is not a valid top-level JSON object, so encoding it
+         needs fragmentsAllowed. Without it the serialization fails, try?
+         swallows the error, and the selection never reaches the page.
+         */
         guard
-            let data = try? JSONSerialization.data(withJSONObject: identifier),
+            let data = try? JSONSerialization.data(
+                withJSONObject: identifier,
+                options: [.fragmentsAllowed]
+            ),
             let encoded = String(data: data, encoding: .utf8)
         else {
             return
@@ -248,6 +256,15 @@ private struct RootView: View {
                 .tag(item.id)
             }
             .listStyle(.sidebar)
+            /*
+             The toggle is a default item of the sidebar column, so it can only
+             be removed from that column's own content. Applying this to the
+             NavigationSplitView instead compiles and does nothing.
+             */
+            .toolbar(
+                removing:
+                    ToolbarDefaultItemKind.sidebarToggle
+            )
             .navigationSplitViewColumnWidth(
                 min: 210,
                 ideal: 240,
@@ -269,10 +286,6 @@ private struct RootView: View {
         }
         .navigationSplitViewStyle(
             .prominentDetail
-        )
-        .toolbar(
-            removing:
-                ToolbarDefaultItemKind.sidebarToggle
         )
         .toolbarBackgroundVisibility(
             Visibility.hidden,

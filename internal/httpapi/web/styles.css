@@ -2133,6 +2133,44 @@ mark {
   left: 0;
 }
 
+/* macOS insets a web view's overlay scrollbar so it clears the transparent
+   title bar and stops before the window's rounded bottom edge — but it can only
+   do that for the main frame's scroller, which is what the window's content
+   insets apply to. Everywhere else this interface scrolls .main-panel, an inner
+   element as tall as the window, so its scrollbar is drawn corner to corner and
+   the window's own mask cuts the ends off. Giving scrolling back to the
+   document is what earns the native inset; the fixed .topbar and .sidebar do
+   not move, and the hero still bleeds to every window edge. */
+.is-swiftui-host,
+.is-swiftui-host body,
+.is-swiftui-host launcher-app,
+.is-swiftui-host .launcher-shell {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+/* clip rather than hidden: it keeps the horizontal guard the grid relies on
+   without turning the panel back into a scroll container, which would take
+   scrolling straight back off the document. */
+.is-swiftui-host .main-panel {
+  height: auto;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+/* The bounce is the document's now. Containing it here was what stopped the
+   window rubber-banding when an inner element scrolled; nothing chains past the
+   document, so keeping the guard would only cancel the elastic scroll that
+   makes the app feel native. */
+.is-swiftui-host,
+.is-swiftui-host body,
+.is-swiftui-host .launcher-shell,
+.is-swiftui-host .main-panel {
+  overscroll-behavior: auto;
+}
+
 /* Browser preview (?chrome=macos): there is no AppKit panel to hide behind, so
    the HTML sidebar is dressed up as one — same inset, width and radius, driven
    from the same constants the native side is configured with. backdrop-filter
