@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""petd - supervises the pen.
+
+One process per desktop session. It owns two things, and nothing else:
+
+  * a sprite process per pet, restarted if it dies
+  * when each pet's next turn runs, and how many run at once
+
+It holds no state of its own that matters. Everything it needs is in the pet
+directories, so killing and restarting it is always safe - which is what
+`petctl restart` does.
+
+The daemon is deliberately a poll loop rather than an inotify watcher. The pen
+is a handful of directories, the loop runs twice a second, and a poll cannot
+miss an event that arrived while it was busy elsewhere.
+"""
+
+import json
+import os
+import random
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petlib
+
+POLL_SECONDS = 2.0
+
+# How many pets may be mid-turn at the same time. Each turn is a model call
+# with a shell behind it; letting a pen of eight pets all wake at once would
+# make the desktop unusable and the bill surprising.
+MAX_CONCURRENT_TURNS = int(os.environ.get("PETS_MAX_TURNS", "2"))
+
+# A pet that has never run waits this long after the session starts before its
+# first heartbeat, so a fresh desktop is not a stampede.
+FIRST_HEARTBEAT_DELAY = 90
+
+# Restart backoff for a sprite that keeps dying - a broken species should not
+# spin.
+SPRITE_BACKOFF = (2, 5, 15, 60)
+
+
+def log(message):
+    stamp = time.strftime("%H:%M:%S")
+    print(f"[petd {stamp}] {message}", flush=True)
+
+
+class Supervisor:
+    def __init__(self):
+        self.sprites = {}  # name -> Popen
+        self.sprite_failures = {}  # name -> consecutive failures
+        self.sprite_retry_at = {}  # name -> earliest restart time
+        self.turns = {}  # name -> Popen
+        self.next_heartbeat = {}  # name -> monotonic-ish wall clock
+        self.running = True
+        self.has_display = bool(os.environ.get("DISPLAY"))
+        self.warned_signed_out = False
+
+    # Sprites ---------------------------------------------------------------
+
+    def ensure_sprite(self, pet):
+        if not self.has_display:
+            return
+
+        process = self.sprites.get(pet.name)
+        if process and process.poll() is None:
+            return
+
+        if process:
+            failures = self.sprite_failures.get(pet.name, 0) + 1
+            self.sprite_failures[pet.name] = failures
+            backoff = SPRITE_BACKOFF[min(failures, len(SPRITE_BACKOFF)) - 1]
+            self.sprite_retry_at[pet.name] = time.time() + backoff
+            log(f"{pet.name}: sprite exited ({process.returncode}); retrying in {backoff}s")
+            self.sprites.pop(pet.name, None)
+            return
+
+        if time.time() < self.sprite_retry_at.get(pet.name, 0):
+            return
+
+        self.sprites[pet.name] = subprocess.Popen(
+            ["pet-sprite", pet.name],
+            stdout=subprocess.DEVNULL,
+            stderr=sys.stderr,
+        )
+
+    def stop_sprite(self, name):
+        process = self.sprites.pop(name, None)
+        if process and process.poll() is None:
+            process.terminate()
+
+    # Turns -----------------------------------------------------------------
+
+    def schedule(self, pet):
+        """Give a pet its next heartbeat time, spread by its own jitter."""
+
+        interval = pet.heartbeat_seconds
+        if interval is None:
+            self.next_heartbeat.pop(pet.name, None)
+            return
+
+        jitter = random.uniform(0, pet.jitter_seconds)
+        if pet.name not in self.next_heartbeat:
+            delay = min(interval, FIRST_HEARTBEAT_DELAY)
+        else:
+            delay = interval
+        self.next_heartbeat[pet.name] = time.time() + delay + jitter
+
+    def start_turn(self, pet, trigger, payload_path=None, payload=""):
+        command = ["pet-run", pet.name, "--trigger", trigger, "--quiet"]
+        if payload_path:
+            command += ["--message-file", str(payload_path)]
+        elif payload:
+            command += ["--message", payload]
+
+        log(f"{pet.name}: {trigger}")
+        self.turns[pet.name] = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=sys.stderr,
+        )
+
+    def reap_turns(self):
+        for name, process in list(self.turns.items()):
+            if process.poll() is not None:
+                if process.returncode != 0:
+                    log(f"{name}: turn exited {process.returncode}")
+                del self.turns[name]
+
+    def capacity(self):
+        return MAX_CONCURRENT_TURNS - len(self.turns)
+
+    # Inbox -----------------------------------------------------------------
+
+    def dispatch_inbox(self, pet):
+        """Turn unread inbox files into message triggers.
+
+        A pet is asked to move what it has handled into `inbox/done/`. Files it
+        leaves behind would otherwise be re-dispatched forever, so the ones
+        already sent are recorded - a pet that ignores its mail is a pet with a
+        full inbox, not a pet in a loop.
+        """
+
+        if not pet.inbox.is_dir():
+            return
+
+        seen_path = pet.state_directory / "inbox-seen.json"
+        try:
+            seen = set(json.loads(seen_path.read_text()))
+        except (OSError, json.JSONDecodeError, TypeError):
+            seen = set()
+
+        present = {
+            entry.name
+            for entry in pet.inbox.iterdir()
+            if entry.is_file() and not entry.name.startswith(".")
+        }
+
+        for name in sorted(present - seen):
+            pet.enqueue("message", payload=str(pet.inbox / name))
+
+        # Forget files that are gone, so a name can be reused.
+        petlib.atomic_write(seen_path, json.dumps(sorted(present)))
+
+    # Main loop -------------------------------------------------------------
+
+    def pass_once(self):
+        self.reap_turns()
+
+        pets = petlib.iter_pets()
+        known = {pet.name for pet in pets}
+
+        for name in list(self.sprites):
+            if name not in known:
+                self.stop_sprite(name)
+
+        signed_in = petlib.codex_is_signed_in()
+        if not signed_in and not self.warned_signed_out:
+            log("Codex is not signed in; pets will wander but not think")
+            self.warned_signed_out = True
+        elif signed_in and self.warned_signed_out:
+            log("Codex signed in; pets are awake")
+            self.warned_signed_out = False
+
+        pen_paused = petlib.paused()
+
+        for pet in pets:
+            try:
+                enabled = pet.enabled
+            except petlib.PetError as error:
+                # A pet.toml being edited by hand is a normal state to observe.
+                log(f"{pet.name}: {error}")
+                continue
+
+            if not enabled:
+                self.stop_sprite(pet.name)
+                self.next_heartbeat.pop(pet.name, None)
+                pet.ensure_state("sleep", "disabled")
+                continue
+
+            self.ensure_sprite(pet)
+
+            if pet.name in self.turns:
+                continue
+
+            if pen_paused or not signed_in:
+                # Triggers are deliberately left where they are. A pet poked
+                # while the pen is paused should wake when the pen does, not
+                # have the poke quietly dropped on the floor.
+                detail = "the pen is paused" if pen_paused else "Codex is not signed in"
+                if pet.read_state()["activity"] != "think":
+                    pet.ensure_state("sleep", detail)
+                continue
+
+            if pet.read_state()["activity"] == "sleep":
+                pet.ensure_state("idle")
+
+            triggers = pet.take_triggers()
+
+            if pet.name not in self.next_heartbeat:
+                self.schedule(pet)
+            elif time.time() >= self.next_heartbeat[pet.name]:
+                self.schedule(pet)
+                triggers.append({"kind": "heartbeat", "payload": ""})
+
+            self.dispatch_inbox(pet)
+
+            if not triggers or self.capacity() <= 0:
+                continue
+
+            # Only the newest trigger is run. A pet poked five times while it
+            # was busy should wake once, not five times in a row.
+            trigger = triggers[-1]
+            kind = trigger.get("kind", "heartbeat")
+            payload = trigger.get("payload", "")
+
+            if kind == "message" and payload and Path(payload).is_file():
+                self.start_turn(pet, kind, payload_path=payload)
+            else:
+                self.start_turn(pet, kind, payload=payload)
+
+    def stop(self, *_):
+        self.running = False
+
+    def run(self):
+        signal.signal(signal.SIGTERM, self.stop)
+        signal.signal(signal.SIGINT, self.stop)
+
+        # The pidfile is how `petctl restart` finds this process. The session
+        # keeps it alive, so a terminated supervisor comes back on its own.
+        petlib.atomic_write(petlib.daemon_pidfile(), f"{os.getpid()}\n")
+
+        petlib.PETS_ROOT.mkdir(parents=True, exist_ok=True)
+        log(f"watching {petlib.PETS_ROOT}")
+        if not self.has_display:
+            log("no DISPLAY; running without sprites")
+
+        while self.running:
+            try:
+                self.pass_once()
+            except Exception as error:  # keep the pen up whatever one pet does
+                log(f"pass failed: {error!r}")
+            time.sleep(POLL_SECONDS)
+
+        log("stopping")
+        for name in list(self.sprites):
+            self.stop_sprite(name)
+        for process in self.turns.values():
+            process.terminate()
+        petlib.daemon_pidfile().unlink(missing_ok=True)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(Supervisor().run())

@@ -146,6 +146,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"macOSWindowMinWidth  = 820",
 		"macOSWindowMinHeight = 560",
 		"geometry := mainWindowGeometry()",
+		"Frameless:                false",
 		"TitleBar: mac.TitleBarHidden()",
 		`StartHidden:              runtime.GOOS == "darwin"`,
 		"func viewerWindowChrome() *mac.Options",
@@ -253,9 +254,10 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		".launcher-shell.has-native-sidebar .sidebar {",
 		"visibility: hidden",
 		"pointer-events: none",
-		// The drag strip and the dialogs both clear the sidebar, because the
-		// page runs underneath it rather than starting after it.
+		// The drag region and dialogs clear the native sidebar because the page
+		// runs underneath it rather than starting after it.
 		"left: var(--sidebar-width)",
+		".is-macos-desktop .native-window-drag-region {",
 		".is-macos-desktop .launcher-dialog {",
 		"transform: translateX(calc(var(--sidebar-width) / 2))",
 	} {

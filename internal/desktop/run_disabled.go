@@ -20,3 +20,8 @@ func run(context.Context, httpapi.Service, Options) error {
 func runViewer(context.Context, string, string, string) error {
 	return errors.New("desktop agent viewer is not available in this build")
 }
+
+// focusViewer cannot raise a window a build without a desktop never opened.
+func focusViewer(int) bool {
+	return false
+}

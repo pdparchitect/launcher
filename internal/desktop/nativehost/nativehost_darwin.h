@@ -14,4 +14,8 @@ void LauncherNativeHostBadgeDockIcon(void);
 // Safe to call repeatedly and from any goroutine.
 bool LauncherNativeHostInstallViewerChrome(void);
 
+// Brings another process's windows to the front. Reports whether a running
+// application with that identifier was found and activated.
+bool LauncherNativeHostActivateProcess(int pid);
+
 #endif /* nativehost_darwin_h */

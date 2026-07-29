@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""pet-run - run exactly one Codex turn for one pet.
+
+Split out of the supervisor on purpose. `petd` decides *when* a pet runs;
+this decides *how*, and because it is a command it can be run by hand while
+the supervisor is up, which is how a misbehaving pet gets debugged:
+
+    pet-run pip --trigger poke
+
+The turn itself is `codex exec` with the pet's own directory as the working
+root. The pet's `AGENTS.md` is loaded by Codex from that directory, so the
+prompt this program builds stays short: it says what woke the pet, not who
+the pet is.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petlib
+import petprompts
+
+# Transcripts are kept for the last few turns only. They are the record of
+# what a pet actually did, and they are also the only thing here that grows
+# without bound.
+TRANSCRIPT_HISTORY = 20
+
+# The bubble is a few centimetres wide. Anything past this is not readable on
+# the desktop and belongs in the journal, which is where the full reply went.
+SPEECH_LIMIT = 160
+
+
+def spoken_line(message):
+    """Reduce a final Codex message to the one line the pet says out loud.
+
+    The prompt asks for a closing sentence, and models mostly comply - but not
+    always, so take the last non-empty line rather than trusting the shape,
+    and strip the markdown that tends to come with it.
+    """
+
+    lines = [line.strip() for line in (message or "").splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+
+    line = lines[-1].lstrip("-*# ").strip()
+    line = line.replace("**", "").replace("`", "")
+    if len(line) > SPEECH_LIMIT:
+        line = line[: SPEECH_LIMIT - 1].rstrip() + "…"
+    return line
+
+
+def prune_transcripts(directory):
+    transcripts = sorted(directory.glob("*.jsonl"))
+    for stale in transcripts[:-TRANSCRIPT_HISTORY]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
+def codex_command(pet):
+    command = [
+        "codex",
+        "exec",
+        "--cd",
+        str(pet.directory),
+        # A pet's directory is not a git repository and does not need to be.
+        "--skip-git-repo-check",
+        "--sandbox",
+        pet.sandbox,
+        # JSONL on stdout is the transcript; the final message is written
+        # separately because parsing it back out of the event stream would
+        # couple this program to Codex' event schema.
+        "--json",
+        "-o",
+        str(pet.state_directory / "last-message.txt"),
+    ]
+
+    if pet.model:
+        command += ["--model", pet.model]
+
+    # `-` makes Codex read the prompt from stdin, which keeps a multi-paragraph
+    # prompt out of the process arguments.
+    command.append("-")
+    return command
+
+
+def run_turn(pet, trigger, payload, quiet=False):
+    if not petlib.codex_is_signed_in():
+        pet.write_state(
+            activity="sleep",
+            detail="Codex is not signed in - run codex-setup",
+        )
+        raise petlib.PetError(
+            "Codex is not signed in. Run codex-setup, or use the Codex menu."
+        )
+
+    pet.state_directory.mkdir(parents=True, exist_ok=True)
+    pet.turns_directory.mkdir(parents=True, exist_ok=True)
+
+    last_message_path = pet.state_directory / "last-message.txt"
+    last_message_path.unlink(missing_ok=True)
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    transcript_path = pet.turns_directory / f"{stamp}-{trigger}.jsonl"
+
+    prompt = petprompts.prompt_for(pet, trigger, payload)
+
+    environment = dict(os.environ)
+    environment.setdefault("CODEX_HOME", str(petlib.codex_home()))
+    # A pet's own shell commands should be able to find the pet they belong to
+    # without being told where they are.
+    environment["PET_NAME"] = pet.name
+    environment["PET_HOME"] = str(pet.directory)
+
+    pet.write_state(activity="think", detail=trigger, error="")
+
+    started = time.time()
+    with transcript_path.open("w") as transcript:
+        try:
+            completed = subprocess.run(
+                codex_command(pet),
+                input=prompt,
+                stdout=transcript,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(pet.directory),
+                env=environment,
+                timeout=pet.turn_timeout,
+            )
+            code = completed.returncode
+            error_text = (completed.stderr or "").strip()
+        except subprocess.TimeoutExpired:
+            code = 124
+            error_text = f"the turn ran past {petlib.format_duration(pet.turn_timeout)}"
+        except FileNotFoundError:
+            code = 127
+            error_text = "codex is not installed in this image"
+
+    duration = time.time() - started
+    prune_transcripts(pet.turns_directory)
+
+    if code != 0:
+        # Keep the last line only: Codex' failures are usually one useful
+        # sentence under a stack of progress output.
+        detail = (error_text.splitlines() or ["codex exited non-zero"])[-1]
+        pet.write_state(activity="error", detail=detail[:200])
+        petlib.atomic_write(
+            pet.state_directory / "last-turn.json",
+            json.dumps(
+                {
+                    "trigger": trigger,
+                    "at": started,
+                    "seconds": round(duration, 1),
+                    "exit": code,
+                    "error": detail,
+                },
+                indent=2,
+            )
+            + "\n",
+        )
+        raise petlib.PetError(f"{pet.name}: turn failed - {detail}")
+
+    try:
+        message = last_message_path.read_text()
+    except OSError:
+        message = ""
+
+    line = spoken_line(message)
+    pet.write_state(activity="idle", detail="", error="")
+    if line:
+        pet.say(line)
+
+    petlib.atomic_write(
+        pet.state_directory / "last-turn.json",
+        json.dumps(
+            {
+                "trigger": trigger,
+                "at": started,
+                "seconds": round(duration, 1),
+                "exit": 0,
+                "said": line,
+                "transcript": transcript_path.name,
+            },
+            indent=2,
+        )
+        + "\n",
+    )
+
+    if not quiet:
+        print(f"{pet.name}: {line or '(said nothing)'}")
+
+    return line
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Run one Codex turn for a pet")
+    parser.add_argument("name")
+    parser.add_argument(
+        "--trigger",
+        default="heartbeat",
+        choices=("heartbeat", "poke", "message"),
+        help="what woke the pet up",
+    )
+    parser.add_argument("--message", default="", help="message body for --trigger message")
+    parser.add_argument("--message-file", help="read the message body from a file")
+    parser.add_argument("--quiet", action="store_true")
+    arguments = parser.parse_args(argv)
+
+    pet = petlib.Pet(arguments.name)
+    if not pet.exists():
+        print(f"no pet named '{arguments.name}'", file=sys.stderr)
+        return 2
+
+    payload = arguments.message
+    if arguments.message_file:
+        payload = Path(arguments.message_file).read_text()
+
+    try:
+        run_turn(pet, arguments.trigger, payload, quiet=arguments.quiet)
+    except petlib.PetError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

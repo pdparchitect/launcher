@@ -8,6 +8,7 @@ import {
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
+import './marketplace-detail.js'
 import './marketplace-card.js'
 import './runtime-setup-dialog.js'
 
@@ -37,6 +38,7 @@ const screens = new Set([
   'home',
   'agents',
   'marketplace',
+  'marketplace-detail',
   'activity',
   'settings',
 ])
@@ -85,14 +87,16 @@ function lastLogLine(logs) {
 }
 
 // Browser preview override, for `make web`: ?chrome=macos renders the layout
-// the packaged macOS build gets — native-style sidebar panel, no HTML window
-// controls, hero bleeding under the panel. ?chrome=frameless forces the
-// Linux/Windows layout. Omit it for real platform detection.
-function requestedChrome() {
+// the packaged macOS build gets — native-style sidebar panel and hero artwork
+// bleeding underneath it.
+function macOSChromePreviewRequested() {
   try {
-    return new URLSearchParams(globalThis.location?.search || '').get('chrome')
+    return (
+      new URLSearchParams(globalThis.location?.search || '').get('chrome') ===
+      'macos'
+    )
   } catch {
-    return null
+    return false
   }
 }
 
@@ -110,6 +114,7 @@ export class LauncherApp extends HTMLElement {
     this.doctorReport = null
     this.runtimeSetup = null
     this.activity = []
+    this.marketplaceEntryID = null
     this.query = ''
     this.filter = 'all'
     this.page = 1
@@ -148,26 +153,13 @@ export class LauncherApp extends HTMLElement {
           </button>
         </aside>
         <main class="main-panel">
-          <header class="topbar">
-            <div class="window-controls" aria-label="Window controls">
-              <button type="button" data-window-action="minimise"
-                aria-label="Minimise window" title="Minimise">
-                -
-              </button>
-              <button type="button" data-window-action="maximise"
-                aria-label="Maximise or restore window" title="Maximise or restore">
-                ◆
-              </button>
-              <button type="button" data-window-action="close"
-                aria-label="Close Agent Launcher" title="Close">
-                ×
-              </button>
-            </div>
-          </header>
+          <div class="native-window-drag-region" aria-hidden="true"></div>
           <div class="content">
             <section class="screen" data-screen="home"></section>
             <section class="screen" data-screen="agents" hidden></section>
             <section class="screen" data-screen="marketplace" hidden></section>
+            <section class="screen" data-screen="marketplace-detail"
+              hidden></section>
             <section class="screen" data-screen="activity" hidden></section>
             <section class="screen" data-screen="settings" hidden></section>
           </div>
@@ -199,36 +191,6 @@ export class LauncherApp extends HTMLElement {
   }
 
   bindEvents() {
-    this.querySelector('.topbar').addEventListener('dblclick', (event) => {
-      if (!event.target.closest('[data-window-action]')) {
-        desktopWindow.toggleMaximise()
-      }
-    })
-    this.querySelector('.window-controls').addEventListener(
-      'click',
-      (event) => {
-        const button = event.target.closest('[data-window-action]')
-
-        if (!button) {
-          return
-        }
-
-        switch (button.dataset.windowAction) {
-          case 'maximise':
-            desktopWindow.toggleMaximise()
-
-            break
-          case 'minimise':
-            desktopWindow.minimise()
-
-            break
-          case 'close':
-            desktopWindow.close()
-
-            break
-        }
-      }
-    )
     this.addEventListener('click', (event) => {
       const link = event.target.closest('[data-screen-link]')
 
@@ -264,6 +226,9 @@ export class LauncherApp extends HTMLElement {
       }
 
       this.querySelector('deploy-dialog').open(event.detail.entry)
+    })
+    this.addEventListener('view-marketplace-entry', (event) => {
+      this.showMarketplaceEntry(event.detail.entry)
     })
     this.addEventListener('install-agent', (event) => {
       this.installAgent(event.detail)
@@ -429,19 +394,17 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
-  // The packaged macOS build uses the real window chrome, so the HTML window
-  // controls give way to the native traffic lights. Browsers and the other
-  // desktop platforms keep the frameless controls.
+  // macOS needs additional page layout because its SwiftUI shell places the
+  // webview beneath a native sidebar and unified toolbar. Other platforms use
+  // ordinary native window decorations without changing the page layout.
   applyPlatformChrome() {
-    const chrome = requestedChrome()
-
-    if (chrome) {
-      this.applyMacosChrome(chrome === 'macos')
+    if (macOSChromePreviewRequested()) {
+      this.applyMacosChrome(true)
 
       return
     }
 
-    if (!desktopWindow.available()) {
+    if (!desktopWindow.isDesktop()) {
       return
     }
 
@@ -520,13 +483,13 @@ export class LauncherApp extends HTMLElement {
   }
 
   setUpNativeSidebar() {
-    if (requestedChrome() === 'macos') {
+    if (macOSChromePreviewRequested()) {
       this.applyNativeSidebarLayout(true)
 
       return
     }
 
-    if (requestedChrome() || !nativeSidebar.available()) {
+    if (!nativeSidebar.available()) {
       return
     }
 
@@ -558,8 +521,11 @@ export class LauncherApp extends HTMLElement {
       this.page = 1
     }
 
+    const navigationScreen =
+      screen === 'marketplace-detail' ? 'marketplace' : screen
+
     if (nativeSidebar.ready) {
-      nativeSidebar.select(nativeSidebarItems, screen)
+      nativeSidebar.select(nativeSidebarItems, navigationScreen)
     }
 
     this.updateNavigation()
@@ -578,7 +544,10 @@ export class LauncherApp extends HTMLElement {
 
   updateNavigation() {
     this.querySelectorAll('[data-screen-link]').forEach((link) => {
-      const active = link.dataset.screenLink === this.screen
+      const active =
+        link.dataset.screenLink === this.screen ||
+        (this.screen === 'marketplace-detail' &&
+          link.dataset.screenLink === 'marketplace')
 
       link.classList.toggle('is-active', active)
 
@@ -606,6 +575,10 @@ export class LauncherApp extends HTMLElement {
 
     if (this.screen === 'marketplace') {
       this.renderMarketplace()
+    }
+
+    if (this.screen === 'marketplace-detail') {
+      this.renderMarketplaceDetail()
     }
 
     if (this.screen === 'activity') {
@@ -955,10 +928,49 @@ export class LauncherApp extends HTMLElement {
 
       card.data = {
         entry,
-        installed: this.agents.some((agent) => agent.catalogId === entry.id),
+        instances: this.agents.filter(
+          (agent) => agent.catalogId === entry.id
+        ),
       }
       grid.append(card)
     }
+  }
+
+  showMarketplaceEntry(entry) {
+    this.marketplaceEntryID = entry.id
+    this.setScreen('marketplace-detail')
+  }
+
+  renderMarketplaceDetail() {
+    const screen = this.querySelector('[data-screen="marketplace-detail"]')
+    const entry = this.catalog.find(
+      (catalogEntry) => catalogEntry.id === this.marketplaceEntryID
+    )
+
+    screen.innerHTML = ''
+
+    if (!entry) {
+      screen.append(
+        this.emptyState(
+          'IMAGE UNAVAILABLE',
+          'This catalogue image is no longer available.',
+          'BACK TO MARKETPLACE',
+          'marketplace'
+        )
+      )
+
+      return
+    }
+
+    const detail = document.createElement('marketplace-detail')
+
+    detail.data = {
+      entry,
+      instances: this.agents.filter(
+        (agent) => agent.catalogId === entry.id
+      ),
+    }
+    screen.append(detail)
   }
 
   renderActivity() {
@@ -1203,7 +1215,7 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
-    if (!desktopWindow.available()) {
+    if (!desktopWindow.isDesktop()) {
       if (!desktopWindow.openExternal(agent.url)) {
         this.showToast(`Could not open ${agent.name} in a browser window`, true)
 

@@ -1,0 +1,37 @@
+#!/bin/bash
+# pen-greeting - what the welcome terminal prints.
+#
+# Its own program rather than a heredoc inside desktop-welcome, so it can be
+# run again from the menu or from any shell without opening a second terminal.
+
+set -euo pipefail
+
+accent='\033[38;5;222m'
+mint='\033[38;5;79m'
+dim='\033[2m'
+reset='\033[0m'
+
+# Block letters rather than figlet: every glyph is two cells wide, so the
+# banner is on the same pixel grid as the pets and the wallpaper.
+printf "${accent}"
+cat <<'BANNER'
+  ██████  ██████  ████    ██████  ██  ██          ██████  ██████  ██████  ██████
+  ██      ██  ██  ██  ██  ██      ██  ██          ██  ██  ██        ██    ██
+  ██      ██  ██  ██  ██  ████      ██            ██████  ████      ██    ██████
+  ██      ██  ██  ██  ██  ██      ██  ██          ██      ██        ██        ██
+  ██████  ██████  ████    ██████  ██  ██          ██      ██████    ██    ██████
+BANNER
+printf "${reset}\n"
+
+printf "${dim}  Every pet is a directory in /workspace/pets. AGENTS.md says who it\n"
+printf "  is, Codex does the thinking, and the sprite is how it says hello.${reset}\n\n"
+
+petctl list
+echo
+
+printf "${mint}  petctl new${reset}          make a pet ${dim}(also in the desktop menu)${reset}\n"
+printf "${mint}  petctl tell <pet>${reset}   leave a message in its inbox\n"
+printf "${mint}  petctl chat <pet>${reset}   talk to it directly ${dim}(or double-click the sprite)${reset}\n"
+printf "${mint}  petctl status${reset}       how the pen is doing\n"
+printf "${dim}  right-click a pet to poke it, drag it to move it${reset}\n"
+echo

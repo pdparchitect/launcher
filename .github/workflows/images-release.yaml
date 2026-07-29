@@ -1,0 +1,145 @@
+name: Release images
+
+# The VERSION files are the release intent. Nobody tags by hand.
+#
+# After the Images workflow succeeds on main, every release unit is compared
+# against completed GitHub Releases. A missing release is tagged at the exact
+# CI-tested commit and its publish is dispatched. A tag left behind by a failed
+# publish is retried. Product release identities include the substrate version,
+# so substrate changes also refresh every final product image Launcher runs.
+#
+# Releasing is therefore: bump a VERSION, add its changelog section, merge.
+on:
+  workflow_run:
+    workflows:
+      - Images
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: images-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      # The commit CI actually tested, not the branch head, which may have
+      # moved on since.
+      - name: Checkout the tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Validate release metadata
+        working-directory: images
+        run: make check
+
+      - name: Tag and dispatch each unit whose version is new
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { execSync } = require('node:child_process')
+
+            const sha = context.payload.workflow_run.head_sha
+            const units = execSync('bash tools/units.sh', {
+              cwd: 'images', encoding: 'utf8',
+            }).trim().split('\n').filter(Boolean).map((line) => {
+              const [
+                kind, unit, version, tag, file, imageVersion, prerelease,
+              ] = line.split('\t')
+              return {
+                kind, unit, version, tag, file, imageVersion, prerelease,
+              }
+            })
+
+            const released = []
+            const skipped = []
+
+            for (const unit of units) {
+              // A Git tag is the immutable ref publishing runs at, but it is not
+              // proof that publishing completed. If dispatch, either build, or
+              // manifest assembly failed after the tag was created, no GitHub
+              // Release exists and this workflow must retry the dispatch.
+              let releaseExists = true
+              try {
+                await github.rest.repos.getReleaseByTag({
+                  ...context.repo, tag: unit.tag,
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+                releaseExists = false
+              }
+
+              if (releaseExists) {
+                skipped.push(unit)
+                continue
+              }
+
+              let tagExists = true
+              try {
+                await github.rest.git.getRef({
+                  ...context.repo, ref: `tags/${unit.tag}`,
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+                tagExists = false
+              }
+
+              if (!tagExists) {
+                await github.rest.git.createRef({
+                  ...context.repo,
+                  ref: `refs/tags/${unit.tag}`,
+                  sha,
+                })
+              }
+
+              // Dispatched explicitly: a tag created with GITHUB_TOKEN does not
+              // trigger another workflow, so relying on the tag push would
+              // silently publish nothing.
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo,
+                workflow_id: 'images-publish.yaml',
+                ref: unit.tag,
+                inputs: {
+                  unit: unit.unit,
+                  version: unit.version,
+                  latest: 'true',
+                },
+              })
+
+              released.push(unit)
+            }
+
+            const summary = core.summary.addHeading('Image releases', 3)
+            if (released.length) {
+              summary.addTable([
+                [{ data: 'Unit', header: true },
+                 { data: 'Version', header: true },
+                 { data: 'Tag', header: true }],
+                ...released.map((u) => [u.unit, u.version, u.tag]),
+              ])
+            } else {
+              summary.addRaw('No VERSION changed; nothing to release.')
+            }
+            if (skipped.length) {
+              summary.addRaw(
+                `\nAlready released: ${skipped.map((u) => u.tag).join(', ')}`)
+            }
+            await summary.write()
+
+            core.info(released.length
+              ? `Released: ${released.map((u) => u.tag).join(', ')}`
+              : 'No VERSION changed; nothing to release.')

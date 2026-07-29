@@ -1,0 +1,159 @@
+# OpenClaw Desktop - Arc Openbox theme in OpenClaw's own palette.
+#
+# The colours are the design tokens openclaw.ai ships, dark theme:
+#
+#   #101012  ink 950, page      #F5654A  coral, accent
+#   #19191C  ink 900, surface   #E05540  coral, hovered
+#   #202024  ink 850, elevated  #4FC8AE  sea, secondary accent
+#   #EDEDED  ink 50, text       #9A9AA2  ink 500, muted text
+#
+# Arc Openbox theme
+# Copyright (C) 2015 Dino Duratović <dinomol at mail dot com>
+#
+# Inspired by and made for horst3180's Arc GTK theme
+# https://github.com/horst3180/Arc-theme
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+### WINDOW
+border.width: 1
+
+# Keep the client flush with the frame. Padding here is painted in
+# window.*.client.color, which showed up as a black gap around Kitty.
+window.client.padding.width: 0
+window.client.padding.height: 0
+# No bottom handle. It renders as a second line under the client area with a
+# resize grip boxed off at each end, which reads as clutter now that the frame
+# itself is outlined. Resizing stays available through the window edges and
+# corners and through Alt+right-drag anywhere on the frame (see rc.xml).
+window.handle.width: 0
+
+# Openbox has no menu-only padding: these globals inset menu item text and
+# pad the titlebar. Raised from 6/5 to give the menu room inside its 1px
+# border, which also takes the titlebar from 27px to 33px.
+padding.width: 12
+padding.height: 8
+
+# Every window frame is the same ink as the panel, so an unmarked window
+# has no visible edge against the wallpaper. Outline the focused window in the
+# accent; unfocused frames stay dark so exactly one window reads as active.
+window.active.border.color: #F5654A
+window.inactive.border.color: #101012
+window.active.title.separator.color: #3B1015
+window.inactive.title.separator.color: #25080D
+window.active.client.color: #101012
+window.inactive.client.color: #101012
+
+window.active.label.text.color: #EDEDED
+window.inactive.label.text.color: #9A9AA2
+
+window.active.button.unpressed.image.color: #EDEDED
+window.active.button.pressed.image.color: #F5654A
+window.active.button.disabled.image.color: #19191C
+window.active.button.hover.image.color: #4FC8AE
+window.active.button.toggled.unpressed.image.color: #EDEDED
+window.active.button.toggled.pressed.image.color: #F5654A
+window.active.button.toggled.hover.image.color: #4FC8AE
+window.inactive.button.unpressed.image.color: #45454C
+window.inactive.button.pressed.image.color: #F5654A
+window.inactive.button.disabled.image.color: #19191C
+window.inactive.button.hover.image.color: #4FC8AE
+window.inactive.button.toggled.unpressed.image.color: #45454C
+window.inactive.button.toggled.pressed.image.color: #F5654A
+window.inactive.button.toggled.hover.image.color: #4FC8AE
+
+window.active.title.bg: flat solid
+window.active.title.bg.color: #3B1015
+window.active.label.bg: flat solid
+window.active.label.bg.color: #3B1015
+window.active.handle.bg: flat solid
+window.active.handle.bg.color: #3B1015
+window.active.grip.bg: flat solid
+window.active.grip.bg.color: #3B1015
+window.inactive.title.bg: flat solid
+window.inactive.title.bg.color: #25080D
+window.inactive.label.bg: flat solid
+window.inactive.label.bg.color: #25080D
+window.inactive.handle.bg: flat solid
+window.inactive.handle.bg.color: #25080D
+window.inactive.grip.bg: flat solid
+window.inactive.grip.bg.color: #25080D
+
+window.active.button.unpressed.bg: parentrelative
+window.active.button.pressed.bg: parentrelative
+window.active.button.hover.bg: parentrelative
+window.active.button.disabled.bg: parentrelative
+window.active.button.toggled.unpressed.bg: parentrelative
+window.active.button.toggled.pressed.bg: parentrelative
+window.active.button.toggled.hover.bg: parentrelative
+window.inactive.button.unpressed.bg: parentrelative
+window.inactive.button.pressed.bg: parentrelative
+window.inactive.button.hover.bg: parentrelative
+window.inactive.button.disabled.bg: parentrelative
+window.inactive.button.toggled.unpressed.bg: parentrelative
+window.inactive.button.toggled.pressed.bg: parentrelative
+window.inactive.button.toggled.hover.bg: parentrelative
+
+window.label.text.justify: center
+
+#window.active.label.text.font: text shadow
+#window.inactive.label.text.font: text shadow
+
+### MENU
+menu.border.width: 1
+menu.separator.width: 1
+menu.separator.padding.width: 12
+menu.separator.padding.height: 4
+
+menu.overlap.x: 0
+menu.overlap.y: 0
+
+menu.border.color: #F5654A
+menu.separator.color: #4A151C
+
+menu.title.text.color: #EDEDED
+menu.items.text.color: #BCBCC4
+menu.items.disabled.text.color: #865E64
+menu.items.active.text.color: #25080D
+menu.items.active.disabled.text.color: #75434A
+
+menu.items.bg: flat solid
+menu.items.bg.color: #25080D
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #F5654A
+menu.title.bg: flat solid
+menu.title.bg.color: #3B1015
+
+menu.title.text.justify: center
+
+#menu.items.font: text shadow
+#menu.title.text.font: text shadow
+
+### OSD
+osd.border.width: 1
+
+osd.border.color: #19191C
+
+osd.label.text.color: #EDEDED
+
+osd.bg: flat solid
+osd.bg.color: #101012
+osd.label.bg: flat solid
+osd.label.bg.color: #101012
+osd.hilight.bg: flat solid
+osd.hilight.bg.color: #F5654A
+osd.unhilight.bg: flat solid
+osd.unhilight.bg.color: #19191C
+
+#osd.label.text.font: text shadow

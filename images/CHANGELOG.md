@@ -1,0 +1,21 @@
+# Changelog
+
+The shared substrate: `core/ubuntu`, `runtimes/node`, and `bases/desktop`.
+These release together because each embeds its parent.
+
+Product source versions independently. Published product image versions also
+include the substrate version they embed. See each product's own CHANGELOG.
+
+Pinned component versions live in the Dockerfiles and are recorded on the
+images as labels. They are not repeated here.
+
+## [0.1.0]
+
+- Ubuntu 24.04 foundation with operating-system tooling only; no language
+  runtime.
+- Node.js runtime layer, available to images that need it.
+- Browser-accessible Openbox desktop: window manager, panel, optional tiling,
+  terminal, file manager, and a browser with matching native theming.
+- Products customise the desktop through an `overlay/` directory, with drop-in
+  hooks for the wallpaper, panel status, harness, terminal palette, and startup
+  services.

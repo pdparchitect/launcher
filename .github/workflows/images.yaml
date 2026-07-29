@@ -1,0 +1,122 @@
+name: Images
+
+# Only source under images/ triggers this. Two consequences are deliberate:
+# a change anywhere else in the repository does not spend 20 minutes rebuilding
+# a 4GB desktop image, and editing this workflow does not trigger it either,
+# because it does not live under images/.
+on:
+  push:
+    branches:
+      - main
+      - next
+    paths:
+      - 'images/**'
+  pull_request:
+    branches:
+      - main
+      - next
+    paths:
+      - 'images/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the in-flight image build obsolete.
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: images
+
+jobs:
+  # Source and build-graph validation. Seconds, not minutes, so a broken
+  # Dockerfile or a broken parent link fails before anything is built.
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Report the build toolchain
+        run: |
+          docker version --format 'docker {{.Server.Version}}'
+          docker buildx version
+
+      - name: Check
+        run: make check
+
+      - name: Show the resolved build graph
+        run: make print
+
+  # Builds every layer and asserts the desktop session actually comes up.
+  #
+  # AMD64 only. The ARM64 chain builds under QEMU, where the Hermes layer
+  # compiles native extensions and installs Playwright - that is hours, not
+  # minutes. Publishing ARM64 needs a native runner rather than this job.
+  build:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # The product image is over 4GB before build cache. The runner ships
+      # ~25GB of toolchains this build never uses.
+      - name: Free disk space
+        run: |
+          before="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/boost \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          after="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          echo "Free space: ${before}G -> ${after}G"
+
+      - name: Build every image in the chain
+        run: make images
+
+      - name: Report image sizes
+        run: |
+          docker images \
+            --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' \
+            --filter 'reference=pdparchitect/*'
+
+      # The desktop base and the product are smoke-tested separately. A product
+      # can break the session on its own - a root-owned cache directory in the
+      # session user's home is enough - so a passing base says nothing about it.
+      - name: Smoke test the desktop base
+        env:
+          SMOKE_PORT: 16901
+        run: bash tests/smoke-test.sh pdparchitect/launcher-image-base-desktop:local
+
+      - name: Smoke test the Hermes product
+        env:
+          SMOKE_PORT: 16902
+        run: bash tests/smoke-test.sh pdparchitect/launcher-image-hermes-desktop:local
+
+      - name: Smoke test the OpenClaw product
+        env:
+          SMOKE_PORT: 16903
+        run: bash tests/smoke-test.sh pdparchitect/launcher-image-openclaw-desktop:local
+
+      - name: Smoke test the Codex Pets product
+        env:
+          SMOKE_PORT: 16904
+        run: bash tests/smoke-test.sh pdparchitect/launcher-image-codex-pets-desktop:local
+
+      - name: Collect container logs on failure
+        if: failure()
+        run: |
+          for container in $(docker ps -aq); do
+            echo "=== ${container} ==="
+            docker logs "${container}" 2>&1 | tail -50
+          done

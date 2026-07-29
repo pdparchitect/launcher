@@ -10,6 +10,9 @@ import (
 const (
 	pantalkGhostID = "370a2228-322d-4089-846b-62fb8c15d154"
 	buzznodeID     = "4398d440-4e4f-4137-b25e-303bfeb2a276"
+	openClawID     = "864bcec3-4f2e-442a-a928-a6a1424a8afd"
+	hermesID       = "f726241a-ff31-423d-92ad-f2b43cca742f"
+	codexPetsID    = "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe"
 )
 
 func TestLoadGhost(t *testing.T) {
@@ -75,6 +78,84 @@ func TestLoadBuzznode(t *testing.T) {
 	}
 }
 
+func TestLoadOpenClaw(t *testing.T) {
+	manifest, err := Load("openclaw")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if manifest.Name != "OpenClaw" ||
+		manifest.ID != openClawID ||
+		manifest.Slug != "openclaw" ||
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:latest" {
+		t.Fatalf("manifest identity = %#v", manifest)
+	}
+	if manifest.Viewer != "kasmvnc" {
+		t.Fatalf("Viewer = %q", manifest.Viewer)
+	}
+	if manifest.ContainerPort != 6901 ||
+		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
+		t.Fatalf("manifest desktop = %#v", manifest)
+	}
+	if len(manifest.Mounts) != 2 ||
+		manifest.Media.Icon != "openclaw/icon.svg" ||
+		manifest.Media.Cover != "openclaw/screenshot.png" ||
+		len(manifest.Media.Screenshots) != 1 {
+		t.Fatalf("manifest persistence/media = %#v", manifest)
+	}
+}
+
+func TestLoadHermes(t *testing.T) {
+	manifest, err := Load("hermes")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if manifest.Name != "Hermes" ||
+		manifest.ID != hermesID ||
+		manifest.Slug != "hermes" ||
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-hermes-desktop:latest" {
+		t.Fatalf("manifest identity = %#v", manifest)
+	}
+	if manifest.Viewer != "kasmvnc" {
+		t.Fatalf("Viewer = %q", manifest.Viewer)
+	}
+	if manifest.ContainerPort != 6901 ||
+		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
+		t.Fatalf("manifest desktop = %#v", manifest)
+	}
+	if len(manifest.Mounts) != 2 ||
+		manifest.Media.Icon != "hermes/icon.png" ||
+		manifest.Media.Cover != "hermes/screenshot.png" ||
+		len(manifest.Media.Screenshots) != 1 {
+		t.Fatalf("manifest persistence/media = %#v", manifest)
+	}
+}
+
+func TestLoadCodexPets(t *testing.T) {
+	manifest, err := Load("codex-pets")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if manifest.Name != "Codex Pets" ||
+		manifest.ID != codexPetsID ||
+		manifest.Slug != "codex-pets" ||
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:latest" {
+		t.Fatalf("manifest identity = %#v", manifest)
+	}
+	if manifest.Viewer != "kasmvnc" {
+		t.Fatalf("Viewer = %q", manifest.Viewer)
+	}
+	if manifest.ContainerPort != 6901 ||
+		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
+		t.Fatalf("manifest desktop = %#v", manifest)
+	}
+	if len(manifest.Mounts) != 2 ||
+		manifest.Media.Icon != "codex-pets/icon.svg" ||
+		manifest.Media.Cover != "codex-pets/screenshot.png" ||
+		len(manifest.Media.Screenshots) != 1 {
+		t.Fatalf("manifest persistence/media = %#v", manifest)
+	}
+}
+
 func TestAllCatalogueMediaAssetsAreEmbedded(t *testing.T) {
 	manifests, err := List()
 	if err != nil {
@@ -114,14 +195,17 @@ func TestAllCatalogueMediaAssetsAreEmbedded(t *testing.T) {
 	}
 }
 
-func TestListContainsGhost(t *testing.T) {
+func TestListContainsCatalogueEntries(t *testing.T) {
 	manifests, err := List()
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(manifests) != 2 ||
+	if len(manifests) != 5 ||
 		manifests[0].ID != buzznodeID ||
-		manifests[1].ID != pantalkGhostID {
+		manifests[1].ID != codexPetsID ||
+		manifests[2].ID != hermesID ||
+		manifests[3].ID != openClawID ||
+		manifests[4].ID != pantalkGhostID {
 		t.Fatalf("List() = %#v", manifests)
 	}
 }

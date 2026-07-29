@@ -32,8 +32,14 @@ func Available() bool {
 	return true
 }
 
+// focusViewer brings an already-open agent window to the front. Each viewer is
+// its own process, so this activates that application rather than raising a
+// window this one owns.
+func focusViewer(pid int) bool {
+	return nativehost.ActivateProcess(pid)
+}
+
 type windowChrome struct {
-	frameless         bool
 	hideWindowOnClose bool
 	mac               *mac.Options
 }
@@ -62,9 +68,9 @@ func mainWindowGeometry() windowGeometry {
 	}
 }
 
-// mainWindowChrome keeps macOS on the real window chrome: native traffic
-// lights, rounded corners and a full-size content view the webview draws
-// underneath. Every other platform stays frameless with the HTML controls.
+// mainWindowChrome leaves window controls to the platform on every operating
+// system. Linux and Windows use Wails' decorated native window, while macOS
+// adds a full-size SwiftUI content view beneath its native traffic lights.
 //
 // Closing the window hides it on macOS rather than quitting, because agent
 // viewers run as separate processes: quitting the main process would strand
@@ -73,7 +79,7 @@ func mainWindowGeometry() windowGeometry {
 // running and a Dock click restores it. Cmd+Q still quits.
 func mainWindowChrome() windowChrome {
 	if runtime.GOOS != "darwin" {
-		return windowChrome{frameless: true}
+		return windowChrome{}
 	}
 	return windowChrome{
 		hideWindowOnClose: true,
@@ -139,7 +145,7 @@ func run(
 		Height:                   geometry.height,
 		MinWidth:                 geometry.minWidth,
 		MinHeight:                geometry.minHeight,
-		Frameless:                window.frameless,
+		Frameless:                false,
 		Mac:                      window.mac,
 		StartHidden:              runtime.GOOS == "darwin",
 		HideWindowOnClose:        window.hideWindowOnClose,

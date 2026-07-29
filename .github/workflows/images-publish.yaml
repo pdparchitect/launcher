@@ -1,0 +1,317 @@
+name: Publish images
+
+# Publishes ONE release unit: the substrate, or a single composite product
+# image release.
+#
+# Not triggered by tags. Tags created with GITHUB_TOKEN do not start another
+# workflow, so images-release.yaml dispatches this explicitly after it has
+# tagged the CI-tested commit. Run it by hand for a one-off republish.
+#
+# ARM64 builds on a native runner rather than under QEMU: Launcher runs these
+# desktops through Apple `container` on macOS, so arm64 is a first-class target,
+# and emulating the products' native compiles takes hours.
+on:
+  workflow_dispatch:
+    inputs:
+      unit:
+        description: 'Release unit: "substrate", or a product target such as hermes-desktop'
+        required: true
+        type: string
+      version:
+        description: 'Version to publish. Must match the unit VERSION file at this ref.'
+        required: true
+        type: string
+      latest:
+        description: 'Also move the :latest tag to this build'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  # contents: write so the merge job can create the GitHub Release that records
+  # which digest this version resolved to.
+  contents: write
+  packages: write
+
+concurrency:
+  group: images-publish-${{ inputs.unit }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  # Refuse to publish a version the repository does not actually declare. The
+  # VERSION file is the source of truth; the dispatch inputs only carry it.
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      group: ${{ steps.check.outputs.group }}
+      targets: ${{ steps.check.outputs.targets }}
+      kind: ${{ steps.check.outputs.kind }}
+      image_version: ${{ steps.check.outputs.image_version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      smoke_target: ${{ steps.check.outputs.smoke_target }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify the unit and version
+        id: check
+        working-directory: images
+        env:
+          UNIT: ${{ inputs.unit }}
+          VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+
+          record="$(
+            bash tools/units.sh | awk -F '\t' -v u="$UNIT" '$2 == u'
+          )"
+          if [ -z "$record" ]; then
+            echo "'$UNIT' is not a release unit here. Units are:" >&2
+            bash tools/units.sh | awk '{ print "  " $2 }' >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r kind _ declared release_tag _ image_version \
+            prerelease <<< "$record"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "Refusing to publish $UNIT as $VERSION: its VERSION file at" \
+              "this commit says $declared." >&2
+            exit 1
+          fi
+          if [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "$release_tag" ]; then
+            echo "Refusing to publish from '$REF_NAME'. Select the immutable" \
+              "release tag '$release_tag' when dispatching this workflow." >&2
+            exit 1
+          fi
+
+          # A unit maps to a bake group (the substrate) or to a single target.
+          if [ "$UNIT" = substrate ]; then
+            group=substrate
+            smoke_target=desktop
+          else
+            group="$UNIT"
+            smoke_target="$UNIT"
+          fi
+
+          # The targets this unit owns. Group membership, not `.target`, because
+          # printing a target also lists the parents it builds but does not
+          # publish.
+          #
+          # Printed for THIS group specifically: `bake --print all` emits only
+          # the groups reachable from `all`, so asking it for `substrate` yields
+          # nothing and the fallback below would wrongly treat the group name as
+          # a target.
+          targets="$(
+            docker buildx bake --print "$group" 2>/dev/null |
+              jq -r --arg g "$group" '
+                (.group[$g].targets // [$g])[]
+              ' | paste -sd, -
+          )"
+          if [ -z "$targets" ]; then
+            echo "could not resolve targets for group '$group'" >&2
+            exit 1
+          fi
+
+          echo "group=$group" >> "$GITHUB_OUTPUT"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "image_version=$image_version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "smoke_target=$smoke_target" >> "$GITHUB_OUTPUT"
+          echo "Publishing $UNIT $image_version -> targets: $targets"
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/boost \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          df -h /
+
+      # The docker driver cannot write to a registry, so publishing needs the
+      # container driver.
+      - name: Set up the container-driver builder
+        id: buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate sources and the build graph
+        working-directory: images
+        run: make check
+
+      # Architecture-suffixed, so the merge job can assemble one manifest per
+      # repository from the two native builds.
+      - name: Build and push ${{ matrix.arch }}
+        working-directory: images
+        run: |
+          make push \
+            GROUP="${{ needs.verify.outputs.group }}" \
+            REGISTRY="${REGISTRY}" \
+            TAG="${{ needs.verify.outputs.image_version }}-${{ matrix.arch }}" \
+            RELEASE_VERSION="${{ needs.verify.outputs.image_version }}" \
+            PLATFORMS="linux/${{ matrix.arch }}" \
+            BUILDER="${{ steps.buildx.outputs.name }}"
+
+      - name: Smoke test ${{ matrix.arch }}
+        working-directory: images
+        env:
+          IMAGE_VERSION: ${{ needs.verify.outputs.image_version }}
+          TARGET: ${{ needs.verify.outputs.smoke_target }}
+        run: |
+          set -euo pipefail
+          staging_tag="${IMAGE_VERSION}-${{ matrix.arch }}"
+          graph="$(
+            REGISTRY="${REGISTRY}" TAG="$staging_tag" \
+              RELEASE_VERSION="$IMAGE_VERSION" \
+              docker buildx bake --print all 2>/dev/null
+          )"
+          image="$(jq -r --arg t "$TARGET" '.target[$t].tags[0]' <<<"$graph")"
+          test -n "$image"
+          docker pull --platform "linux/${{ matrix.arch }}" "$image"
+          SMOKE_PORT=16901 bash tests/smoke-test.sh "$image"
+
+  merge:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-architecture manifests
+        id: manifest
+        working-directory: images
+        env:
+          VERSION: ${{ inputs.version }}
+          IMAGE_VERSION: ${{ needs.verify.outputs.image_version }}
+          LATEST: ${{ inputs.latest }}
+          KIND: ${{ needs.verify.outputs.kind }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          TARGETS: ${{ needs.verify.outputs.targets }}
+        run: |
+          set -euo pipefail
+
+          graph="$(
+            REGISTRY="${REGISTRY}" TAG="${IMAGE_VERSION}" \
+              RELEASE_VERSION="${IMAGE_VERSION}" \
+              docker buildx bake --print all 2>/dev/null
+          )"
+
+          : > /tmp/published.md
+          for target in ${TARGETS//,/ }; do
+            repository="$(
+              jq -r --arg t "$target" '.target[$t].tags[0]' <<<"$graph" |
+                sed 's/:[^:]*$//'
+            )"
+            test -n "$repository"
+
+            # The composite image version is immutable. Substrate releases also
+            # move their X.Y line; product versions include the substrate and
+            # therefore have no meaningful X.Y alias.
+            tags=(-t "${repository}:${IMAGE_VERSION}")
+            if [ "$PRERELEASE" = false ]; then
+              if [ "$KIND" = substrate ]; then
+                tags+=(-t "${repository}:${VERSION%.*}")
+              fi
+              if [ "$LATEST" = "true" ]; then
+                tags+=(-t "${repository}:latest")
+              fi
+            fi
+
+            echo "::group::${repository}"
+            docker buildx imagetools create "${tags[@]}" \
+              "${repository}:${IMAGE_VERSION}-amd64" \
+              "${repository}:${IMAGE_VERSION}-arm64"
+            docker buildx imagetools inspect "${repository}:${IMAGE_VERSION}"
+            echo "::endgroup::"
+
+            # The version-to-digest mapping is the thing that is otherwise
+            # recorded nowhere in the repository.
+            digest="$(
+              docker buildx imagetools inspect "${repository}:${IMAGE_VERSION}" \
+                --format '{{json .Manifest.Digest}}' | tr -d '"'
+            )"
+            printf -- '- `%s:%s`\n  `%s`\n' \
+              "$repository" "$IMAGE_VERSION" "$digest" >> /tmp/published.md
+          done
+
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Published \`${{ inputs.unit }}\` \`${IMAGE_VERSION}\`"
+            echo
+            cat /tmp/published.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assemble release notes
+        id: notes
+        working-directory: images
+        env:
+          UNIT: ${{ inputs.unit }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'content<<RELEASE_NOTES_EOF'
+            bash tools/release-notes.sh "$UNIT"
+            echo
+            echo '### Images'
+            echo
+            cat /tmp/published.md
+            echo
+            echo 'Each tag is a multi-architecture manifest for `linux/amd64`'
+            echo 'and `linux/arm64`, built on native runners.'
+            echo RELEASE_NOTES_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      # Recorded at this unit's own tag, which is the ref this run was
+      # dispatched at, so releases never overwrite each other across units.
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.verify.outputs.release_tag }}
+          name: ${{ inputs.unit }} ${{ needs.verify.outputs.image_version }}
+          body: ${{ steps.notes.outputs.content }}
+          prerelease: ${{ steps.manifest.outputs.prerelease == 'true' }}
+          make_latest: false

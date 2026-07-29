@@ -1,0 +1,24 @@
+#!/bin/bash
+# Starts the pen and keeps it running for as long as the session lasts.
+#
+# This runs from inside the desktop session, not from the entrypoint, because
+# the supervisor puts sprites on the screen and therefore needs DISPLAY. The
+# entrypoint's /etc/desktop/startup.d hook runs before X exists.
+#
+# The restart loop is what makes `petctl restart` work: it terminates the
+# supervisor and this brings it straight back, so the pen recovers from a bad
+# pet without anybody having to know how it was started.
+
+set -uo pipefail
+
+export DISPLAY="${DISPLAY:-:1}"
+
+log_file=/var/log/launcher-desktop/pets.log
+mkdir -p "$(dirname "$log_file")" "${PETS_ROOT:-/workspace/pets}" 2>/dev/null || true
+
+while true; do
+    petd >>"$log_file" 2>&1
+    # A supervisor that dies instantly and repeatedly should not spin the CPU
+    # for the length of the session.
+    sleep 2
+done

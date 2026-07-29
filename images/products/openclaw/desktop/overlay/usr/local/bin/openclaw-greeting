@@ -1,0 +1,32 @@
+#!/bin/bash
+# What the welcome terminal says on an onboarded desktop.
+#
+# The Control UI is the interface, so this is deliberately short: where the
+# gateway is, whether it is up, and the handful of commands that are quicker
+# to type than to click.
+
+set -uo pipefail
+
+port="${OPENCLAW_CONTROL_PORT:-18789}"
+
+if timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+    state=$'\e[38;2;79;200;174m●\e[0m listening'
+else
+    state=$'\e[38;2;228;183;106m○\e[0m starting'
+fi
+
+cat <<GREETING
+
+  $(printf '\e[38;2;245;101;74m')OpenClaw$(printf '\e[0m') on the Launcher desktop
+
+  Gateway    ${state} on 127.0.0.1:${port}
+  Control UI Control-Shift-G, or the root menu
+
+  openclaw dashboard     open the Control UI
+  openclaw tui           talk to the assistant in this terminal
+  openclaw channels      connect WhatsApp, Telegram, Slack, Discord, ...
+  openclaw doctor        check the configuration and the gateway
+
+  Everything under ~/.openclaw persists; /workspace is the durable disk.
+
+GREETING

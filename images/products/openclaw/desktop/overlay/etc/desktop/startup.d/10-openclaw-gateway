@@ -1,0 +1,28 @@
+#!/bin/bash
+# Starts the gateway supervisor before the desktop session exists.
+#
+# The gateway is a daemon with no window, so it belongs in startup.d rather
+# than session.d: it should already be listening when the Control UI window
+# opens, and it should survive an X session that restarts under it.
+#
+# The entrypoint runs this synchronously, so it must return immediately. The
+# supervisor is detached into its own session for that reason, and because a
+# process group of its own is what lets it outlive whoever started it.
+
+set -euo pipefail
+
+runtime_user="${DESKTOP_RUNTIME_USER:-agent}"
+log_file=/var/log/launcher-desktop/openclaw-gateway.log
+
+mkdir -p "$(dirname "$log_file")"
+touch "$log_file"
+chown "$runtime_user:$runtime_user" "$log_file" 2>/dev/null || true
+
+# The image's own settings are passed through explicitly rather than relied on
+# to survive `su`, which resets part of the environment it is handed.
+setsid su -s /bin/bash -c "
+    export HOME=/home/agent
+    export OPENCLAW_CONTROL_PORT='${OPENCLAW_CONTROL_PORT:-18789}'
+    export OPENCLAW_GATEWAY_BIND='${OPENCLAW_GATEWAY_BIND-loopback}'
+    exec openclaw-gateway-supervise
+" "$runtime_user" >/dev/null 2>&1 &

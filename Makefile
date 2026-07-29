@@ -46,7 +46,7 @@ help:
 	@echo "  make web        Run the web interface for remote development"
 	@echo "                  ?chrome=macos previews the packaged macOS layout"
 	@echo "  make web-open   Run the web interface and open a local browser"
-	@echo "  make desktop    Run the frameless Wails desktop application"
+	@echo "  make desktop    Run the native Wails desktop application"
 	@echo "  make check      Format-check, test, and vet Launcher"
 	@echo "  make images-check  Validate the container image sources"
 	@echo "  make images-build  Build the Ubuntu, desktop, and Hermes image chain"

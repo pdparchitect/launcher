@@ -1,0 +1,37 @@
+#!/bin/bash
+# openclaw - the CLI, always run as the account that owns the state directory.
+#
+# npm installs the real launcher under /usr/lib/node_modules and symlinks it
+# into /usr/bin. This wrapper sits earlier on PATH and shadows that symlink; it
+# invokes the launcher through node by path rather than by name, so it can
+# never re-enter itself.
+#
+# The privilege drop matters because ~/.openclaw holds credentials, the session
+# database and the agent workspace. A `docker exec` lands as root, and one
+# root-written file in there is enough to make the desktop's own OpenClaw fail
+# on the next start.
+
+set -euo pipefail
+
+launcher=/usr/lib/node_modules/openclaw/openclaw.mjs
+if [ ! -f "$launcher" ]; then
+    echo "OpenClaw is not installed at $launcher." >&2
+    exit 126
+fi
+
+# Only drop privileges when the desktop is actually running as `agent`. On
+# Apple `container` the entrypoint finds fixed-ownership mounts and keeps the
+# whole session as root inside its VM, and there /home/agent is root-owned -
+# switching to `agent` would hand OpenClaw a state directory it cannot write.
+if [ "$(id -u)" -eq 0 ] &&
+    [ "${OPENCLAW_EXEC_AS_ROOT:-false}" != "true" ] &&
+    [ "$(stat -c %U /home/agent 2>/dev/null || echo root)" = agent ]; then
+    exec sudo -u agent \
+        env \
+        HOME=/home/agent \
+        OPENCLAW_CONTROL_PORT="${OPENCLAW_CONTROL_PORT:-18789}" \
+        PATH="/usr/local/bin:/usr/bin:/bin" \
+        node "$launcher" "$@"
+fi
+
+exec node "$launcher" "$@"

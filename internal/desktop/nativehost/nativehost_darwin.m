@@ -446,6 +446,37 @@ bool LauncherNativeHostInstallViewerChrome(void) {
     return installed;
 }
 
+/*
+ Each agent viewer is its own process, so bringing one back is a matter of
+ activating that application rather than raising a window of ours.
+ */
+static bool ActivateProcessOnMainThread(int pid) {
+    NSRunningApplication *application =
+        [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    if (application == nil) {
+        return false;
+    }
+
+    // Hidden and merely-behind are different states, and the launcher can be
+    // looking at either one.
+    [application unhide];
+
+    return [application
+        activateFromApplication:NSRunningApplication.currentApplication
+                        options:NSApplicationActivateAllWindows];
+}
+
+bool LauncherNativeHostActivateProcess(int pid) {
+    if ([NSThread isMainThread]) {
+        return ActivateProcessOnMainThread(pid);
+    }
+    __block bool activated = false;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        activated = ActivateProcessOnMainThread(pid);
+    });
+    return activated;
+}
+
 void LauncherNativeHostBadgeDockIcon(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         NSImage *base = NSApp.applicationIconImage;

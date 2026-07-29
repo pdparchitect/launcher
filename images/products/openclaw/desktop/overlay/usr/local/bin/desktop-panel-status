@@ -1,0 +1,20 @@
+#!/bin/bash
+# The panel's status slot: whether the gateway is up.
+#
+# tint2 runs this every few seconds and renders the result as pango markup, so
+# it has to stay to one short line. A TCP probe rather than an HTTP request:
+# the gateway requires auth, so every status code it can return - including
+# 401 - means the same thing here, that something is listening.
+
+set -uo pipefail
+
+port="${OPENCLAW_CONTROL_PORT:-18789}"
+config="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+
+if timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+    printf '<span foreground="#4FC8AE">●</span> gateway %s\n' "$port"
+elif [ -s "$config" ]; then
+    printf '<span foreground="#E4B76A">○</span> gateway starting\n'
+else
+    printf '<span foreground="#F5654A">○</span> onboarding needed\n'
+fi

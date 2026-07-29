@@ -1,0 +1,26 @@
+#!/bin/bash
+# Opens the Control UI once the gateway is answering.
+#
+# This runs from inside the session rather than from the entrypoint because it
+# draws: it needs DISPLAY and a window manager to put a window under.
+#
+# It waits rather than assuming, for two reasons. The gateway starts from
+# startup.d at the same moment KasmVNC does, so on a configured desktop it is
+# usually a few seconds behind the session; and on a desktop that has never
+# been onboarded it never comes up at all, in which case there is no UI to open
+# and the welcome terminal is the whole interface.
+
+set -uo pipefail
+
+port="${OPENCLAW_CONTROL_PORT:-18789}"
+
+listening() {
+    timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null
+}
+
+for _ in $(seq 1 120); do
+    if listening; then
+        exec openclaw-control-ui
+    fi
+    sleep 1
+done

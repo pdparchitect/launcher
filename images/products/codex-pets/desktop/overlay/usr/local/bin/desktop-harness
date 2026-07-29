@@ -1,0 +1,14 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G.
+#
+# The pets are the interface, but Codex is the thing behind them, so the
+# shortcut opens Codex itself against the whole workspace rather than against
+# any one pet's directory. Talking to a single pet is petctl chat.
+
+set -euo pipefail
+
+if [ ! -s "${CODEX_HOME:-/home/agent/.codex}/auth.json" ]; then
+    exec kitty --title "Codex" -e bash -lc 'codex-setup; exec bash'
+fi
+
+exec kitty --title "Codex" -e bash -lc 'cd /workspace && exec codex --skip-git-repo-check'

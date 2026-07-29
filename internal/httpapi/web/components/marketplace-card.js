@@ -17,14 +17,18 @@ export class MarketplaceCard extends HTMLElement {
       return
     }
 
-    const { entry, installed } = this.value
+    const { entry, instances = [] } = this.value
+    const installedCount = instances.length
+    const runningCount = instances.filter(
+      (instance) => instance.state === 'running'
+    ).length
 
     this.className = 'marketplace-card'
     this.innerHTML = `
-      <div class="marketplace-card__cover">
+      <button class="marketplace-card__cover" type="button" data-view>
         <span data-cover></span>
         <strong data-title-overlay></strong>
-      </div>
+      </button>
       <div class="marketplace-card__body">
         <div class="marketplace-card__heading">
           <span class="marketplace-card__identity">
@@ -36,8 +40,14 @@ export class MarketplaceCard extends HTMLElement {
         <p data-description></p>
         <div class="tag-list" data-tags></div>
         <div class="marketplace-card__footer">
-          <small data-installs></small>
-          <button class="primary-button" data-install></button>
+          <small>
+            <span data-installs></span>
+            <span data-running></span>
+          </small>
+          <span class="marketplace-card__actions">
+            <button class="text-button" data-view>VIEW DETAILS →</button>
+            <button class="primary-button" data-install></button>
+          </span>
         </div>
       </div>
     `
@@ -51,9 +61,12 @@ export class MarketplaceCard extends HTMLElement {
       entry.name.toUpperCase()
     this.querySelector('[data-name]').textContent = entry.name
     this.querySelector('[data-description]').textContent = entry.description
-    this.querySelector('[data-installs]').textContent = installed
-      ? '1+ installs'
-      : '0 installs'
+    this.querySelector('[data-installs]').textContent = `${installedCount} ${
+      installedCount === 1 ? 'install' : 'installs'
+    }`
+    this.querySelector('[data-running]').textContent = runningCount
+      ? ` · ${runningCount} running`
+      : ''
 
     const tags = this.querySelector('[data-tags]')
 
@@ -66,9 +79,9 @@ export class MarketplaceCard extends HTMLElement {
 
     const install = this.querySelector('[data-install]')
 
-    install.textContent = installed ? 'CREATE ANOTHER' : 'INSTALL'
+    install.textContent = installedCount ? 'CREATE ANOTHER' : 'INSTALL'
 
-    if (installed) {
+    if (installedCount) {
       install.classList.add('primary-button--outline')
     }
 
@@ -79,6 +92,18 @@ export class MarketplaceCard extends HTMLElement {
           detail: { entry },
         })
       )
+    })
+
+    this.querySelectorAll('[data-view]').forEach((button) => {
+      button.setAttribute('aria-label', `View ${entry.name} details`)
+      button.addEventListener('click', () => {
+        this.dispatchEvent(
+          new CustomEvent('view-marketplace-entry', {
+            bubbles: true,
+            detail: { entry },
+          })
+        )
+      })
     })
   }
 }

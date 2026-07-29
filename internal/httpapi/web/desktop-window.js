@@ -11,20 +11,8 @@ function invoke(method, ...args) {
 }
 
 export const desktopWindow = {
-  available() {
-    return typeof globalThis.runtime?.WindowMinimise === 'function'
-  },
-
-  minimise() {
-    return invoke('WindowMinimise')
-  },
-
-  toggleMaximise() {
-    return invoke('WindowToggleMaximise')
-  },
-
-  close() {
-    return invoke('Quit')
+  isDesktop() {
+    return typeof globalThis.runtime?.BrowserOpenURL === 'function'
   },
 
   openExternal(url) {

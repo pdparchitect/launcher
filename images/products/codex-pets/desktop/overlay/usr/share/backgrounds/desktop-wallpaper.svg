@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The pen: the place the pets live.
+
+  Everything is drawn on an 8-pixel grid with crisp edges and flat fills - no
+  gradients, no curves, no antialiasing - because the pets walking on top of it
+  are 16x16 sprites scaled by four, and a soft background would make them look
+  like stickers on a photograph.
+
+  Palette, shared with the Openbox theme, the panel and the terminal:
+
+    #0A0B1A  night        #3B3F80  line
+    #121434  deep         #F5C542  gold
+    #1E2150  mid          #63E29E  mint
+
+  The bottom band is the floor. Pets walk along the top edge of it, so nothing
+  detailed belongs in the lowest 64 pixels.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"
+     viewBox="0 0 1920 1080" shape-rendering="crispEdges">
+  <defs>
+    <!-- Starfield. Three dots per 320px tile at irregular offsets, so the
+         repeat is not readable at a glance. -->
+    <pattern id="stars" width="320" height="256" patternUnits="userSpaceOnUse">
+      <rect x="24" y="40" width="4" height="4" fill="#3B3F80"/>
+      <rect x="152" y="16" width="4" height="4" fill="#7C84B8"/>
+      <rect x="216" y="112" width="4" height="4" fill="#3B3F80"/>
+      <rect x="88" y="184" width="4" height="4" fill="#4A5080"/>
+      <rect x="272" y="208" width="4" height="4" fill="#3B3F80"/>
+    </pattern>
+
+    <!-- The floor's texture: a two-tone dither, which is how an 8-bit tile
+         suggests ground without drawing every blade of anything. -->
+    <pattern id="floor" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#1E2150"/>
+      <rect x="0" y="0" width="8" height="8" fill="#212458"/>
+      <rect x="8" y="8" width="8" height="8" fill="#212458"/>
+    </pattern>
+
+    <!-- Lit windows in the far towers. -->
+    <pattern id="windows" width="32" height="40" patternUnits="userSpaceOnUse">
+      <rect x="8" y="8" width="8" height="8" fill="#F5C542" opacity=".55"/>
+      <rect x="24" y="24" width="8" height="8" fill="#F5C542" opacity=".3"/>
+    </pattern>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1920" height="1080" fill="#0A0B1A"/>
+  <rect width="1920" height="720" fill="url(#stars)"/>
+
+  <!-- Moon, built out of rectangles so it has the same edges as everything
+       else. A circle element would be the only smooth thing on the desktop. -->
+  <g fill="#F5C542">
+    <rect x="1560" y="120" width="48" height="8"/>
+    <rect x="1544" y="128" width="80" height="16"/>
+    <rect x="1536" y="144" width="96" height="48"/>
+    <rect x="1544" y="192" width="80" height="16"/>
+    <rect x="1560" y="208" width="48" height="8"/>
+  </g>
+  <g fill="#0A0B1A">
+    <rect x="1592" y="144" width="24" height="24"/>
+    <rect x="1560" y="176" width="16" height="16"/>
+  </g>
+
+  <!-- Far towers: the machines the pets live next to. -->
+  <g>
+    <rect x="240" y="560" width="96" height="200" fill="#121434"/>
+    <rect x="240" y="560" width="96" height="200" fill="url(#windows)"/>
+    <rect x="352" y="480" width="128" height="280" fill="#121434"/>
+    <rect x="352" y="480" width="128" height="280" fill="url(#windows)"/>
+    <rect x="496" y="600" width="80" height="160" fill="#121434"/>
+    <rect x="496" y="600" width="80" height="160" fill="url(#windows)"/>
+
+    <rect x="1400" y="520" width="112" height="240" fill="#121434"/>
+    <rect x="1400" y="520" width="112" height="240" fill="url(#windows)"/>
+    <rect x="1528" y="608" width="88" height="152" fill="#121434"/>
+    <rect x="1528" y="608" width="88" height="152" fill="url(#windows)"/>
+
+    <!-- Aerials -->
+    <rect x="408" y="440" width="8" height="40" fill="#3B3F80"/>
+    <rect x="400" y="432" width="24" height="8" fill="#63E29E"/>
+    <rect x="1448" y="488" width="8" height="32" fill="#3B3F80"/>
+    <rect x="1440" y="480" width="24" height="8" fill="#E8724C"/>
+  </g>
+
+  <!-- Far ridge. Horizontal and vertical runs only: a diagonal would be the
+       one antialiased edge on the screen. The horizontal runs add up to the
+       full 1920, or the silhouette would stop short and leave a notch of sky
+       hanging over the floor. -->
+  <path fill="#121434" d="M0,820 V700 h180 v-40 h160 v40 h220 v-60 h180 v60
+        h260 v-40 h200 v40 h200 v-60 h180 v60 h340 V820 Z"/>
+
+  <!-- Near ridge, one step lighter so the two read as different distances. -->
+  <path fill="#1E2150" d="M0,880 V800 h240 v-40 h180 v40 h300 v-40 h220 v40
+        h260 v-40 h200 v40 h520 V880 Z"/>
+
+  <!-- The floor the pets stand on. -->
+  <rect x="0" y="880" width="1920" height="200" fill="url(#floor)"/>
+  <rect x="0" y="880" width="1920" height="8" fill="#3B3F80"/>
+
+  <!-- Fence posts along the back of the floor: the pen is a place, not just a
+       gradient that stops. -->
+  <g fill="#3B3F80">
+    <rect x="80" y="856" width="8" height="32"/>
+    <rect x="400" y="856" width="8" height="32"/>
+    <rect x="720" y="856" width="8" height="32"/>
+    <rect x="1040" y="856" width="8" height="32"/>
+    <rect x="1360" y="856" width="8" height="32"/>
+    <rect x="1680" y="856" width="8" height="32"/>
+  </g>
+
+  <!-- A few tufts, off the walking line so a pet never stands in one. -->
+  <g fill="#63E29E" opacity=".45">
+    <rect x="176" y="912" width="8" height="16"/>
+    <rect x="184" y="920" width="8" height="8"/>
+    <rect x="864" y="928" width="8" height="16"/>
+    <rect x="856" y="936" width="8" height="8"/>
+    <rect x="1512" y="912" width="8" height="16"/>
+    <rect x="1520" y="920" width="8" height="8"/>
+  </g>
+</svg>

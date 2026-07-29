@@ -1,0 +1,28 @@
+#!/bin/bash
+# The terminal the session opens with.
+#
+# First boot lands in onboarding, because nothing else on this desktop does
+# anything until OpenClaw has a model provider and a gateway configuration.
+# `--mode local` and `--no-install-daemon` are what make the wizard suit a
+# container: the gateway runs here rather than remotely, and this image
+# supervises it itself instead of asking systemd to.
+#
+# Afterwards the terminal is a terminal. The assistant lives in the Control UI
+# window the session opens next to it.
+
+set -euo pipefail
+
+config="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+
+if [ ! -s "$config" ]; then
+    command='echo "Welcome to OpenClaw."; echo; echo "Complete onboarding to start the gateway."; echo; openclaw onboard --mode local --no-install-daemon; openclaw-greeting; exec bash'
+else
+    command='openclaw-greeting; exec bash'
+fi
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-OpenClaw}" \
+    --override remember_window_size=no \
+    --override initial_window_width=104c \
+    --override initial_window_height=34c \
+    -e bash -lc "$command"
