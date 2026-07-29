@@ -86,6 +86,20 @@ func mainWindowChrome() windowChrome {
 	}
 }
 
+// viewerWindowChrome gives macOS the real title bar rather than the frameless
+// HTML controls. The viewer navigates to the agent's own interface, which is
+// cross-origin, so there is no page of ours left to draw window chrome into.
+// The title bar is then hidden until the pointer nears the top edge, which is
+// what InstallViewerChrome sets up. Other platforms keep their normal frame.
+func viewerWindowChrome() *mac.Options {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	return &mac.Options{
+		TitleBar: mac.TitleBarHidden(),
+	}
+}
+
 func run(
 	ctx context.Context,
 	service httpapi.Service,
@@ -166,6 +180,7 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 		MinWidth:                 720,
 		MinHeight:                480,
 		Frameless:                false,
+		Mac:                      viewerWindowChrome(),
 		DisableResize:            false,
 		EnableDefaultContextMenu: false,
 		BackgroundColour: options.NewRGB(
@@ -178,6 +193,7 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 		},
 		OnStartup: func(wailsContext context.Context) {
 			nativehost.BadgeDockIcon()
+			nativehost.InstallViewerChrome()
 			go func() {
 				select {
 				case <-ctx.Done():
@@ -185,6 +201,11 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 				case <-finished:
 				}
 			}()
+		},
+		OnDomReady: func(context.Context) {
+			// Same race as the launcher's shell: OnStartup can run before
+			// Wails has created and exposed the native window.
+			nativehost.InstallViewerChrome()
 		},
 	})
 	if err != nil {

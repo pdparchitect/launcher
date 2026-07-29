@@ -21,3 +21,9 @@ func Install() bool {
 func BadgeDockIcon() {
 	C.LauncherNativeHostBadgeDockIcon()
 }
+
+// InstallViewerChrome hides the agent viewer's title bar until the pointer
+// approaches the top edge of the window.
+func InstallViewerChrome() bool {
+	return bool(C.LauncherNativeHostInstallViewerChrome())
+}

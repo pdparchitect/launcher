@@ -10,4 +10,8 @@ bool LauncherNativeHostInstall(void);
 // Badges this process's Dock icon for an agent viewer window.
 void LauncherNativeHostBadgeDockIcon(void);
 
+// Hides the agent viewer's title bar until the pointer nears the top edge.
+// Safe to call repeatedly and from any goroutine.
+bool LauncherNativeHostInstallViewerChrome(void);
+
 #endif /* nativehost_darwin_h */

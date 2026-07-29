@@ -30,10 +30,13 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"final class WailsWebViewContainer: NSView",
 		"struct WailsWebView: NSViewRepresentable",
 		"let webView: WKWebView",
-		"var nativeSidebarInteractionWidth: CGFloat = 280",
-		"container.nativeSidebarInteractionWidth = sidebarInteractionWidth",
+		"var nativeSidebarTrailingEdge: CGFloat = 280",
+		"container.nativeSidebarTrailingEdge = sidebarTrailingEdge",
 		"override func hitTest(_ point: NSPoint) -> NSView?",
-		"guard pointInWindow.x >= nativeSidebarInteractionWidth",
+		"guard pointInWindow.x >= nativeSidebarTrailingEdge",
+		"func publish(sidebarInset: CGFloat)",
+		"window.wailsSidebarInset = \\(inset);",
+		"wails:sidebar-inset",
 		"container.layer?.masksToBounds = true",
 		"container.addSubview(webView)",
 		"NSHostingSceneRepresentation",
@@ -79,13 +82,19 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"var body: some View {\n        NavigationSplitView(",
 		"columnVisibility: $columnVisibility",
 		"NavigationSplitViewVisibility = .all",
-		"columnVisibility == .detailOnly ? 0 : 280",
+		"columnVisibility == .detailOnly ? 0 : sidebarEdge",
+		".onGeometryChange(for: CGFloat.self)",
+		"max(0, proxy.frame(in: .global).maxX)",
+		".onChange(of: sidebarInset, initial: true)",
 		"Button {\n                    model.select(item.id)",
 		".buttonStyle(.plain)",
 		"} detail: {\n            WailsWebView(",
-		"sidebarInteractionWidth: sidebarInteractionWidth",
+		"sidebarTrailingEdge: sidebarInset",
 		".backgroundExtensionEffect()",
-		"edges: [.top, .trailing, .bottom]",
+		// The page underlaps the sidebar so the glass samples the real content
+		// instead of the effect's mirrored copy of it. What keeps the sidebar
+		// usable is hitTest, not a gap in the web view.
+		"edges: .all",
 		".navigationSplitViewStyle(\n            .prominentDetail\n        )",
 		".toolbarBackgroundVisibility(",
 	} {
@@ -97,7 +106,7 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"private var splitView",
 		"private var webDetail",
 		"if #available",
-		"edges: .all",
+		"edges: [.top, .trailing, .bottom]",
 		// The sidebar toggle is a default item of the sidebar column's toolbar,
 		// and that toolbar is what holds the window's titlebar band open.
 		// Removing it costs the sidebar its inset and displaces the traffic
@@ -137,6 +146,9 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"geometry := mainWindowGeometry()",
 		"TitleBar: mac.TitleBarHidden()",
 		`StartHidden:              runtime.GOOS == "darwin"`,
+		"func viewerWindowChrome() *mac.Options",
+		"Mac:                      viewerWindowChrome(),",
+		"nativehost.InstallViewerChrome()",
 	} {
 		if !strings.Contains(wailsHost, expected) {
 			t.Fatalf("Wails window does not match the SwiftUI reference: missing %q", expected)
@@ -158,6 +170,16 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"LauncherNativeInstall",
 		"wails:openInspector",
 		"NSApp.applicationIconImage = badged",
+		// The viewer's auto-hiding title bar. Hiding the container as well as
+		// fading it is what stops invisible traffic lights taking clicks, and
+		// the monitor is local because the WKWebView eats moved events.
+		"LauncherNativeHostInstallViewerChrome",
+		"standardWindowButton:NSWindowCloseButton",
+		"window.acceptsMouseMovedEvents = YES",
+		"NSEventMaskMouseMoved",
+		"container.hidden = YES",
+		"NSWindowStyleMaskFullScreen",
+		"NSWindowDidResignKeyNotification",
 	} {
 		if !strings.Contains(bridge, expected) {
 			t.Fatalf("native AppKit bridge missing %q", expected)
@@ -201,7 +223,9 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		),
 	)
 	for _, expected := range []string{
-		"const sidebarWidth = preview ? SIDEBAR_COLUMN_WIDTH : 0",
+		"preview ? SIDEBAR_COLUMN_WIDTH : nativeSidebar.inset",
+		"nativeSidebar.onInset((inset) => this.applyNativeSidebarInset(inset))",
+		"document.documentElement.style.setProperty('--sidebar-width'",
 		"classList.toggle('is-swiftui-host', !preview)",
 	} {
 		if !strings.Contains(app, expected) {
@@ -217,8 +241,11 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		".launcher-shell.has-native-sidebar .sidebar {",
 		"visibility: hidden",
 		"pointer-events: none",
-		".is-swiftui-host .topbar {",
-		"left: 0",
+		// The drag strip and the dialogs both clear the sidebar, because the
+		// page runs underneath it rather than starting after it.
+		"left: var(--sidebar-width)",
+		".is-macos-desktop .launcher-dialog {",
+		"transform: translateX(calc(var(--sidebar-width) / 2))",
 	} {
 		if !strings.Contains(styles, expected) {
 			t.Fatalf("native sidebar spacing or drag layout missing %q", expected)

@@ -31,6 +31,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
 
     let webView: WKWebView
     private var mouseDownEvent: NSEvent?
+    private var sidebarInset: CGFloat = 0
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -81,6 +82,33 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
                     )
                 );
             });
+            """
+        )
+    }
+
+    /*
+     How far the sidebar reaches across the window, in points. The web view now
+     spans the whole window and draws underneath the sidebar, so the page needs
+     the same number to keep its own content and dialogs clear of it. Published
+     rather than assumed because the column is resizable and collapsible.
+     */
+    func publish(sidebarInset: CGFloat) {
+        self.sidebarInset = sidebarInset
+        publishSidebarInset()
+    }
+
+    private func publishSidebarInset() {
+        let inset = Int(sidebarInset.rounded())
+
+        webView.evaluateJavaScript(
+            """
+            window.wailsSidebarInset = \(inset);
+            window.dispatchEvent(
+                new CustomEvent(
+                    'wails:sidebar-inset',
+                    { detail: { inset: \(inset) } }
+                )
+            );
             """
         )
     }
@@ -157,26 +185,33 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
             );
             """
         )
+
+        /*
+         The first measurement is published as the window is built, which can be
+         before this document exists. A page that has just configured itself is
+         a page that missed it, so it is sent again here.
+         */
+        publishSidebarInset()
     }
 }
 
 private final class WailsWebViewContainer: NSView {
     /*
-     How much of the leading edge the sidebar is covering, at most its 280 point
-     maximum. AppKit-backed views otherwise win hit testing even where SwiftUI
-     is visually compositing the sidebar above them. Driven by the split view's
-     column visibility rather than assumed, so nothing is swallowed once the
-     sidebar is collapsed.
+     Where the sidebar stops, in window points. The web view underlaps it, and
+     AppKit-backed views win hit testing even where SwiftUI is compositing the
+     sidebar above them, so everything to the left of this belongs to the List.
+     Measured from the live layout rather than assumed: the column is resizable,
+     and once collapsed this is zero and the whole window is the page's.
      */
-    var nativeSidebarInteractionWidth: CGFloat = 280
+    var nativeSidebarTrailingEdge: CGFloat = 280
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview, nativeSidebarInteractionWidth > 0 else {
+        guard let superview, nativeSidebarTrailingEdge > 0 else {
             return super.hitTest(point)
         }
 
         let pointInWindow = superview.convert(point, to: nil)
-        guard pointInWindow.x >= nativeSidebarInteractionWidth else {
+        guard pointInWindow.x >= nativeSidebarTrailingEdge else {
             return nil
         }
 
@@ -186,7 +221,7 @@ private final class WailsWebViewContainer: NSView {
 
 private struct WailsWebView: NSViewRepresentable {
     let webView: WKWebView
-    let sidebarInteractionWidth: CGFloat
+    let sidebarTrailingEdge: CGFloat
 
     func makeNSView(context: Context) -> WailsWebViewContainer {
         /*
@@ -198,7 +233,7 @@ private struct WailsWebView: NSViewRepresentable {
         let container = WailsWebViewContainer()
         container.wantsLayer = true
         container.layer?.masksToBounds = true
-        container.nativeSidebarInteractionWidth = sidebarInteractionWidth
+        container.nativeSidebarTrailingEdge = sidebarTrailingEdge
 
         webView.removeFromSuperview()
         webView.frame = container.bounds
@@ -209,7 +244,7 @@ private struct WailsWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: WailsWebViewContainer, context: Context) {
-        container.nativeSidebarInteractionWidth = sidebarInteractionWidth
+        container.nativeSidebarTrailingEdge = sidebarTrailingEdge
 
         guard webView.superview !== container else {
             return
@@ -245,13 +280,21 @@ private struct RootView: View {
         NavigationSplitViewVisibility = .all
 
     /*
-     prominentDetail keeps the detail column window-sized and floats the sidebar
-     over it, so the web view's hit-test surface has to be trimmed wherever the
-     sidebar covers it - and by nothing at all once the sidebar is collapsed,
-     which would otherwise leave a dead strip down the leading edge of the page.
+     Where the sidebar's trailing edge sits in the window, measured from the
+     List itself. Starts at the column maximum so the first frame errs towards
+     the sidebar owning the strip rather than the page.
      */
-    private var sidebarInteractionWidth: CGFloat {
-        columnVisibility == .detailOnly ? 0 : 280
+    @State private var sidebarEdge: CGFloat = 280
+
+    /*
+     prominentDetail keeps the detail column window-sized and floats the sidebar
+     over it, so the page underlaps the sidebar and both the hit-test guard and
+     the page's own layout have to be trimmed by exactly this much - and by
+     nothing at all once the sidebar is collapsed, which would otherwise leave a
+     dead strip down the leading edge of the page.
+     */
+    private var sidebarInset: CGFloat {
+        columnVisibility == .detailOnly ? 0 : sidebarEdge
     }
 
     var body: some View {
@@ -281,22 +324,31 @@ private struct RootView: View {
                 ideal: 240,
                 max: 280
             )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                max(0, proxy.frame(in: .global).maxX)
+            } action: { edge in
+                sidebarEdge = edge
+            }
         } detail: {
             WailsWebView(
                 webView: model.webView,
-                sidebarInteractionWidth: sidebarInteractionWidth
+                sidebarTrailingEdge: sidebarInset
             )
-            .backgroundExtensionEffect()
             /*
-             The effect supplies the visual copy beneath the sidebar. Extending
-             the AppKit-backed WKWebView itself through the leading safe area
-             would put its hit-test surface above the native List and the
-             sidebar toolbar button.
+             The effect only mirrors and blurs the leading edge of the page into
+             the sidebar's safe area. Ignoring that safe area as well puts the
+             real page under the sidebar, which is what the glass then samples -
+             hitTest keeps the AppKit surface from stealing the List's clicks,
+             and the page insets its own content by the same measurement.
              */
+            .backgroundExtensionEffect()
             .ignoresSafeArea(
                 .container,
-                edges: [.top, .trailing, .bottom]
+                edges: .all
             )
+        }
+        .onChange(of: sidebarInset, initial: true) { _, inset in
+            model.publish(sidebarInset: inset)
         }
         .navigationSplitViewStyle(
             .prominentDetail
