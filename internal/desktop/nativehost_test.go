@@ -151,10 +151,10 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"func viewerWindowChrome() *mac.Options",
 		"Mac:                      viewerWindowChrome(),",
 		"nativehost.InstallViewerChrome()",
-		// FullSizeContent would put the agent's interface under the title bar,
-		// which is what puts the window controls over the agent's own and
-		// leaves nothing to drag the window by.
-		"FullSizeContent:            false,",
+		// The native host fixes the web view's frame below the title-bar strip,
+		// so full-size content can provide genuinely transparent chrome without
+		// putting the agent's interface under the controls.
+		"FullSizeContent:            true,",
 	} {
 		if !strings.Contains(wailsHost, expected) {
 			t.Fatalf("Wails window does not match the SwiftUI reference: missing %q", expected)
@@ -185,7 +185,6 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		"LauncherNativeHostInstallViewerChrome",
 		"frame.size.height += revealed ? gTitlebarHeight : -gTitlebarHeight;",
 		"[gViewerWindow setFrame:frame display:NO];",
-		"NSWindowStyleMaskFullSizeContentView",
 		"contentRectForFrameRect:window.frame]",
 		"kTitlebarRevealDistance",
 		"kTitlebarCollapseDistance",
@@ -263,6 +262,63 @@ func TestMacOSNativeHostEmbedsTheWailsWebViewInSwiftUI(t *testing.T) {
 		if !strings.Contains(styles, expected) {
 			t.Fatalf("native sidebar spacing or drag layout missing %q", expected)
 		}
+	}
+}
+
+func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate native host test")
+	}
+	launcher := filepath.Join(filepath.Dir(filename), "..", "..")
+	bridge := readNativeHostSource(
+		t,
+		filepath.Join(
+			launcher,
+			"internal",
+			"desktop",
+			"nativehost",
+			"nativehost_darwin.m",
+		),
+	)
+
+	for _, expected := range []string{
+		"@interface LauncherTitlebarBackdrop : NSVisualEffectView",
+		"NSVisualEffectMaterialHeaderView",
+		"SetTitlebarLayoutRevealed(YES);",
+		"AnimateTitlebarChrome(YES",
+		"AnimateTitlebarChrome(NO",
+		"SetTitlebarLayoutRevealed(NO);",
+		"gViewerWindow.titlebarAppearsTransparent = YES;",
+		"NSViewWidthSizable | NSViewMaxYMargin",
+		"MAX(0.0, NSHeight(contentBounds) - chromeHeight)",
+	} {
+		if !strings.Contains(bridge, expected) {
+			t.Fatalf("viewer chrome missing %q", expected)
+		}
+	}
+	if strings.Contains(
+		bridge,
+		"gViewerWindow.titlebarAppearsTransparent = NO;",
+	) {
+		t.Fatal("revealed viewer title bar must remain translucent")
+	}
+
+	revealLayout := strings.Index(
+		bridge,
+		"SetTitlebarLayoutRevealed(YES);",
+	)
+	revealChrome := strings.Index(bridge, "AnimateTitlebarChrome(YES")
+	collapseChrome := strings.Index(bridge, "AnimateTitlebarChrome(NO")
+	collapseLayout := strings.LastIndex(
+		bridge,
+		"SetTitlebarLayoutRevealed(NO);",
+	)
+	if revealLayout < 0 || revealChrome < revealLayout {
+		t.Fatal("viewer must reserve the title-bar strip before fading chrome in")
+	}
+	if collapseChrome < 0 || collapseLayout < collapseChrome {
+		t.Fatal("viewer must fade chrome out before returning its strip to content")
 	}
 }
 
