@@ -89,16 +89,17 @@ bool LauncherNativeHostInstall(void) {
 
  Collapsed, the window is nothing but the agent's interface: the content view
  fills the frame, the title bar is transparent and its controls are hidden.
- Approaching the top edge grows the window upward by exactly one title bar and
- hands that strip back to AppKit, so the bar appears above the content rather
- than over it or in place of it.
+ Approaching the top edge reserves one title-bar strip above the content, then
+ fades translucent native chrome into that strip. Collapsing performs those
+ operations in reverse: the chrome becomes fully invisible before the strip is
+ handed back to the content view. Visible controls therefore never overlap the
+ agent's interface.
 
  The frame's origin is never touched, and AppKit measures it from the bottom, so
  the content keeps both its size and its position on screen throughout. Only the
  window's top edge moves. Two earlier attempts got this wrong in opposite ways:
- a full-size content view left the controls floating over the agent's own
- interface with nothing to drag the window by, and a permanent title bar pushed
- the content down and resized it.
+ an unconstrained full-size web view left the controls floating over the
+ agent's own interface, and a permanent inset title bar resized the content.
  */
 static const NSTimeInterval kTitlebarFadeDuration = 0.18;
 
@@ -113,8 +114,12 @@ static const CGFloat kTitlebarCollapseDistance = 120.0;
 
 static id gTitlebarMonitor = nil;
 static NSWindow *gViewerWindow = nil;
+static WKWebView *gViewerWebView = nil;
+static NSVisualEffectView *gTitlebarBackdrop = nil;
 static CGFloat gTitlebarHeight = 0.0;
-static BOOL gTitlebarRevealed = YES;
+static BOOL gTitlebarRevealed = NO;
+static BOOL gTitlebarLayoutRevealed = NO;
+static NSUInteger gTitlebarTransition = 0;
 
 static const NSWindowButton kTitlebarButtons[] = {
     NSWindowCloseButton,
@@ -122,7 +127,50 @@ static const NSWindowButton kTitlebarButtons[] = {
     NSWindowZoomButton,
 };
 
-static void SetTitlebarButtonsRevealed(BOOL revealed) {
+@interface LauncherTitlebarBackdrop : NSVisualEffectView
+@end
+
+@implementation LauncherTitlebarBackdrop
+
+// The native title bar underneath retains window dragging and button clicks.
+- (NSView *)hitTest:(NSPoint)point {
+    return nil;
+}
+
+@end
+
+static void InstallTitlebarBackdrop(NSWindow *window) {
+    NSView *titlebar =
+        [window standardWindowButton:NSWindowCloseButton].superview;
+    if (titlebar == nil) {
+        return;
+    }
+
+    LauncherTitlebarBackdrop *backdrop =
+        [[LauncherTitlebarBackdrop alloc] initWithFrame:titlebar.bounds];
+    backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    backdrop.material = NSVisualEffectMaterialHeaderView;
+    backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    backdrop.state = NSVisualEffectStateActive;
+
+    NSTextField *title = [NSTextField labelWithString:window.title];
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    title.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
+    title.textColor = NSColor.secondaryLabelColor;
+    [backdrop addSubview:title];
+    [NSLayoutConstraint activateConstraints:@[
+        [title.centerXAnchor constraintEqualToAnchor:backdrop.centerXAnchor],
+        [title.centerYAnchor constraintEqualToAnchor:backdrop.centerYAnchor],
+    ]];
+
+    [titlebar addSubview:backdrop positioned:NSWindowBelow relativeTo:nil];
+    gTitlebarBackdrop = backdrop;
+}
+
+static void SetTitlebarChromeImmediately(BOOL revealed) {
+    gTitlebarBackdrop.alphaValue = revealed ? 1.0 : 0.0;
+    gTitlebarBackdrop.hidden = !revealed;
+
     for (size_t index = 0;
          index < sizeof(kTitlebarButtons) / sizeof(kTitlebarButtons[0]);
          index++) {
@@ -132,53 +180,121 @@ static void SetTitlebarButtonsRevealed(BOOL revealed) {
             continue;
         }
 
-        // Hidden as well as faded: a zero-alpha control still takes clicks, and
-        // an invisible close button is a window that shuts by accident.
-        if (revealed) {
-            button.hidden = NO;
-        }
-        [NSAnimationContext
-            runAnimationGroup:^(NSAnimationContext *context) {
-                context.duration = kTitlebarFadeDuration;
-                button.animator.alphaValue = revealed ? 1.0 : 0.0;
-            }
-            completionHandler:^{
-                // A reveal can land mid fade-out, so only the state as it
-                // stands now may hide the controls.
-                if (!gTitlebarRevealed) {
-                    button.hidden = YES;
-                }
-            }];
+        button.alphaValue = revealed ? 1.0 : 0.0;
+        // A zero-alpha control still takes clicks, so invisible controls must
+        // leave hit testing as well as the screen.
+        button.hidden = !revealed;
     }
 }
 
-static void SetTitlebarRevealed(BOOL revealed) {
+static void AnimateTitlebarChrome(
+    BOOL revealed,
+    void (^completion)(void)
+) {
+    if (revealed) {
+        gTitlebarBackdrop.hidden = NO;
+        for (size_t index = 0;
+             index < sizeof(kTitlebarButtons) / sizeof(kTitlebarButtons[0]);
+             index++) {
+            NSButton *button =
+                [gViewerWindow standardWindowButton:kTitlebarButtons[index]];
+            button.hidden = NO;
+        }
+    }
+
+    [NSAnimationContext
+        runAnimationGroup:^(NSAnimationContext *context) {
+            context.duration = kTitlebarFadeDuration;
+            gTitlebarBackdrop.animator.alphaValue = revealed ? 1.0 : 0.0;
+            for (size_t index = 0;
+                 index
+                     < sizeof(kTitlebarButtons) / sizeof(kTitlebarButtons[0]);
+                 index++) {
+                NSButton *button = [gViewerWindow
+                    standardWindowButton:kTitlebarButtons[index]];
+                button.animator.alphaValue = revealed ? 1.0 : 0.0;
+            }
+        }
+        completionHandler:^{
+            if (!gTitlebarRevealed) {
+                gTitlebarBackdrop.hidden = YES;
+                for (size_t index = 0;
+                     index
+                         < sizeof(kTitlebarButtons)
+                             / sizeof(kTitlebarButtons[0]);
+                     index++) {
+                    NSButton *button = [gViewerWindow
+                        standardWindowButton:kTitlebarButtons[index]];
+                    button.hidden = YES;
+                }
+            }
+            if (completion != nil) {
+                completion();
+            }
+        }];
+}
+
+static void SetTitlebarLayoutRevealed(BOOL revealed) {
     if (gViewerWindow == nil
+        || gViewerWebView == nil
         || gTitlebarHeight <= 0.0
-        || gTitlebarRevealed == revealed) {
+        || gTitlebarLayoutRevealed == revealed) {
         return;
     }
-    gTitlebarRevealed = revealed;
+    gTitlebarLayoutRevealed = revealed;
 
     NSRect frame = gViewerWindow.frame;
     frame.size.height += revealed ? gTitlebarHeight : -gTitlebarHeight;
 
     /*
-     Style first, then frame, both within one event so AppKit lays out once:
-     each change alone would move the content, and together they cancel.
-     Collapsing gives the strip to the content and then takes it off the window;
-     revealing takes it from the content and then gives it back to the window.
+     During the top-edge change, only the web view's top margin is flexible.
+     Its origin and size therefore stay fixed while the full-size content view
+     grows or shrinks around it. Restoring height autoresizing afterwards keeps
+     ordinary user-driven window resizing working with a constant title strip.
      */
-    if (revealed) {
-        gViewerWindow.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
-        gViewerWindow.titlebarAppearsTransparent = NO;
-    } else {
-        gViewerWindow.styleMask |= NSWindowStyleMaskFullSizeContentView;
-        gViewerWindow.titlebarAppearsTransparent = YES;
-    }
+    gViewerWebView.autoresizingMask =
+        NSViewWidthSizable | NSViewMaxYMargin;
     [gViewerWindow setFrame:frame display:NO];
 
-    SetTitlebarButtonsRevealed(revealed);
+    NSView *contentView = gViewerWebView.superview;
+    NSRect contentBounds = contentView.bounds;
+    CGFloat chromeHeight = revealed ? gTitlebarHeight : 0.0;
+    gViewerWebView.frame = NSMakeRect(
+        NSMinX(contentBounds),
+        NSMinY(contentBounds),
+        NSWidth(contentBounds),
+        MAX(0.0, NSHeight(contentBounds) - chromeHeight)
+    );
+    gViewerWebView.autoresizingMask =
+        NSViewWidthSizable | NSViewHeightSizable;
+}
+
+static void SetTitlebarRevealed(BOOL revealed) {
+    if (gViewerWindow == nil || gTitlebarRevealed == revealed) {
+        return;
+    }
+    gTitlebarRevealed = revealed;
+    NSUInteger transition = ++gTitlebarTransition;
+
+    if (revealed) {
+        // The new strip is transparent until the chrome fades in, so adding it
+        // does not produce a flash while the content remains anchored below.
+        SetTitlebarLayoutRevealed(YES);
+        AnimateTitlebarChrome(YES, nil);
+        return;
+    }
+
+    /*
+     The controls must finish fading while they still own a separate strip;
+     only then can the web view occupy that space without ever drawing
+     underneath visible window controls.
+     */
+    AnimateTitlebarChrome(NO, ^{
+        if (gTitlebarRevealed || transition != gTitlebarTransition) {
+            return;
+        }
+        SetTitlebarLayoutRevealed(NO);
+    });
 }
 
 static bool InstallViewerChromeOnMainThread(void) {
@@ -191,24 +307,33 @@ static bool InstallViewerChromeOnMainThread(void) {
         return false;
     }
 
-    /*
-     Measured while the window still has its title bar, which is why the viewer
-     is configured without FullSizeContent: once the strip belongs to the
-     content view, the frame and the content rect are the same and there is
-     nothing left to measure.
-     */
-    gTitlebarHeight = NSHeight(window.frame)
-        - NSHeight([window contentRectForFrameRect:window.frame]);
+    // Full-size content makes the frame and content rect equal, so use the
+    // standard titlebar view first and retain the content-rect calculation as a
+    // fallback for any future Wails configuration that starts inset.
+    NSView *titlebar =
+        [window standardWindowButton:NSWindowCloseButton].superview;
+    gTitlebarHeight = NSHeight(titlebar.bounds);
+    if (gTitlebarHeight <= 0.0) {
+        gTitlebarHeight = NSHeight(window.frame)
+            - NSHeight([window contentRectForFrameRect:window.frame]);
+    }
     if (gTitlebarHeight <= 0.0) {
         return false;
     }
 
     gViewerWindow = window;
+    gViewerWebView = webView;
     window.titleVisibility = NSWindowTitleHidden;
+    gViewerWindow.titlebarAppearsTransparent = YES;
+    window.titlebarSeparatorStyle = NSWindowTitlebarSeparatorStyleNone;
     // Without this the window system never delivers moved events to the app, so
     // the monitor below would only ever see drags.
     window.acceptsMouseMovedEvents = YES;
-    SetTitlebarRevealed(NO);
+    InstallTitlebarBackdrop(window);
+    if (gTitlebarBackdrop == nil) {
+        return false;
+    }
+    SetTitlebarChromeImmediately(NO);
 
     /*
      A local monitor rather than a tracking area: collapsed, the WKWebView
