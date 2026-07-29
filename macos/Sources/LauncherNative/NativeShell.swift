@@ -162,14 +162,16 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
 
 private final class WailsWebViewContainer: NSView {
     /*
-     NavigationSplitView's sidebar is permanently visible and is at most 280
-     points wide. AppKit-backed views can otherwise win hit testing even where
-     SwiftUI is visually compositing the sidebar above them.
+     How much of the leading edge the sidebar is covering, at most its 280 point
+     maximum. AppKit-backed views otherwise win hit testing even where SwiftUI
+     is visually compositing the sidebar above them. Driven by the split view's
+     column visibility rather than assumed, so nothing is swallowed once the
+     sidebar is collapsed.
      */
-    private let nativeSidebarInteractionWidth: CGFloat = 280
+    var nativeSidebarInteractionWidth: CGFloat = 280
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview else {
+        guard let superview, nativeSidebarInteractionWidth > 0 else {
             return super.hitTest(point)
         }
 
@@ -184,8 +186,9 @@ private final class WailsWebViewContainer: NSView {
 
 private struct WailsWebView: NSViewRepresentable {
     let webView: WKWebView
+    let sidebarInteractionWidth: CGFloat
 
-    func makeNSView(context: Context) -> NSView {
+    func makeNSView(context: Context) -> WailsWebViewContainer {
         /*
          Keep Wails' WKWebView inside a detail-column container. Returning the
          already full-window WKWebView directly allows its backing layers to
@@ -195,6 +198,7 @@ private struct WailsWebView: NSViewRepresentable {
         let container = WailsWebViewContainer()
         container.wantsLayer = true
         container.layer?.masksToBounds = true
+        container.nativeSidebarInteractionWidth = sidebarInteractionWidth
 
         webView.removeFromSuperview()
         webView.frame = container.bounds
@@ -204,7 +208,9 @@ private struct WailsWebView: NSViewRepresentable {
         return container
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
+    func updateNSView(_ container: WailsWebViewContainer, context: Context) {
+        container.nativeSidebarInteractionWidth = sidebarInteractionWidth
+
         guard webView.superview !== container else {
             return
         }
@@ -226,17 +232,31 @@ private struct RootView: View {
         )
     }
 
-    private var lockedColumnVisibility:
-        Binding<NavigationSplitViewVisibility>
-    {
-        Binding.constant(
-            NavigationSplitViewVisibility.all
-        )
+    /*
+     Mutable rather than a constant binding, so the sidebar toggle collapses the
+     sidebar instead of being inert.
+
+     The toggle is not decoration: it is a default item of the sidebar column's
+     toolbar, and that toolbar is what holds the window's titlebar band open.
+     Removing it collapses the band, which costs the glass panel its top inset
+     and leaves the traffic lights beside the sidebar rather than above it.
+     */
+    @State private var columnVisibility:
+        NavigationSplitViewVisibility = .all
+
+    /*
+     prominentDetail keeps the detail column window-sized and floats the sidebar
+     over it, so the web view's hit-test surface has to be trimmed wherever the
+     sidebar covers it - and by nothing at all once the sidebar is collapsed,
+     which would otherwise leave a dead strip down the leading edge of the page.
+     */
+    private var sidebarInteractionWidth: CGFloat {
+        columnVisibility == .detailOnly ? 0 : 280
     }
 
     var body: some View {
         NavigationSplitView(
-            columnVisibility: lockedColumnVisibility
+            columnVisibility: $columnVisibility
         ) {
             List(model.items, selection: selection) { item in
                 Button {
@@ -256,33 +276,27 @@ private struct RootView: View {
                 .tag(item.id)
             }
             .listStyle(.sidebar)
-            /*
-             The toggle is a default item of the sidebar column, so it can only
-             be removed from that column's own content. Applying this to the
-             NavigationSplitView instead compiles and does nothing.
-             */
-            .toolbar(
-                removing:
-                    ToolbarDefaultItemKind.sidebarToggle
-            )
             .navigationSplitViewColumnWidth(
                 min: 210,
                 ideal: 240,
                 max: 280
             )
         } detail: {
-            WailsWebView(webView: model.webView)
-                .backgroundExtensionEffect()
-                /*
-                 The effect supplies the visual copy beneath the sidebar.
-                 Extending the AppKit-backed WKWebView itself through the
-                 leading safe area would put its hit-test surface above the
-                 native List and sidebar toolbar button.
-                 */
-                .ignoresSafeArea(
-                    .container,
-                    edges: [.top, .trailing, .bottom]
-                )
+            WailsWebView(
+                webView: model.webView,
+                sidebarInteractionWidth: sidebarInteractionWidth
+            )
+            .backgroundExtensionEffect()
+            /*
+             The effect supplies the visual copy beneath the sidebar. Extending
+             the AppKit-backed WKWebView itself through the leading safe area
+             would put its hit-test surface above the native List and the
+             sidebar toolbar button.
+             */
+            .ignoresSafeArea(
+                .container,
+                edges: [.top, .trailing, .bottom]
+            )
         }
         .navigationSplitViewStyle(
             .prominentDetail
@@ -324,6 +338,16 @@ private final class NativeSceneHost {
 
     func present() {
         NSApplication.shared.addSceneRepresentation(representation)
+        openWindow()
+    }
+
+    /*
+     Closing the window destroys the scene's view hierarchy but not the scene
+     itself, so reopening is the same request as the first one: WindowGroup
+     builds a fresh RootView, and WailsWebView moves the retained WKWebView
+     into it. The page it is displaying is never reloaded.
+     */
+    func openWindow() {
         representation.environment.openWindow(
             id: NativeWindowScene.identifier
         )
@@ -338,6 +362,60 @@ private final class NativeSceneHost {
     }
 }
 
+/*
+ Wails owns the NSApplicationDelegate and answers a Dock click by restoring the
+ window it created - the bootstrap window this shell orders out, which no longer
+ holds the web view. Wrapping the delegate leaves every other message with
+ Wails and answers only this one, by reopening the window the user actually
+ closed.
+
+ Not @MainActor: responds(to:) and forwardingTarget(for:) override nonisolated
+ NSObject methods, so the isolation lives on the delegate callback instead.
+ */
+private final class ReopenDelegate: NSObject, NSApplicationDelegate {
+    private let wrapped: NSApplicationDelegate?
+    private let reopen: @MainActor () -> Void
+
+    init(
+        wrapped: NSApplicationDelegate?,
+        reopen: @escaping @MainActor () -> Void
+    ) {
+        self.wrapped = wrapped
+        self.reopen = reopen
+    }
+
+    /*
+     AppKit asks before sending, and forwardingTarget is only consulted for
+     selectors this object claims. Both have to account for Wails' delegate or
+     its half of the protocol goes silently unanswered.
+     */
+    override func responds(to selector: Selector!) -> Bool {
+        if super.responds(to: selector) {
+            return true
+        }
+
+        return wrapped?.responds(to: selector) ?? false
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        wrapped
+    }
+
+    @MainActor
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        // Deliberately not forwarded: Wails' own answer is what shows the
+        // empty bootstrap window.
+        if !flag {
+            reopen()
+        }
+
+        return true
+    }
+}
+
 @MainActor
 private final class NativeShell {
     static let shared = NativeShell()
@@ -345,6 +423,9 @@ private final class NativeShell {
     private var sceneHost: NativeSceneHost?
     private var model: NativeShellModel?
     private var mouseEventMonitor: Any?
+    // NSApplication references its delegate weakly, so the wrapper below has to
+    // be owned for the lifetime of the process.
+    private var reopenDelegate: ReopenDelegate?
 
     func install(window: NSWindow, webView: WKWebView) {
         if model == nil {
@@ -371,6 +452,14 @@ private final class NativeShell {
             )
             self.sceneHost = sceneHost
             sceneHost.present()
+
+            let reopenDelegate = ReopenDelegate(
+                wrapped: NSApplication.shared.delegate
+            ) { [weak sceneHost] in
+                sceneHost?.openWindow()
+            }
+            self.reopenDelegate = reopenDelegate
+            NSApplication.shared.delegate = reopenDelegate
         }
 
         /*
