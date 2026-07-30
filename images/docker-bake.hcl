@@ -81,7 +81,7 @@ group "default" {
 group "all" {
   targets = [
     "core-ubuntu", "node", "desktop",
-    "hermes-desktop", "openclaw-desktop", "codex-pets-desktop",
+    "hermes-desktop", "openclaw-desktop", "petbox-desktop",
   ]
 }
 
@@ -94,7 +94,7 @@ group "substrate" {
 }
 
 group "products" {
-  targets = ["hermes-desktop", "openclaw-desktop", "codex-pets-desktop"]
+  targets = ["hermes-desktop", "openclaw-desktop", "petbox-desktop"]
 }
 
 target "_common" {
@@ -169,14 +169,14 @@ target "openclaw-desktop" {
   }
 }
 
-target "codex-pets-desktop" {
+target "petbox-desktop" {
   inherits = ["_common"]
   labels = {
     "dev.pdparchitect.launcher.substrate.version" = SUBSTRATE_VERSION
   }
-  context    = "products/codex-pets/desktop"
+  context    = "products/petbox/desktop"
   dockerfile = "Dockerfile"
-  tags       = tag_list("codex-pets-desktop")
+  tags       = tag_list("petbox-desktop")
 
   # Overrides `FROM ${DESKTOP_IMAGE}` with the freshly built desktop target.
   contexts = {

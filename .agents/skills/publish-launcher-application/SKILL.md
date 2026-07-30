@@ -1,6 +1,6 @@
 ---
 name: publish-launcher-application
-description: Release, mint, publish, or update a Launcher application together with its container image. Use for products such as Hermes, OpenClaw, Codex Pets, Buzzbox, Buzznode, or Pantalk Ghost when source, product version, application metadata, OCI attachment publication, or release verification is involved.
+description: Release, mint, publish, or update a Launcher application together with its container image. Use for products such as Hermes, OpenClaw, Petbox, Buzzbox, Buzznode, or Pantalk Ghost when source, product version, application metadata, OCI attachment publication, or release verification is involved.
 ---
 
 # Publish a Launcher application

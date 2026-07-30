@@ -1,0 +1,63 @@
+#!/bin/bash
+# desktop-selftest - what the smoke test runs inside a live session.
+#
+# The shared smoke test can prove a desktop came up. It cannot prove this
+# product came up, and the failure that matters here is specific: a sprite that
+# cannot open a shaped window exits, the supervisor patiently restarts it, and
+# the session looks perfectly healthy while the pen is empty.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "petbox selftest"
+
+check "codex is installed" codex --version
+check "the pen exists" test -d "${PETS_ROOT:-/workspace/pets}"
+# Seeded into the workspace volume by the base, which copies it as root.
+# A pen the session user cannot write into is a desktop where the New Pet
+# menu entry fails with a traceback.
+check "the pen is writable" test -w "${PETS_ROOT:-/workspace/pets}"
+check "the seeded pet arrived" test -f "${PETS_ROOT:-/workspace/pets}/pip/AGENTS.md"
+check "petctl runs" petctl status
+check "the supervisor is running" pgrep -f '/usr/local/bin/petd'
+check "the habitat is running" pgrep -f '/usr/local/bin/pet-habitat'
+check "the wallpaper clock is running" pgrep -f '/usr/local/bin/pet-wallpaper'
+
+# The sprite is the product. Give the supervisor a moment to have started one:
+# it polls, and a smoke test can arrive within that window.
+for _ in $(seq 1 20); do
+    if pgrep -f '/usr/local/bin/pet-sprite' >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+check "a pet is on screen" pgrep -f '/usr/local/bin/pet-sprite'
+
+# A sprite that crashed on startup and is being restarted in a loop looks the
+# same as a healthy one to pgrep at a single instant, so check the log too.
+if grep -q 'sprite exited' /var/log/launcher-desktop/pets.log 2>/dev/null; then
+    echo "  FAIL a sprite has been restarting" >&2
+    tail -5 /var/log/launcher-desktop/pets.log >&2
+    failures=$((failures + 1))
+else
+    echo "  ok   no sprite restarts"
+fi
+
+if [ "$failures" -gt 0 ]; then
+    echo "petbox selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "petbox selftest: pen is up"

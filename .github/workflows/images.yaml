@@ -108,10 +108,10 @@ jobs:
           SMOKE_PORT: 16903
         run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-openclaw-desktop:local
 
-      - name: Smoke test the Codex Pets product
+      - name: Smoke test the Petbox product
         env:
           SMOKE_PORT: 16904
-        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-codex-pets-desktop:local
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-petbox-desktop:local
 
       - name: Collect container logs on failure
         if: failure()
