@@ -334,9 +334,16 @@ func (options CreateOptions) report(stage CreateStage, message string) {
 }
 
 func (service *Service) List(ctx context.Context) ([]View, error) {
-	instances, err := service.store.List()
+	views, _, err := service.ListWithIssues(ctx)
+	return views, err
+}
+
+func (service *Service) ListWithIssues(
+	ctx context.Context,
+) ([]View, []store.Issue, error) {
+	instances, issues, err := service.store.ListWithIssues()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	views := make([]View, len(instances))
 	var probes sync.WaitGroup
@@ -349,12 +356,12 @@ func (service *Service) List(ctx context.Context) ([]View, error) {
 	}
 	probes.Wait()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sort.Slice(views, func(left, right int) bool {
 		return strings.ToLower(views[left].Name) < strings.ToLower(views[right].Name)
 	})
-	return views, nil
+	return views, issues, nil
 }
 
 func (service *Service) probeView(

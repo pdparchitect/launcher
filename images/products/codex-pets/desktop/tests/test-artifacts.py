@@ -11,6 +11,7 @@ from pathlib import Path
 
 import petartifacts
 import petlib
+import petprompts
 
 PRODUCT_DIRECTORY = Path(__file__).resolve().parents[1]
 PETCTL = (
@@ -141,11 +142,56 @@ class ArtifactTests(unittest.TestCase):
     def test_install_adds_the_skill_without_overwriting_it(self):
         petartifacts.install(self.pet)
         skill = self.pet.skills / "leaving-artifacts" / "SKILL.md"
+        self.assertEqual(
+            self.pet.skills,
+            self.pet.directory / ".agents" / "skills",
+        )
+        self.assertIn("name: leaving-artifacts", skill.read_text())
         self.assertIn("petctl artifact leave", skill.read_text())
 
         skill.write_text("Jojo's own rules.\n")
         petartifacts.install(self.pet)
         self.assertEqual(skill.read_text(), "Jojo's own rules.\n")
+
+    def test_builtin_skills_have_codex_metadata(self):
+        self.assertTrue(petartifacts.SKILL.startswith("---\n"))
+        self.assertIn("name: leaving-artifacts", petartifacts.SKILL)
+        self.assertIn("description:", petartifacts.SKILL)
+        self.assertTrue(petprompts.EXAMPLE_SKILL.startswith("---\n"))
+        self.assertIn("name: keeping-a-journal", petprompts.EXAMPLE_SKILL)
+        self.assertIn("description:", petprompts.EXAMPLE_SKILL)
+
+    def test_new_pet_scaffolds_discoverable_skills(self):
+        environment = dict(os.environ)
+        environment["PETS_ROOT"] = str(self.root)
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(PETCTL),
+                "new",
+                "pip",
+                "--species",
+                "blob",
+                "--colour",
+                "amber",
+                "--heartbeat",
+                "off",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+        pet = petlib.Pet("pip", self.root)
+        self.assertTrue(
+            (pet.skills / "keeping-a-journal" / "SKILL.md").is_file()
+        )
+        self.assertTrue(
+            (pet.skills / "leaving-artifacts" / "SKILL.md").is_file()
+        )
+        self.assertFalse((pet.directory / "skills").exists())
 
     def test_petctl_can_leave_and_list_as_the_current_pet(self):
         environment = dict(os.environ)

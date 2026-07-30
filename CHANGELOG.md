@@ -4,6 +4,20 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.6] - 2026-07-30
+
+### Added
+
+- Add a native macOS application-menu action that checks immediately for a
+  Launcher update, then changes into a download action when a newer release is
+  available.
+
+### Fixed
+
+- Isolate invalid or unreadable stored agents so one damaged record cannot
+  prevent Launcher from managing healthy agents, and surface every isolated
+  record and its error in the application.
+
 ## [0.4.5] - 2026-07-30
 
 ### Changed

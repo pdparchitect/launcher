@@ -19,7 +19,7 @@ from it:
 /workspace/pets/pip/
   AGENTS.md      who this pet is - Codex loads it before every turn
   pet.toml       species, colour, heartbeat, sandbox, model
-  skills/        one directory per skill, each with a SKILL.md
+  .agents/skills/ one directory per skill, each with a SKILL.md
   memory/        what it wants to still know next time
   journal/       dated notes on what it did
   inbox/         messages waiting for it; handled ones move to inbox/done/
@@ -127,10 +127,10 @@ and `PETS_WALLPAPER_PERIOD=dawn|day|dusk|night` fixes a period for previews.
 
 ## Artifacts
 
-Pets have a `skills/leaving-artifacts/SKILL.md` that tells them when a turn is
-worth making visible and how to use `petctl artifact leave`. The resulting
-JSON file belongs to the pet under `artifacts/`; the habitat only renders the
-validated protocol and never executes artifact content.
+Pets have a `.agents/skills/leaving-artifacts/SKILL.md` that tells them when a
+turn is worth making visible and how to use `petctl artifact leave`. The
+resulting JSON file belongs to the pet under `artifacts/`; the habitat only
+renders the validated protocol and never executes artifact content.
 
 Six built-in kinds have their own tiny pixel art: notes, doodles, gifts,
 trophies, warnings and found objects. Click one to read its card. Its

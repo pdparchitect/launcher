@@ -5,7 +5,7 @@ A pet is a directory, not a process:
     /workspace/pets/<name>/
         AGENTS.md      what Codex reads before every turn - the pet's character
         pet.toml       identity and schedule: species, colour, heartbeat
-        skills/        one directory per skill, each with a SKILL.md
+        .agents/skills/ one directory per skill, each with a SKILL.md
         memory/        what the pet chooses to remember between turns
         journal/       dated entries the pet writes as it works
         inbox/         messages waiting for it
@@ -230,7 +230,7 @@ class Pet:
 
     @property
     def skills(self):
-        return self.directory / "skills"
+        return self.directory / ".agents" / "skills"
 
     @property
     def artifacts(self):

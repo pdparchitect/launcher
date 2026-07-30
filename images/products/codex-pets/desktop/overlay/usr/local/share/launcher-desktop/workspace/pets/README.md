@@ -7,7 +7,7 @@ by `petd`, and it thinks with `codex exec`.
 pip/
   AGENTS.md      who this pet is. Codex reads it before every turn.
   pet.toml       species, colour, how often it wakes up
-  skills/        one directory per skill, each with a SKILL.md
+  .agents/skills/ one directory per skill, each with a SKILL.md
   memory/        what it wants to still know next time
   journal/       dated notes on what it actually did
   inbox/         messages waiting for it; handled ones move to inbox/done/

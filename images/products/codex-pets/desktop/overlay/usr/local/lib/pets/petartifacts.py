@@ -27,9 +27,14 @@ MAX_TITLE = 48
 MAX_MESSAGE = 240
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
 
-SKILL = """# Leaving artifacts
-
-## When to use this
+SKILL = """---
+name: leaving-artifacts
+description: >-
+  Leave a visible artifact in the shared habitat. Use after a turn produces a
+  discovery, warning, small victory, gift, or genuinely interesting thought
+  worth showing.
+---
+# Leaving artifacts
 
 Use this after a turn produces something worth making visible in the habitat:
 a discovery, warning, small victory, gift, or genuinely interesting thought.

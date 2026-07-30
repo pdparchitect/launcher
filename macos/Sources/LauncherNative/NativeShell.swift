@@ -18,6 +18,101 @@ private struct PageInsets: Equatable {
 }
 
 @MainActor
+private final class LauncherUpdateMenu: NSObject {
+    private static let identifier = NSUserInterfaceItemIdentifier(
+        "dev.pdparchitect.launcher.check-for-updates"
+    )
+
+    private weak var webView: WKWebView?
+    private let item = NSMenuItem(
+        title: "Check for Updates…",
+        action: nil,
+        keyEquivalent: ""
+    )
+    private var releaseURL: URL?
+
+    init(webView: WKWebView) {
+        self.webView = webView
+        super.init()
+
+        item.identifier = Self.identifier
+        item.target = self
+        item.action = #selector(activate)
+    }
+
+    func install() {
+        guard
+            let applicationMenu = NSApplication.shared.mainMenu?
+                .items.first?.submenu,
+            !applicationMenu.items.contains(
+                where: { $0.identifier == Self.identifier }
+            )
+        else {
+            return
+        }
+
+        // The standard About item is first; update checks conventionally sit
+        // immediately below it and above the app-menu separator.
+        applicationMenu.insertItem(
+            item,
+            at: min(1, applicationMenu.items.count)
+        )
+    }
+
+    func update(from status: [String: Any]) {
+        if status["checking"] as? Bool == true {
+            releaseURL = nil
+            item.title = "Checking for Updates…"
+            item.isEnabled = false
+
+            return
+        }
+
+        if
+            status["updateAvailable"] as? Bool == true,
+            let rawURL = status["releaseURL"] as? String,
+            let url = URL(string: rawURL),
+            url.scheme == "https"
+        {
+            releaseURL = url
+            item.title = "Download Update…"
+            item.isEnabled = true
+
+            return
+        }
+
+        releaseURL = nil
+        item.title = "Check for Updates…"
+        item.isEnabled = true
+    }
+
+    @objc
+    private func activate() {
+        if let releaseURL {
+            NSWorkspace.shared.open(releaseURL)
+
+            return
+        }
+
+        item.title = "Checking for Updates…"
+        item.isEnabled = false
+        webView?.evaluateJavaScript(
+            """
+            customElements.whenDefined('launcher-app').then(() => {
+                const launcher = document.querySelector('launcher-app');
+
+                if (
+                    typeof launcher?.checkForLauncherUpdate === 'function'
+                ) {
+                    launcher.checkForLauncherUpdate();
+                }
+            });
+            """
+        )
+    }
+}
+
+@MainActor
 @Observable
 private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     var items: [SidebarItem] = [
@@ -37,11 +132,18 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     var selection: String? = "home"
 
     let webView: WKWebView
+    private let updateMenu: LauncherUpdateMenu
     private var mouseDownEvent: NSEvent?
     private var insets = PageInsets()
 
     init(webView: WKWebView) {
         self.webView = webView
+        updateMenu = LauncherUpdateMenu(webView: webView)
+        super.init()
+    }
+
+    func installApplicationMenu() {
+        updateMenu.install()
     }
 
     func select(_ identifier: String?) {
@@ -164,6 +266,12 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
                 return
             }
             window.performDrag(with: event)
+
+            return
+        }
+
+        if config["action"] as? String == "launcherUpdateStatus" {
+            updateMenu.update(from: config)
 
             return
         }
@@ -545,6 +653,8 @@ private final class NativeShell {
             self.reopenDelegate = reopenDelegate
             NSApplication.shared.delegate = reopenDelegate
         }
+
+        model?.installApplicationMenu()
 
         /*
          OnStartup normally installs the handler before the document loads.

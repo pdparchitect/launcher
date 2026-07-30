@@ -20,6 +20,7 @@ type Options struct {
 	OpenPath      func(string) error
 	CatalogAssets fs.FS
 	UpdateStatus  func() updatecheck.Status
+	UpdateRefresh func(context.Context) (updatecheck.Status, error)
 }
 
 func Run(

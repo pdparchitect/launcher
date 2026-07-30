@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,52 @@ func TestSaveRejectsRenamingToDuplicateName(t *testing.T) {
 
 	if !errors.Is(err, ErrDuplicateName) {
 		t.Fatalf("Save() error = %v, want ErrDuplicateName", err)
+	}
+}
+
+func TestListSkipsInvalidAgentState(t *testing.T) {
+	dataStore := New(t.TempDir())
+	valid := testInstance("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ada")
+	if _, err := dataStore.Create(valid, testManifest()); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	invalidID := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	invalidRoot := dataStore.instanceRoot(invalidID)
+	if err := os.MkdirAll(invalidRoot, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(invalidRoot, "instance.json"),
+		[]byte(`{
+  "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "catalogId": "ghost",
+  "name": "Broken",
+  "image": "pantalk/ghost:test",
+  "containerName": "launcher-ghost-bbbbbbbbbbbb",
+  "desiredState": "stopped",
+  "createdAt": "2026-07-27T12:00:00Z"
+}
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	instances, issues, err := dataStore.ListWithIssues()
+
+	if err != nil {
+		t.Fatalf("ListWithIssues() error = %v", err)
+	}
+	if len(instances) != 1 || instances[0].ID != valid.ID {
+		t.Fatalf("instances = %#v, want only valid agent", instances)
+	}
+	if len(issues) != 1 ||
+		issues[0].ID != invalidID ||
+		!strings.Contains(issues[0].Error, "resolved interface") {
+		t.Fatalf("issues = %#v, want invalid agent validation issue", issues)
+	}
+	if _, err := dataStore.Get(invalidID); err == nil {
+		t.Fatal("Get(invalid ID) error = nil, want validation error")
 	}
 }
 

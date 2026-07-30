@@ -25,6 +25,11 @@ type Paths struct {
 	Mounts map[string]string
 }
 
+type Issue struct {
+	ID    string
+	Error string
+}
+
 func New(root string) *Store          { return &Store{root: root} }
 func (dataStore *Store) Root() string { return dataStore.root }
 
@@ -98,21 +103,35 @@ func (dataStore *Store) Save(instance domain.Instance) error {
 }
 
 func (dataStore *Store) List() ([]domain.Instance, error) {
+	instances, _, err := dataStore.ListWithIssues()
+	return instances, err
+}
+
+func (dataStore *Store) ListWithIssues() (
+	[]domain.Instance,
+	[]Issue,
+	error,
+) {
 	entries, err := os.ReadDir(dataStore.agentsRoot())
 	if errors.Is(err, os.ErrNotExist) {
-		return []domain.Instance{}, nil
+		return []domain.Instance{}, []Issue{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list agents: %w", err)
+		return nil, nil, fmt.Errorf("list agents: %w", err)
 	}
 	instances := make([]domain.Instance, 0, len(entries))
+	issues := make([]Issue, 0)
 	for _, entry := range entries {
 		if !entry.IsDir() || !domain.ValidID(entry.Name()) {
 			continue
 		}
 		instance, readErr := dataStore.read(entry.Name())
 		if readErr != nil {
-			return nil, readErr
+			issues = append(issues, Issue{
+				ID:    entry.Name(),
+				Error: readErr.Error(),
+			})
+			continue
 		}
 		instances = append(instances, instance)
 	}
@@ -120,7 +139,7 @@ func (dataStore *Store) List() ([]domain.Instance, error) {
 		return strings.ToLower(instances[left].Name) <
 			strings.ToLower(instances[right].Name)
 	})
-	return instances, nil
+	return instances, issues, nil
 }
 
 func (dataStore *Store) Get(reference string) (domain.Instance, error) {

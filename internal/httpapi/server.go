@@ -31,7 +31,7 @@ type Service interface {
 	Doctor(context.Context) (agent.DoctorReport, error)
 	Catalog() []agent.CatalogEntry
 	Create(context.Context, agent.CreateOptions) (domain.Instance, error)
-	List(context.Context) ([]agent.View, error)
+	ListWithIssues(context.Context) ([]agent.View, []store.Issue, error)
 	Get(context.Context, string) (agent.View, error)
 	Start(context.Context, string) (domain.Instance, error)
 	Stop(context.Context, string) (domain.Instance, error)
@@ -57,6 +57,7 @@ type Server struct {
 	openPath      func(string) error
 	openViewer    func(ViewerTarget) error
 	updateStatus  func() updatecheck.Status
+	updateRefresh func(context.Context) (updatecheck.Status, error)
 }
 
 type Option func(*Server)
@@ -88,6 +89,14 @@ func WithUpdateStatus(status func() updatecheck.Status) Option {
 		if status != nil {
 			server.updateStatus = status
 		}
+	}
+}
+
+func WithUpdateRefresh(
+	refresh func(context.Context) (updatecheck.Status, error),
+) Option {
+	return func(server *Server) {
+		server.updateRefresh = refresh
 	}
 }
 
@@ -132,6 +141,11 @@ type metricsResponse struct {
 	MemoryLimitBytes uint64   `json:"memoryLimitBytes,omitempty"`
 	UptimeSeconds    int64    `json:"uptimeSeconds"`
 	Error            string   `json:"error,omitempty"`
+}
+
+type agentIssueResponse struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
 }
 
 type createRequest struct {
@@ -208,6 +222,7 @@ func New(service Service, token string, options ...Option) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/doctor", server.doctor)
 	mux.HandleFunc("GET /api/launcher", server.launcher)
+	mux.HandleFunc("POST /api/launcher/check", server.checkLauncherUpdate)
 	mux.HandleFunc("POST /api/runtime/start", server.startRuntime)
 	mux.HandleFunc("GET /api/catalog", server.catalog)
 	mux.HandleFunc("GET /api/instances", server.listInstances)
@@ -315,6 +330,30 @@ func (server *Server) launcher(
 	writeJSON(response, http.StatusOK, server.updateStatus())
 }
 
+func (server *Server) checkLauncherUpdate(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	if server.updateRefresh == nil {
+		writeError(
+			response,
+			http.StatusNotImplemented,
+			"Launcher update checks are unavailable",
+		)
+		return
+	}
+	status, err := server.updateRefresh(request.Context())
+	if err != nil {
+		writeError(
+			response,
+			http.StatusBadGateway,
+			fmt.Sprintf("check for Launcher updates: %v", err),
+		)
+		return
+	}
+	writeJSON(response, http.StatusOK, status)
+}
+
 func (server *Server) doctor(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -404,7 +443,7 @@ func (server *Server) listInstances(
 	response http.ResponseWriter,
 	request *http.Request,
 ) {
-	views, err := server.service.List(request.Context())
+	views, loadIssues, err := server.service.ListWithIssues(request.Context())
 	if err != nil {
 		writeServiceError(response, err)
 		return
@@ -413,7 +452,17 @@ func (server *Server) listInstances(
 	for _, view := range views {
 		instances = append(instances, responseFromView(view))
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"instances": instances})
+	issues := make([]agentIssueResponse, 0, len(loadIssues))
+	for _, issue := range loadIssues {
+		issues = append(issues, agentIssueResponse{
+			ID:    issue.ID,
+			Error: issue.Error,
+		})
+	}
+	writeJSON(response, http.StatusOK, map[string]any{
+		"instances": instances,
+		"issues":    issues,
+	})
 }
 
 func (server *Server) getInstance(

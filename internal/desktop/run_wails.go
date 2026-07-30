@@ -142,6 +142,12 @@ func run(
 			httpapi.WithUpdateStatus(runOptions.UpdateStatus),
 		)
 	}
+	if runOptions.UpdateRefresh != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithUpdateRefresh(runOptions.UpdateRefresh),
+		)
+	}
 	if runOptions.OpenPath != nil {
 		serverOptions = append(
 			serverOptions,

@@ -340,6 +340,74 @@ mark {
   color: var(--text);
 }
 
+.agent-load-warning {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  margin: 14px 26px 0 calc(var(--sidebar-width) + 26px);
+  padding: 13px 15px;
+  border: 1px solid rgba(255, 88, 77, 0.48);
+  background: rgba(29, 14, 12, 0.96);
+}
+
+.launcher-update-banner[hidden] + .agent-load-warning {
+  margin-top: var(--content-top);
+}
+
+.agent-load-warning__light {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 12px rgba(255, 88, 77, 0.58);
+}
+
+.agent-load-warning summary {
+  color: #ff9b92;
+  cursor: pointer;
+  font-family: var(--font-technical);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.agent-load-warning p {
+  margin: 9px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-load-warning ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-load-warning li {
+  display: grid;
+  gap: 3px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 88, 77, 0.2);
+}
+
+.agent-load-warning code {
+  color: #ff9b92;
+  font-family: var(--font-technical);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.agent-load-warning li span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 /* Clears the fixed sidebar itself. max-width is gone so the box spans the
    window: the hero's negative margins cancel this padding exactly, which only
    reaches the window edge if nothing is centring the box. */
@@ -2221,6 +2289,11 @@ mark {
 
   .launcher-update-banner {
     grid-template-columns: auto minmax(0, 1fr) auto;
+    margin: 14px 14px 0;
+  }
+
+  .agent-load-warning,
+  .launcher-update-banner[hidden] + .agent-load-warning {
     margin: 14px 14px 0;
   }
 
