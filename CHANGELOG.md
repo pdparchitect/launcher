@@ -4,6 +4,26 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] - 2026-07-30
+
+### Changed
+
+- Remove application-declared desktop resolutions and environment-variable
+  names. KasmVNC now supplies its own startup dimensions and resizes the remote
+  desktop to the connected viewer.
+- Make each product's `VERSION` file its single version source. Launcher
+  application documents no longer duplicate a product version that the
+  catalogue does not use.
+
+### Fixed
+
+- Force an application-catalogue refresh once per Launcher startup so newly
+  published image updates are not hidden by the persisted 30-minute cache.
+- Remove deleted agents from the interface immediately and prevent an
+  overlapping stale status poll from temporarily restoring them.
+- Let the dimmed area around an open dialog drag the native macOS window while
+  keeping the dialog panel and its controls interactive.
+
 ## [0.4.2] - 2026-07-30
 
 ### Fixed

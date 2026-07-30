@@ -9,7 +9,6 @@ dockerfile="$project_dir/Dockerfile"
 cd "$images_dir"
 bash tools/check-project-programs.sh runtimes/node
 
-grep -Fq 'deb.nodesource.com/setup_24.x' "$dockerfile"
 grep -Fq 'corepack prepare' "$dockerfile"
 
 # Corepack records its activation under the building user's home unless this

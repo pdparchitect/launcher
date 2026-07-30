@@ -26,42 +26,39 @@ const (
 )
 
 type Manifest struct {
-	ID                    string            `json:"id"`
-	Slug                  string            `json:"slug"`
-	Name                  string            `json:"name"`
-	Publisher             string            `json:"publisher"`
-	Description           string            `json:"description"`
-	Tags                  []string          `json:"tags"`
-	Media                 Media             `json:"media"`
-	Image                 string            `json:"image"`
-	Viewer                string            `json:"viewer"`
-	ContainerPort         int               `json:"containerPort"`
-	Memory                string            `json:"memory,omitempty"`
-	SharedMemory          string            `json:"sharedMemory"`
-	ResolutionEnvironment string            `json:"resolutionEnvironment,omitempty"`
-	Resolution            string            `json:"resolution"`
-	Environment           map[string]string `json:"environment"`
-	Mounts                []Mount           `json:"mounts"`
+	ID            string            `json:"id"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Publisher     string            `json:"publisher"`
+	Description   string            `json:"description"`
+	Tags          []string          `json:"tags"`
+	Media         Media             `json:"media"`
+	Image         string            `json:"image"`
+	Viewer        string            `json:"viewer"`
+	ContainerPort int               `json:"containerPort"`
+	Memory        string            `json:"memory,omitempty"`
+	SharedMemory  string            `json:"sharedMemory"`
+	Environment   map[string]string `json:"environment"`
+	Mounts        []Mount           `json:"mounts"`
 }
 
 type applicationDocument struct {
-	SchemaVersion         int               `json:"schemaVersion"`
-	Version               string            `json:"version"`
-	ID                    string            `json:"id"`
-	Slug                  string            `json:"slug"`
-	Name                  string            `json:"name"`
-	Publisher             string            `json:"publisher"`
-	Description           string            `json:"description"`
-	Tags                  []string          `json:"tags"`
-	Media                 Media             `json:"media"`
-	Viewer                string            `json:"viewer"`
-	ContainerPort         int               `json:"containerPort"`
-	Memory                string            `json:"memory,omitempty"`
-	SharedMemory          string            `json:"sharedMemory"`
-	ResolutionEnvironment string            `json:"resolutionEnvironment,omitempty"`
-	Resolution            string            `json:"resolution"`
-	Environment           map[string]string `json:"environment"`
-	Mounts                []Mount           `json:"mounts"`
+	SchemaVersion int `json:"schemaVersion"`
+	// LegacyVersion keeps already-published schema v1 bundles readable.
+	LegacyVersion string            `json:"version,omitempty"`
+	ID            string            `json:"id"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Publisher     string            `json:"publisher"`
+	Description   string            `json:"description"`
+	Tags          []string          `json:"tags"`
+	Media         Media             `json:"media"`
+	Viewer        string            `json:"viewer"`
+	ContainerPort int               `json:"containerPort"`
+	Memory        string            `json:"memory,omitempty"`
+	SharedMemory  string            `json:"sharedMemory"`
+	Environment   map[string]string `json:"environment"`
+	Mounts        []Mount           `json:"mounts"`
 }
 
 type Feed struct {
@@ -92,7 +89,6 @@ type Mount struct {
 }
 
 type applicationBundle struct {
-	Version  string
 	Manifest Manifest
 	Assets   map[string][]byte
 }
@@ -263,34 +259,26 @@ func loadApplicationBundle(
 			document.SchemaVersion,
 		)
 	}
-	if !semanticVersion.MatchString(document.Version) {
-		return applicationBundle{}, fmt.Errorf(
-			"application version %q is not semantic versioning",
-			document.Version,
-		)
-	}
 	if imageRepository == "" || !strings.HasPrefix(imageDigest, "sha256:") {
 		return applicationBundle{}, errors.New(
 			"application artifact must identify its image subject",
 		)
 	}
 	manifest := Manifest{
-		ID:                    document.ID,
-		Slug:                  document.Slug,
-		Name:                  document.Name,
-		Publisher:             document.Publisher,
-		Description:           document.Description,
-		Tags:                  document.Tags,
-		Media:                 document.Media,
-		Image:                 imageRepository + "@" + imageDigest,
-		Viewer:                document.Viewer,
-		ContainerPort:         document.ContainerPort,
-		Memory:                document.Memory,
-		SharedMemory:          document.SharedMemory,
-		ResolutionEnvironment: document.ResolutionEnvironment,
-		Resolution:            document.Resolution,
-		Environment:           document.Environment,
-		Mounts:                document.Mounts,
+		ID:            document.ID,
+		Slug:          document.Slug,
+		Name:          document.Name,
+		Publisher:     document.Publisher,
+		Description:   document.Description,
+		Tags:          document.Tags,
+		Media:         document.Media,
+		Image:         imageRepository + "@" + imageDigest,
+		Viewer:        document.Viewer,
+		ContainerPort: document.ContainerPort,
+		Memory:        document.Memory,
+		SharedMemory:  document.SharedMemory,
+		Environment:   document.Environment,
+		Mounts:        document.Mounts,
 	}
 	if err := manifest.Validate(); err != nil {
 		return applicationBundle{}, fmt.Errorf(
@@ -313,7 +301,6 @@ func loadApplicationBundle(
 	}
 	manifest.prefixAssets()
 	return applicationBundle{
-		Version:  document.Version,
 		Manifest: manifest,
 		Assets:   assets,
 	}, nil
@@ -397,12 +384,8 @@ func (manifest Manifest) Validate() error {
 	if manifest.ContainerPort < 1 || manifest.ContainerPort > 65535 {
 		return errors.New("container port must be between 1 and 65535")
 	}
-	if strings.TrimSpace(manifest.SharedMemory) == "" ||
-		strings.TrimSpace(manifest.Resolution) == "" {
-		return errors.New("shared memory and resolution are required")
-	}
-	if strings.TrimSpace(manifest.ResolutionEnvironment) == "" {
-		return errors.New("resolution environment variable is required")
+	if strings.TrimSpace(manifest.SharedMemory) == "" {
+		return errors.New("shared memory is required")
 	}
 	seen := make(map[string]struct{}, len(manifest.Mounts))
 	for _, mount := range manifest.Mounts {

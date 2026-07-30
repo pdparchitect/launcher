@@ -27,7 +27,8 @@ release unit.
    Preserve its UUID and omit the `image` field.
 3. Bump the product semantic `VERSION`.
 4. Add the matching `CHANGELOG.md` section.
-5. Set `application.json` `version` to that same product version.
+5. Do not add a version to `application.json`; `VERSION` is the product's
+   single version source.
 6. Do not bump the root Launcher `VERSION`.
 7. Run the owning image checks and relevant build or smoke test.
 

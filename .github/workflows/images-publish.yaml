@@ -291,12 +291,6 @@ jobs:
             if [ "$KIND" = product ]; then
               product="${target%-desktop}"
               source="products/${product}/desktop/launcher"
-              declared="$(jq -er '.version' "${source}/application.json")"
-              if [ "$declared" != "$VERSION" ]; then
-                echo "${source}/application.json declares ${declared}," \
-                  "expected ${VERSION}." >&2
-                exit 1
-              fi
               archive_directory="$(mktemp -d)"
               archive_name="${product}-launcher-application.zip"
               archive="${archive_directory}/${archive_name}"

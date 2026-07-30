@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -31,10 +30,6 @@ const (
 	maxManifestSize        = 1 << 20
 	maxFeedSize            = 1 << 20
 	maxApplicationBundle   = 32 << 20
-)
-
-var semanticVersion = regexp.MustCompile(
-	`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`,
 )
 
 //go:embed sources.json

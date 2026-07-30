@@ -14,15 +14,6 @@ export HOME=/home/agent
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_DATA_HOME="$HOME/.local/share"
 
-resolution="${DESKTOP_RESOLUTION:-1920x1080}"
-if [[ ! "$resolution" =~ ^[0-9]{3,5}x[0-9]{3,5}$ ]]; then
-    echo "[desktop] invalid DESKTOP_RESOLUTION: $resolution" >&2
-    exit 1
-fi
-
-width="${resolution%x*}"
-height="${resolution#*x}"
-
 persistent_paths=(/workspace)
 if [ -n "${DESKTOP_PERSISTENT_PATHS:-}" ]; then
     read -r -a product_paths <<<"$DESKTOP_PERSISTENT_PATHS"
@@ -160,9 +151,6 @@ network:
   websocket_port: 6901
 
 desktop:
-  resolution:
-    width: $width
-    height: $height
   pixel_depth: 24
 $gpu_config
 
@@ -259,7 +247,6 @@ su -s /bin/bash -c "
         -interface 0.0.0.0 \
         -websocketPort 6901 \
         -publicIP 127.0.0.1 \
-        -geometry '$resolution' \
         -depth 24 \
         -httpd /usr/share/kasmvnc/www \
         -BlacklistThreshold 0 \

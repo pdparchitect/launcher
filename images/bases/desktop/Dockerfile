@@ -202,8 +202,7 @@ ENV HOME=/home/agent \
     BROWSER=chromium \
     GTK_THEME=Desktop \
     G_RESOURCE_OVERLAYS=/org/gtk/libgtk=/usr/share/launcher-desktop/gtk-overlay \
-    DESKTOP_TITLE="Agent Desktop" \
-    DESKTOP_RESOLUTION=1920x1080
+    DESKTOP_TITLE="Agent Desktop"
 
 LABEL org.opencontainers.image.title="Launcher Desktop Base" \
     org.opencontainers.image.description="Openbox and KasmVNC desktop substrate for Launcher products" \

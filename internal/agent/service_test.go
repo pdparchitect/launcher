@@ -163,7 +163,6 @@ func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
 	}
 	if entries[1].Description != ghost.Description ||
 		entries[1].Memory != ghost.Memory ||
-		entries[1].Resolution != ghost.Resolution ||
 		len(entries[1].Media.Screenshots) != 1 {
 		t.Fatalf("Ghost entry = %#v", entries[1])
 	}
@@ -617,14 +616,12 @@ func newTestService(t *testing.T, containerRuntime *fakeRuntime) *Service {
 				Alt:    "Ghost desktop",
 			}},
 		},
-		Image:                 "pantalk/ghost:default",
-		Viewer:                "kasmvnc",
-		ContainerPort:         6901,
-		SharedMemory:          "1g",
-		ResolutionEnvironment: "GHOST_RESOLUTION",
-		Resolution:            "1920x1080",
-		Environment:           map[string]string{"PANTALK_AUTOSTART": "true"},
-		Mounts:                []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
+		Image:         "pantalk/ghost:default",
+		Viewer:        "kasmvnc",
+		ContainerPort: 6901,
+		SharedMemory:  "1g",
+		Environment:   map[string]string{"PANTALK_AUTOSTART": "true"},
+		Mounts:        []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
 	}
 	return New(store.New(t.TempDir()), containerRuntime, []catalog.Manifest{manifest}, Options{
 		ID: func() (string, error) {

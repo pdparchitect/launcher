@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,5 +20,25 @@ func TestRunRefreshLoopChecksImmediatelyAndRepeats(t *testing.T) {
 
 	if calls.Load() != 3 {
 		t.Fatalf("refresh calls = %d, want 3", calls.Load())
+	}
+}
+
+func TestRunCatalogueRefreshLoopForcesOnlyStartupCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var calls []bool
+
+	runCatalogueRefreshLoop(
+		ctx,
+		time.Millisecond,
+		func(_ context.Context, force bool) {
+			calls = append(calls, force)
+			if len(calls) == 3 {
+				cancel()
+			}
+		},
+	)
+
+	if !slices.Equal(calls, []bool{true, false, false}) {
+		t.Fatalf("refresh force values = %v, want [true false false]", calls)
 	}
 }

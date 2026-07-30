@@ -121,7 +121,6 @@ export class MarketplaceDetail extends HTMLElement {
 
     const specifications = [
       ['EXPERIENCE', entry.viewer === 'kasmvnc' ? 'LOCAL DESKTOP' : 'LOCAL WEB'],
-      ['RESOLUTION', entry.resolution],
       ['MEMORY', entry.memory || 'MANAGED BY LAUNCHER'],
     ]
     const specificationList = this.querySelector('[data-specifications]')

@@ -1,6 +1,5 @@
 {
   "schemaVersion": 1,
-  "version": "0.1.4",
   "id": "f726241a-ff31-423d-92ad-f2b43cca742f",
   "slug": "hermes",
   "name": "Hermes",
@@ -25,8 +24,6 @@
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",
-  "resolutionEnvironment": "DESKTOP_RESOLUTION",
-  "resolution": "1920x1080",
   "environment": {},
   "mounts": [
     {

@@ -348,12 +348,10 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 		"--publish",
 		fmt.Sprintf("127.0.0.1:%d:%d", request.Port, request.Manifest.ContainerPort),
 	)
-	environment := make(map[string]string, len(request.Manifest.Environment)+1)
+	environment := make(map[string]string, len(request.Manifest.Environment))
 	for key, value := range request.Manifest.Environment {
 		environment[key] = value
 	}
-	environment[request.Manifest.ResolutionEnvironment] =
-		request.Manifest.Resolution
 	keys := make([]string, 0, len(environment))
 	for key := range environment {
 		keys = append(keys, key)
