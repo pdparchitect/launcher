@@ -130,6 +130,12 @@ func run(
 		httpapi.WithLogger(runOptions.Stdout),
 		httpapi.WithViewerOpener(SpawnViewer),
 	}
+	if runOptions.CatalogAssets != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithCatalogAssets(runOptions.CatalogAssets),
+		)
+	}
 	if runOptions.OpenPath != nil {
 		serverOptions = append(
 			serverOptions,

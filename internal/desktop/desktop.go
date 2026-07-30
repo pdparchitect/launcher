@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"sync"
@@ -14,8 +15,9 @@ import (
 )
 
 type Options struct {
-	Stdout   io.Writer
-	OpenPath func(string) error
+	Stdout        io.Writer
+	OpenPath      func(string) error
+	CatalogAssets fs.FS
 }
 
 func Run(

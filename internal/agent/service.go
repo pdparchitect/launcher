@@ -132,11 +132,12 @@ type DoctorReport struct {
 }
 
 type Service struct {
-	store     *store.Store
-	runtime   Runtime
-	manifests map[string]catalog.Manifest
-	slugs     map[string]string
-	options   Options
+	store        *store.Store
+	runtime      Runtime
+	catalogMutex sync.RWMutex
+	manifests    map[string]catalog.Manifest
+	slugs        map[string]string
+	options      Options
 }
 
 func New(
@@ -163,22 +164,20 @@ func New(
 	if options.RuntimeProbeTimeout <= 0 {
 		options.RuntimeProbeTimeout = defaultRuntimeProbeTimeout
 	}
-	manifestIndex := make(map[string]catalog.Manifest, len(manifests))
-	slugs := make(map[string]string, len(manifests))
-	for _, manifest := range manifests {
-		manifestIndex[manifest.ID] = manifest
-		slugs[manifest.Slug] = manifest.ID
-	}
 	if options.DefaultCatalogID == "" {
 		options.DefaultCatalogID = defaultCatalogID
 	}
-	return &Service{
+	service := &Service{
 		store: dataStore, runtime: containerRuntime,
-		manifests: manifestIndex, slugs: slugs, options: options,
+		options: options,
 	}
+	service.ReplaceCatalog(manifests)
+	return service
 }
 
 func (service *Service) Catalog() []CatalogEntry {
+	service.catalogMutex.RLock()
+	defer service.catalogMutex.RUnlock()
 	entries := make([]CatalogEntry, 0, len(service.manifests))
 	for _, manifest := range service.manifests {
 		entries = append(entries, CatalogEntry{
@@ -194,6 +193,19 @@ func (service *Service) Catalog() []CatalogEntry {
 			strings.ToLower(entries[right].Name)
 	})
 	return entries
+}
+
+func (service *Service) ReplaceCatalog(manifests []catalog.Manifest) {
+	manifestIndex := make(map[string]catalog.Manifest, len(manifests))
+	slugs := make(map[string]string, len(manifests))
+	for _, manifest := range manifests {
+		manifestIndex[manifest.ID] = manifest
+		slugs[manifest.Slug] = manifest.ID
+	}
+	service.catalogMutex.Lock()
+	service.manifests = manifestIndex
+	service.slugs = slugs
+	service.catalogMutex.Unlock()
 }
 
 func (service *Service) Doctor(ctx context.Context) (DoctorReport, error) {
@@ -379,6 +391,8 @@ func (service *Service) Get(ctx context.Context, reference string) (View, error)
 }
 
 func (service *Service) manifest(identity string) (catalog.Manifest, bool) {
+	service.catalogMutex.RLock()
+	defer service.catalogMutex.RUnlock()
 	if manifest, exists := service.manifests[identity]; exists {
 		return manifest, true
 	}

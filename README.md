@@ -29,12 +29,18 @@ product images rather than building containers during application setup.
 Run `make images-check` for the fast source and inheritance checks, or
 `make images-build` to build the complete local chain.
 
-## Built-in catalogue
+## Application catalogue
 
-The catalogue is embedded in the executable. Each application has a directory
-under `internal/catalog/manifests/<slug>/` containing `manifest.json` and its
-icon, cover, and screenshots. Every manifest has a permanent UUID identity and
-a separate human-readable slug. The directory name is an organizational
+Launcher carries an embedded catalogue as an offline fallback and checks the
+same repository for independent catalogue releases. A valid downloaded release
+is cached under the Launcher data folder and becomes the active source for the
+CLI, HTTP API, Marketplace, and catalogue artwork. A missing network connection
+or rejected download leaves the last valid catalogue active.
+
+Each application has a directory under
+`internal/catalog/manifests/<slug>/` containing `manifest.json` and its icon,
+cover, and screenshots. Every manifest has a permanent UUID identity and a
+separate human-readable slug. The directory name is an organizational
 convention and does not define either value. A manifest owns both its container
 configuration and its user-facing presentation:
 
@@ -64,10 +70,29 @@ The UUID is stored in installed agent records and must never be changed. The
 slug is used by people in commands such as `launcher create --app
 pantalk-ghost`, and may be renamed while retaining the same UUID.
 
-All media paths are validated as safe relative image paths, and every
-referenced file must exist at build time. Adding another valid manifest and
-its assets automatically makes it available to the CLI catalogue, HTTP API,
-and Marketplace.
+All media paths are validated as safe relative image paths, and every referenced
+file must exist in the same complete catalogue snapshot. Release downloads are
+bounded, checked against the SHA-256 digest reported by GitHub, validated in
+full, written atomically, and used only after every entry and asset passes.
+
+Catalogue releases use `catalogue-v<version>` tags and attach one
+`launcher-catalogue.zip` bundle. To publish a change:
+
+1. Change the manifests or artwork.
+2. Bump `version` in `internal/catalog/catalogue.json`.
+3. Merge the change to `main`.
+
+The **Release catalogue** workflow validates the entries, creates the tag, and
+publishes the bundle without rebuilding Launcher. Reusing a version for changed
+catalogue contents fails the workflow. `make catalogue-package` creates the
+same release asset locally.
+
+Launcher checks at most once every 24 hours in the background. To check
+immediately and print the active entries:
+
+```bash
+launcher catalog --refresh
+```
 
 Raster catalogue artwork is tracked with Git LFS through the local
 `.gitattributes`.
@@ -87,7 +112,7 @@ pointer file from being compiled into a release accidentally.
 ```text
 launcher desktop
 launcher serve
-launcher catalog
+launcher catalog [--refresh]
 launcher create NAME
 launcher list
 launcher status NAME
@@ -289,7 +314,7 @@ notarization, and a polished `.dmg` remain later release steps.
 main.go                    composition and process exit
 cli/                       commands, prompting, and browser opening
 internal/agent/            application lifecycle
-internal/catalog/          self-contained embedded application manifests
+internal/catalog/          embedded fallback and cached release catalogue
 internal/config/           platform data-folder selection
 internal/desktop/           Wails native desktop host
 internal/domain/           persisted instance model

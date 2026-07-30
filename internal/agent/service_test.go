@@ -166,6 +166,26 @@ func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
 	}
 }
 
+func TestReplaceCatalogChangesFutureCatalogueLookups(t *testing.T) {
+	service := newTestService(t, &fakeRuntime{})
+	updated := service.manifests[testGhostCatalogID]
+	updated.Name = "Updated Ghost"
+	updated.Image = "pantalk/ghost:updated"
+
+	service.ReplaceCatalog([]catalog.Manifest{updated})
+
+	entries := service.Catalog()
+	if len(entries) != 1 ||
+		entries[0].Name != "Updated Ghost" ||
+		entries[0].Image != "pantalk/ghost:updated" {
+		t.Fatalf("Catalog() = %#v", entries)
+	}
+	manifest, exists := service.manifest("pantalk-ghost")
+	if !exists || manifest.Image != "pantalk/ghost:updated" {
+		t.Fatalf("manifest() = %#v, %v", manifest, exists)
+	}
+}
+
 func TestCreateResolvesSlugToStableCatalogueID(t *testing.T) {
 	service := newTestService(t, &fakeRuntime{})
 

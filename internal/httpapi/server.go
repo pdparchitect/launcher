@@ -47,13 +47,14 @@ type Service interface {
 }
 
 type Server struct {
-	service    Service
-	token      string
-	handler    http.Handler
-	index      []byte
-	logger     *log.Logger
-	openPath   func(string) error
-	openViewer func(ViewerTarget) error
+	service       Service
+	token         string
+	handler       http.Handler
+	index         []byte
+	logger        *log.Logger
+	catalogAssets fs.FS
+	openPath      func(string) error
+	openViewer    func(ViewerTarget) error
 }
 
 type Option func(*Server)
@@ -69,6 +70,14 @@ func WithLogger(output io.Writer) Option {
 func WithPathOpener(opener func(string) error) Option {
 	return func(server *Server) {
 		server.openPath = opener
+	}
+}
+
+func WithCatalogAssets(assets fs.FS) Option {
+	return func(server *Server) {
+		if assets != nil {
+			server.catalogAssets = assets
+		}
 	}
 }
 
@@ -171,10 +180,11 @@ func New(service Service, token string, options ...Option) *Server {
 		panic(fmt.Sprintf("open embedded Launcher interface: %v", err))
 	}
 	server := &Server{
-		service: service,
-		token:   token,
-		index:   index,
-		logger:  log.New(io.Discard, "", 0),
+		service:       service,
+		token:         token,
+		index:         index,
+		logger:        log.New(io.Discard, "", 0),
+		catalogAssets: catalog.Assets(),
 	}
 	for _, option := range options {
 		option(server)
@@ -198,7 +208,7 @@ func New(service Service, token string, options ...Option) *Server {
 		"GET /catalog-assets/",
 		http.StripPrefix(
 			"/catalog-assets/",
-			http.FileServer(http.FS(catalog.Assets())),
+			http.FileServer(http.FS(server.catalogAssets)),
 		),
 	)
 	mux.HandleFunc("GET /{$}", server.indexPage)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"strings"
@@ -24,9 +25,10 @@ type pathOpener interface {
 }
 
 type Options struct {
-	Listen string
-	Open   bool
-	Stdout io.Writer
+	Listen        string
+	Open          bool
+	Stdout        io.Writer
+	CatalogAssets fs.FS
 }
 
 const startupTimeout = 5 * time.Second
@@ -54,6 +56,12 @@ func Run(
 	fmt.Fprintf(options.Stdout, "Starting Launcher web interface on %s\n", url)
 
 	serverOptions := []httpapi.Option{httpapi.WithLogger(options.Stdout)}
+	if options.CatalogAssets != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithCatalogAssets(options.CatalogAssets),
+		)
+	}
 	if opener, ok := opener.(pathOpener); ok {
 		serverOptions = append(
 			serverOptions,

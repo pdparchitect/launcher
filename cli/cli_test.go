@@ -27,6 +27,38 @@ func TestCatalogListsGhost(t *testing.T) {
 	}
 }
 
+func TestCatalogCanRefreshBeforeListing(t *testing.T) {
+	service := &fakeService{}
+	var stdout bytes.Buffer
+	refreshed := false
+	app := New(
+		service,
+		&fakeOpener{},
+		&stdout,
+		&bytes.Buffer{},
+		"test",
+		WithCatalogRefresh(func(context.Context) (bool, error) {
+			refreshed = true
+			service.catalog = []agent.CatalogEntry{{
+				Slug: "remote", Name: "Remote Agent", Publisher: "Test",
+			}}
+			return true, nil
+		}),
+	)
+
+	if code := app.Run(
+		t.Context(),
+		[]string{"catalog", "--refresh"},
+	); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if !refreshed ||
+		!strings.Contains(stdout.String(), "Catalogue refreshed.") ||
+		!strings.Contains(stdout.String(), "Remote Agent") {
+		t.Fatalf("refreshed = %v, stdout = %q", refreshed, stdout.String())
+	}
+}
+
 func TestListPrintsAgentTable(t *testing.T) {
 	service := &fakeService{views: []agent.View{{
 		Instance: testInstance(),

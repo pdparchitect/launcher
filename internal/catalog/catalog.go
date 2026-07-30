@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"sort"
 	"strings"
 )
 
-//go:embed manifests
+//go:embed catalogue.json manifests
 var files embed.FS
 
 type Manifest struct {
@@ -51,23 +52,25 @@ type Mount struct {
 }
 
 func Load(id string) (Manifest, error) {
+	return load(files, id)
+}
+
+func load(source fs.FS, id string) (Manifest, error) {
 	if !safeSlug(id) {
 		return Manifest{}, fmt.Errorf("invalid catalogue filename %q", id)
 	}
-	data, err := files.ReadFile(path.Join("manifests", id, "manifest.json"))
+	data, err := fs.ReadFile(source, path.Join("manifests", id, "manifest.json"))
 	if err != nil {
 		return Manifest{}, fmt.Errorf("read catalogue entry %q: %w", id, err)
 	}
 	var manifest Manifest
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
+	if err := decodeStrictJSON(data, &manifest); err != nil {
 		return Manifest{}, fmt.Errorf("decode catalogue entry %q: %w", id, err)
 	}
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, fmt.Errorf("validate catalogue entry %q: %w", id, err)
 	}
-	if err := manifest.validateAssets(); err != nil {
+	if err := manifest.validateAssets(source); err != nil {
 		return Manifest{}, fmt.Errorf("validate catalogue entry %q: %w", id, err)
 	}
 	return manifest, nil
@@ -82,7 +85,11 @@ func Assets() fs.FS {
 }
 
 func List() ([]Manifest, error) {
-	entries, err := files.ReadDir("manifests")
+	return list(files)
+}
+
+func list(source fs.FS) ([]Manifest, error) {
+	entries, err := fs.ReadDir(source, "manifests")
 	if err != nil {
 		return nil, fmt.Errorf("list catalogue: %w", err)
 	}
@@ -93,7 +100,7 @@ func List() ([]Manifest, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		manifest, loadErr := Load(entry.Name())
+		manifest, loadErr := load(source, entry.Name())
 		if loadErr != nil {
 			return nil, loadErr
 		}
@@ -203,19 +210,35 @@ func (media Media) validate() error {
 	return nil
 }
 
-func (manifest Manifest) validateAssets() error {
+func (manifest Manifest) validateAssets(source fs.FS) error {
 	names := []string{manifest.Media.Icon, manifest.Media.Cover}
 	for _, screenshot := range manifest.Media.Screenshots {
 		names = append(names, screenshot.Source)
 	}
 	for _, name := range names {
-		info, err := fs.Stat(files, path.Join("manifests", name))
+		info, err := fs.Stat(source, path.Join("manifests", name))
 		if err != nil {
 			return fmt.Errorf("media asset %q: %w", name, err)
 		}
 		if info.IsDir() {
 			return fmt.Errorf("media asset %q is a directory", name)
 		}
+	}
+	return nil
+}
+
+func decodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
 	}
 	return nil
 }
