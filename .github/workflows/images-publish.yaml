@@ -202,7 +202,7 @@ jobs:
           image="$(jq -r --arg t "$TARGET" '.target[$t].tags[0]' <<<"$graph")"
           test -n "$image"
           docker pull --platform "linux/${{ matrix.arch }}" "$image"
-          SMOKE_PORT=16901 bash tests/smoke-test.sh "$image"
+          SMOKE_PORT=16901 bash bases/desktop/tests/smoke-test.sh "$image"
 
   merge:
     needs: [verify, build]

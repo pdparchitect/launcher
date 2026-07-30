@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Runs a built product image and asserts the desktop session actually comes
+# Runs a built desktop image and asserts the desktop session actually comes
 # up. Source inspection cannot catch this class of failure: an image whose
 # Dockerfile is entirely well-formed can still boot to an empty desktop
 # because a build step left the session user unable to write its own home.

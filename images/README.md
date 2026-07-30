@@ -111,6 +111,12 @@ make smoke
 ```
 
 `make check` validates image sources and the build graph without building.
+Each image project owns a `tests/test-image.sh` beside its Dockerfile, and
+`make check` discovers and runs those project-local checks. The remaining
+`tests/test-workspace.sh` only validates release metadata and build links that
+span multiple projects. The shared live-desktop smoke contract lives under
+`bases/desktop/tests/`.
+
 `make smoke` runs the built product image and asserts the desktop session
 actually comes up: KasmVNC serving, openbox and the panel running, the welcome
 terminal started, a wallpaper applied, and nothing in `/home/agent` owned by

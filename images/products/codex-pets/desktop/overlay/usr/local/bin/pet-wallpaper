@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Keep the habitat wallpaper in step with local time and display size."""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petwallpaper
+
+POLL_SECONDS = 2
+
+
+def resolution():
+    result = subprocess.run(
+        ["xdpyinfo", "-display", os.environ.get("DISPLAY", ":1")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if fields and fields[0] == "dimensions:" and len(fields) > 1:
+            return fields[1]
+    return ""
+
+
+def selected_wallpaper(period):
+    custom = Path(os.environ.get("DESKTOP_WALLPAPER", ""))
+    if str(custom) and custom.is_file():
+        return custom
+    return petwallpaper.path_for(period)
+
+
+def apply(path, label):
+    if not path.is_file():
+        raise RuntimeError(f"wallpaper is missing: {path}")
+    result = subprocess.run(
+        ["feh", "--no-fehbg", "--bg-fill", str(path)],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"feh exited {result.returncode} for {path}")
+    print(f"habitat changed to {label}", flush=True)
+
+
+def run(once=False, override=None):
+    override = override or os.environ.get("PETS_WALLPAPER_PERIOD") or None
+    last = None
+    while True:
+        period = petwallpaper.current_period(override=override)
+        path = selected_wallpaper(period)
+        current_resolution = resolution()
+        state = (str(path), current_resolution)
+        if current_resolution and state != last:
+            custom = os.environ.get("DESKTOP_WALLPAPER")
+            label = (
+                "custom wallpaper"
+                if custom and Path(custom).is_file()
+                else period
+            )
+            apply(path, label)
+            last = state
+        if once:
+            return 0 if current_resolution else 1
+        time.sleep(POLL_SECONDS)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="pet-wallpaper",
+        description="follow local dawn, day, dusk and night",
+    )
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--period", choices=petwallpaper.PERIODS)
+    arguments = parser.parse_args(argv)
+    try:
+        return run(once=arguments.once, override=arguments.period)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"pet-wallpaper: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -47,6 +47,7 @@ RUN npm_config_cache=/tmp/npm-cache \
 # product exists.
 COPY overlay /
 RUN chmod 0755 \
+        /etc/desktop/session.d/05-pet-wallpaper \
         /etc/desktop/session.d/10-pets \
         /usr/local/bin/codex-setup \
         /usr/local/bin/desktop-harness \
@@ -54,8 +55,10 @@ RUN chmod 0755 \
         /usr/local/bin/desktop-selftest \
         /usr/local/bin/desktop-welcome \
         /usr/local/bin/pen-greeting \
+        /usr/local/bin/pet-habitat \
         /usr/local/bin/pet-run \
         /usr/local/bin/pet-sprite \
+        /usr/local/bin/pet-wallpaper \
         /usr/local/bin/petctl \
         /usr/local/bin/petd
 

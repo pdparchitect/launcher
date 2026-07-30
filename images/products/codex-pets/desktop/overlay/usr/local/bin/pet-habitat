@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""Render the small objects pets leave behind on the desktop floor."""
+
+import hashlib
+import os
+import sys
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+sys.path.insert(0, "/usr/local/lib/pets")
+
+import petartifacts  # noqa: E402
+import petlib  # noqa: E402
+
+SCALE = max(1, int(os.environ.get("PETS_SPRITE_SCALE", "4")))
+REFRESH_MILLISECONDS = 1000
+TRANSPARENT = "."
+
+# Every artifact uses the same tiny sheet size. The constrained vocabulary is
+# intentional: a pet chooses what an object means, but cannot make the desktop
+# execute or render arbitrary content.
+ICONS = {
+    "note": (
+        "..iiii....",
+        ".iffffi...",
+        ".ifaffi...",
+        ".iffffi...",
+        ".ifaffi...",
+        ".iffffi...",
+        ".ifaffi...",
+        ".iffffi...",
+        ".iiiiii...",
+        "..........",
+    ),
+    "doodle": (
+        "..........",
+        "..ii......",
+        ".iaai..ii.",
+        "..iai.iaai",
+        "...iiai.i.",
+        ".ii.iai...",
+        "iaai.ii...",
+        ".ii.......",
+        "..........",
+        "..........",
+    ),
+    "gift": (
+        "..........",
+        "..ia.ia...",
+        "..iaiai...",
+        ".iiiiiii..",
+        ".iafffai..",
+        ".ifafafi..",
+        ".iffaffi..",
+        ".iafffai..",
+        ".iiiiiii..",
+        "..........",
+    ),
+    "trophy": (
+        "..........",
+        ".iifffii..",
+        "iaifffiai.",
+        "iaifffiai.",
+        ".iifffii..",
+        "...ifi....",
+        "...ifi....",
+        "..iafai...",
+        ".iiiiiii..",
+        "..........",
+    ),
+    "warning": (
+        "....i.....",
+        "...iai....",
+        "...iai....",
+        "..iafai...",
+        "..iafai...",
+        ".iafffai..",
+        ".iafafai..",
+        "iafffffai.",
+        "iiiiiiiii.",
+        "..........",
+    ),
+    "found-object": (
+        "..........",
+        "...ii.....",
+        "..iaai....",
+        ".iaffai...",
+        ".iaafai...",
+        "..iaai....",
+        "...iiiii..",
+        "......iai.",
+        ".......i..",
+        "..........",
+    ),
+}
+
+COLOURS = {
+    "note": {"i": "#0B0C1A", "f": "#F2D96B", "a": "#FFF4B8"},
+    "doodle": {"i": "#0B0C1A", "f": "#7C84B8", "a": "#D7DCF5"},
+    "gift": {"i": "#0B0C1A", "f": "#B65C8A", "a": "#F2D96B"},
+    "trophy": {"i": "#0B0C1A", "f": "#F5C542", "a": "#FFF4B8"},
+    "warning": {"i": "#0B0C1A", "f": "#E8724C", "a": "#F2D96B"},
+    "found-object": {"i": "#0B0C1A", "f": "#63E29E", "a": "#D7DCF5"},
+}
+
+
+def rgb(colour):
+    return tuple(
+        int(colour[index : index + 2], 16) / 255 for index in (1, 3, 5)
+    )
+
+
+def region_for(rows):
+    region = cairo.Region()
+    for y, row in enumerate(rows):
+        start = None
+        for x, pixel in enumerate(row + TRANSPARENT):
+            if pixel != TRANSPARENT and start is None:
+                start = x
+            elif pixel == TRANSPARENT and start is not None:
+                region.union(
+                    cairo.RectangleInt(
+                        start * SCALE,
+                        y * SCALE,
+                        (x - start) * SCALE,
+                        SCALE,
+                    )
+                )
+                start = None
+    return region
+
+
+class ArtifactWindow:
+    def __init__(self, pet, artifact, modified):
+        self.pet = pet
+        self.artifact = artifact
+        self.modified = modified
+        self.rows = ICONS[artifact["kind"]]
+        self.palette = COLOURS[artifact["kind"]]
+        self.width = len(self.rows[0]) * SCALE
+        self.height = len(self.rows) * SCALE
+
+        self.window = Gtk.Window(type=Gtk.WindowType.POPUP)
+        self.window.set_title(f"Artifact: {pet.name}: {artifact['title']}")
+        self.window.set_app_paintable(True)
+        self.window.set_size_request(self.width, self.height)
+        self.window.set_tooltip_text(
+            f"{pet.name}: {artifact['title']}\n"
+            "Click to read · right-click for options"
+        )
+        self.window.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.window.connect("draw", self.on_draw)
+        self.window.connect("button-press-event", self.on_press)
+        self.window.show_all()
+        self.window.get_window().shape_combine_region(region_for(self.rows), 0, 0)
+        self.menu = None
+
+    def place(self, x, y):
+        self.window.move(x, y)
+        surface = self.window.get_window()
+        if surface is not None:
+            surface.raise_()
+
+    def destroy(self):
+        self.window.destroy()
+
+    def on_draw(self, _widget, context):
+        context.set_antialias(cairo.ANTIALIAS_NONE)
+        for y, row in enumerate(self.rows):
+            x = 0
+            while x < len(row):
+                pixel = row[x]
+                if pixel == TRANSPARENT:
+                    x += 1
+                    continue
+                end = x
+                while end < len(row) and row[end] == pixel:
+                    end += 1
+                context.set_source_rgb(*rgb(self.palette[pixel]))
+                context.rectangle(
+                    x * SCALE,
+                    y * SCALE,
+                    (end - x) * SCALE,
+                    SCALE,
+                )
+                context.fill()
+                x = end
+        return True
+
+    def on_press(self, _widget, event):
+        if event.button == 3:
+            self.open_menu(event)
+        else:
+            self.open_card()
+        return True
+
+    def open_card(self, *_):
+        dialog = Gtk.MessageDialog(
+            transient_for=None,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self.artifact["title"],
+        )
+        dialog.format_secondary_text(
+            f"{self.artifact['message']}\n\n"
+            f"Left by {self.pet.name} · {self.artifact['kind']}"
+        )
+        dialog.add_button("Clear away", 1)
+        dialog.add_button(
+            "Unpin" if self.artifact["pinned"] else "Pin",
+            2,
+        )
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        response = dialog.run()
+        dialog.destroy()
+        if response == 1:
+            petartifacts.remove(self.pet, self.artifact["id"])
+        elif response == 2:
+            petartifacts.set_pinned(
+                self.pet,
+                self.artifact["id"],
+                not self.artifact["pinned"],
+            )
+
+    def open_menu(self, event):
+        self.menu = Gtk.Menu()
+        for label, callback in (
+            ("Read", self.open_card),
+            (
+                "Unpin" if self.artifact["pinned"] else "Pin",
+                self.toggle_pin,
+            ),
+            ("Clear away", self.clear_away),
+        ):
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", callback)
+            self.menu.append(item)
+        self.menu.show_all()
+        self.menu.popup_at_pointer(event)
+
+    def toggle_pin(self, *_):
+        petartifacts.set_pinned(
+            self.pet,
+            self.artifact["id"],
+            not self.artifact["pinned"],
+        )
+
+    def clear_away(self, *_):
+        petartifacts.remove(self.pet, self.artifact["id"])
+
+
+class Habitat:
+    def __init__(self):
+        self.windows = {}
+
+    @staticmethod
+    def workarea():
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        area = monitor.get_workarea() if monitor else None
+        if area is None or area.height <= 0:
+            area = monitor.get_geometry()
+        return area
+
+    def artifacts(self):
+        found = []
+        for pet in petlib.iter_pets():
+            for artifact in petartifacts.list_for(pet):
+                path = pet.artifacts / f"{artifact['id']}.json"
+                try:
+                    modified = path.stat().st_mtime_ns
+                except OSError:
+                    continue
+                found.append((pet, artifact, modified))
+        return found
+
+    def refresh(self):
+        found = self.artifacts()
+        present = {
+            f"{pet.name}/{artifact['id']}" for pet, artifact, _modified in found
+        }
+
+        for key in list(self.windows):
+            if key not in present:
+                self.windows.pop(key).destroy()
+
+        for pet, artifact, modified in found:
+            key = f"{pet.name}/{artifact['id']}"
+            current = self.windows.get(key)
+            if current is not None and current.modified == modified:
+                continue
+            if current is not None:
+                current.destroy()
+            self.windows[key] = ArtifactWindow(pet, artifact, modified)
+
+        self.place_windows()
+        return True
+
+    def place_windows(self):
+        area = self.workarea()
+        if area is None:
+            return
+
+        cell_width = 14 * SCALE
+        cell_height = 12 * SCALE
+        columns = max(1, area.width // cell_width)
+        used = set()
+        for key, window in sorted(self.windows.items()):
+            seed = int(hashlib.sha256(key.encode()).hexdigest()[:8], 16)
+            cell = seed % columns
+            while cell in used:
+                cell += 1
+            used.add(cell)
+            column = cell % columns
+            row = cell // columns
+            x = area.x + column * cell_width + (cell_width - window.width) // 2
+            y = area.y + area.height - window.height - row * cell_height
+            window.place(x, y)
+
+    def run(self):
+        self.refresh()
+        GLib.timeout_add(REFRESH_MILLISECONDS, self.refresh)
+        Gtk.main()
+
+
+def main():
+    if Gdk.Display.get_default() is None:
+        print(
+            f"pet-habitat: cannot open display {os.environ.get('DISPLAY', '(unset)')}",
+            file=sys.stderr,
+        )
+        return 3
+    Habitat().run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

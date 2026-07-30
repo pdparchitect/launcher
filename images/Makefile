@@ -98,11 +98,14 @@ print:
 	@$(BAKE_ENV) $(BAKE_CMD) --print all
 
 check:
-	bash tests/test-images.sh
+	bash tests/test-workspace.sh
+	@while IFS= read -r test_script; do \
+		bash "$$test_script"; \
+	done < <(find core runtimes bases products -path '*/tests/test-image.sh' | sort)
 
 # Runs the built product image and asserts the desktop session comes up.
 smoke:
-	bash tests/smoke-test.sh $(SMOKE_IMAGE)
+	bash bases/desktop/tests/smoke-test.sh $(SMOKE_IMAGE)
 
 # Depends on the target, so `make run` can never serve a stale image.
 run: $(TARGET)
