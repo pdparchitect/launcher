@@ -43,12 +43,16 @@ RUN git clone --branch "${HERMES_SOURCE_TAG}" --depth 1 \
 WORKDIR /opt/hermes
 
 ENV UV_PYTHON=/usr/bin/python3 \
+    UV_LINK_MODE=copy \
     PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
     npm_config_install_links=false
 
 # Match the dependency profiles baked into the upstream Hermes container while
 # retaining this image's Launcher desktop as the final parent. Install only
 # dependencies here; the project is linked after its generated frontends exist.
+# Copies keep the environment independent from uv's build cache, which is
+# removed below and may otherwise invalidate linked files when OCI layers are
+# applied by runtimes such as Apple container.
 RUN uv sync --frozen \
         --no-install-project \
         --extra all \

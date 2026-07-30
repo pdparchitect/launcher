@@ -8,6 +8,12 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.4]
+
+- Copy Python dependencies into the Hermes virtual environment so removing the
+  uv build cache cannot corrupt packages when Apple container applies the image
+  layers.
+
 ## [0.1.3]
 
 - Publish the Launcher application definition and artwork as an OCI artifact
