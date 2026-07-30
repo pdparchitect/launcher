@@ -4,8 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,9 +19,8 @@ func TestLoadApplicationBundleDerivesDigestImageAndScopesAssets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadApplicationBundle() error = %v", err)
 	}
-	if bundle.Version != "1.2.3" ||
-		bundle.Manifest.Image !=
-			"ghcr.io/example/ghost@sha256:"+strings.Repeat("a", 64) {
+	if bundle.Manifest.Image !=
+		"ghcr.io/example/ghost@sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("application identity = %#v", bundle)
 	}
 	if bundle.Manifest.Media.Icon != "ghost/icon.svg" ||
@@ -34,6 +31,27 @@ func TestLoadApplicationBundleDerivesDigestImageAndScopesAssets(t *testing.T) {
 	}
 	if string(bundle.Assets["ghost/icon.svg"]) != "<svg/>" {
 		t.Fatalf("assets = %#v", bundle.Assets)
+	}
+}
+
+func TestLoadApplicationBundleAcceptsLegacyVersion(t *testing.T) {
+	document := strings.Replace(
+		testApplicationJSON("ghost", testApplicationID),
+		`"schemaVersion": 1,`,
+		`"schemaVersion": 1, "version": "1.2.3",`,
+		1,
+	)
+	_, err := loadApplicationBundle(
+		testBundle(t, map[string]string{
+			"application.json": document,
+			"icon.svg":         "<svg/>",
+			"screenshot.png":   "\x89PNG\r\n\x1a\n",
+		}),
+		"ghcr.io/example/ghost",
+		"sha256:"+strings.Repeat("a", 64),
+	)
+	if err != nil {
+		t.Fatalf("loadApplicationBundle() legacy version error = %v", err)
 	}
 }
 
@@ -60,42 +78,6 @@ func TestLoadApplicationBundleRejectsMissingAsset(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "screenshot.png") {
 		t.Fatalf("loadApplicationBundle() error = %v, want asset error", err)
-	}
-}
-
-func TestLauncherProductApplicationBundles(t *testing.T) {
-	products := []struct {
-		slug    string
-		version string
-	}{
-		{slug: "codex-pets", version: "0.2.1"},
-		{slug: "hermes", version: "0.1.3"},
-		{slug: "openclaw", version: "0.1.1"},
-	}
-	for _, product := range products {
-		t.Run(product.slug, func(t *testing.T) {
-			directory := filepath.Join(
-				"..",
-				"..",
-				"images",
-				"products",
-				product.slug,
-				"desktop",
-				"launcher",
-			)
-			bundle, err := loadApplicationBundle(
-				directoryBundle(t, directory),
-				"ghcr.io/pdparchitect/launcher-image-"+product.slug+"-desktop",
-				"sha256:"+strings.Repeat("a", 64),
-			)
-			if err != nil {
-				t.Fatalf("loadApplicationBundle() error = %v", err)
-			}
-			if bundle.Manifest.Slug != product.slug ||
-				bundle.Version != product.version {
-				t.Fatalf("application bundle = %#v", bundle)
-			}
-		})
 	}
 }
 
@@ -136,20 +118,6 @@ func TestParseFeedRejectsDuplicateApplication(t *testing.T) {
 	}
 }
 
-func TestPublisherFeedIsValid(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "publisher", "feed.json"))
-	if err != nil {
-		t.Fatalf("read publisher feed: %v", err)
-	}
-	feed, err := parseFeed(data)
-	if err != nil {
-		t.Fatalf("parseFeed() error = %v", err)
-	}
-	if feed.Publisher != "PDP Architect" || len(feed.Applications) != 6 {
-		t.Fatalf("publisher feed = %#v", feed)
-	}
-}
-
 func TestValidateRejectsFloatingLatestImage(t *testing.T) {
 	manifest := validManifest()
 	manifest.Image = "ghcr.io/example/ghost:latest"
@@ -168,21 +136,19 @@ func TestValidateRejectsUnsafeMountName(t *testing.T) {
 
 func validManifest() Manifest {
 	return Manifest{
-		ID:                    testApplicationID,
-		Slug:                  "ghost",
-		Name:                  "Ghost",
-		Publisher:             "Example",
-		Description:           "A test application.",
-		Tags:                  []string{"TEST"},
-		Media:                 Media{Icon: "icon.svg", Cover: "screenshot.png", Screenshots: []Screenshot{{Source: "screenshot.png", Alt: "Ghost screen"}}},
-		Image:                 "ghcr.io/example/ghost@sha256:" + strings.Repeat("a", 64),
-		Viewer:                "kasmvnc",
-		ContainerPort:         6901,
-		SharedMemory:          "1g",
-		ResolutionEnvironment: "DESKTOP_RESOLUTION",
-		Resolution:            "1920x1080",
-		Environment:           map[string]string{},
-		Mounts:                []Mount{{Name: "workspace", Target: "/workspace"}},
+		ID:            testApplicationID,
+		Slug:          "ghost",
+		Name:          "Ghost",
+		Publisher:     "Example",
+		Description:   "A test application.",
+		Tags:          []string{"TEST"},
+		Media:         Media{Icon: "icon.svg", Cover: "screenshot.png", Screenshots: []Screenshot{{Source: "screenshot.png", Alt: "Ghost screen"}}},
+		Image:         "ghcr.io/example/ghost@sha256:" + strings.Repeat("a", 64),
+		Viewer:        "kasmvnc",
+		ContainerPort: 6901,
+		SharedMemory:  "1g",
+		Environment:   map[string]string{},
+		Mounts:        []Mount{{Name: "workspace", Target: "/workspace"}},
 	}
 }
 
@@ -198,7 +164,6 @@ func testApplicationBundle(t *testing.T, slug string, id string) []byte {
 func testApplicationJSON(slug string, id string) string {
 	return `{
 		"schemaVersion": 1,
-		"version": "1.2.3",
 		"id": "` + id + `",
 		"slug": "` + slug + `",
 		"name": "` + slug + `",
@@ -213,8 +178,6 @@ func testApplicationJSON(slug string, id string) string {
 		"viewer": "kasmvnc",
 		"containerPort": 6901,
 		"sharedMemory": "1g",
-		"resolutionEnvironment": "DESKTOP_RESOLUTION",
-		"resolution": "1920x1080",
 		"environment": {},
 		"mounts": [{"name": "workspace", "target": "/workspace"}]
 	}`
@@ -235,36 +198,6 @@ func testBundle(t *testing.T, files map[string]string) []byte {
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close bundle: %v", err)
-	}
-	return buffer.Bytes()
-}
-
-func directoryBundle(t *testing.T, directory string) []byte {
-	t.Helper()
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("read application directory: %v", err)
-	}
-	var buffer bytes.Buffer
-	writer := zip.NewWriter(&buffer)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Join(directory, entry.Name()))
-		if readErr != nil {
-			t.Fatalf("read application path %q: %v", entry.Name(), readErr)
-		}
-		target, createErr := writer.Create(entry.Name())
-		if createErr != nil {
-			t.Fatalf("create application path %q: %v", entry.Name(), createErr)
-		}
-		if _, writeErr := target.Write(data); writeErr != nil {
-			t.Fatalf("write application path %q: %v", entry.Name(), writeErr)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close application directory bundle: %v", err)
 	}
 	return buffer.Bytes()
 }

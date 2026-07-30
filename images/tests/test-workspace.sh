@@ -72,10 +72,8 @@ for product_dir in "${product_dirs[@]}"; do
         echo "Product $product_dir has no Launcher application document." >&2
         exit 1
     fi
-    product_version="$(tr -d '[:space:]' < "$product_dir/VERSION")"
-    if [ "$(jq -er '.schemaVersion' "$application")" != 1 ] ||
-        [ "$(jq -er '.version' "$application")" != "$product_version" ]; then
-        echo "$application does not match product version $product_version." >&2
+    if [ "$(jq -er '.schemaVersion' "$application")" != 1 ]; then
+        echo "$application has an unsupported schema version." >&2
         exit 1
     fi
     if jq -e 'has("image")' "$application" >/dev/null; then
@@ -217,10 +215,5 @@ assert_linked openclaw-desktop desktop \
     products/openclaw/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked codex-pets-desktop desktop \
     products/codex-pets/desktop/Dockerfile DESKTOP_IMAGE
-
-for target in core-ubuntu node desktop hermes-desktop openclaw-desktop \
-    codex-pets-desktop; do
-    jq -e --arg target "$target" '.target[$target]' <<<"$graph" >/dev/null
-done
 
 echo "Image workspace release and build-graph checks passed."

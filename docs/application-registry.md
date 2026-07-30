@@ -59,13 +59,12 @@ An independently released image repository uses the equivalent root-level
 
 ## Application document
 
-The document has a durable UUID, a human-readable slug, a semantic product
-version, presentation data, and runtime configuration:
+The document has a durable UUID, a human-readable slug, presentation data, and
+runtime configuration:
 
 ```json
 {
   "schemaVersion": 1,
-  "version": "0.1.3",
   "id": "f726241a-ff31-423d-92ad-f2b43cca742f",
   "slug": "hermes",
   "name": "Hermes",
@@ -86,8 +85,6 @@ version, presentation data, and runtime configuration:
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",
-  "resolutionEnvironment": "DESKTOP_RESOLUTION",
-  "resolution": "1920x1080",
   "environment": {},
   "mounts": [
     {
@@ -108,12 +105,11 @@ Application metadata ships with its image release:
 
 1. Change the image source and its `launcher/application.json` or artwork.
 2. Bump the product `VERSION` and add the matching `CHANGELOG.md` section.
-3. Set `application.json` `version` to the same product version.
-4. Run the image checks and merge the release change to `main`.
-5. Let the image release workflow build and smoke-test both architectures,
+3. Run the image checks and merge the release change to `main`.
+4. Let the image release workflow build and smoke-test both architectures,
    create the multi-architecture image, attach the application bundle, and move
    `launcher-stable`.
-6. Confirm the GitHub Release, image digest, immutable application tag, and
+5. Confirm the GitHub Release, image digest, immutable application tag, and
    stable application channel before calling the application published.
 
 There is no second catalogue bump or catalogue release.

@@ -8,11 +8,18 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.5]
+
+- Remove the unused product-version copy from the Launcher application
+  document. The product `VERSION` file remains authoritative.
+
 ## [0.1.4]
 
 - Copy Python dependencies into the Hermes virtual environment so removing the
   uv build cache cannot corrupt packages when Apple container applies the image
   layers.
+- Remove redundant fixed-resolution metadata from the Launcher application
+  definition so the viewer can determine its active desktop size.
 
 ## [0.1.3]
 

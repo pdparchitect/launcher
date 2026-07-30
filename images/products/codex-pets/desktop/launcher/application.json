@@ -1,6 +1,5 @@
 {
   "schemaVersion": 1,
-  "version": "0.2.1",
   "id": "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe",
   "slug": "codex-pets",
   "name": "Codex Pets",
@@ -25,8 +24,6 @@
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",
-  "resolutionEnvironment": "DESKTOP_RESOLUTION",
-  "resolution": "1920x1080",
   "environment": {},
   "mounts": [
     {

@@ -9,6 +9,11 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.1]
+
+- Let KasmVNC select its initial framebuffer and resize it to the connected
+  viewer instead of configuring a fixed desktop resolution.
+
 ## [0.1.0]
 
 - Ubuntu 24.04 foundation with operating-system tooling only; no language

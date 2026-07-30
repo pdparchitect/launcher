@@ -147,13 +147,13 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	go runRefreshLoop(
+	go runCatalogueRefreshLoop(
 		ctx,
 		catalog.DefaultRefreshInterval,
-		func(ctx context.Context) {
+		func(ctx context.Context, force bool) {
 			refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_, _ = refreshCatalogue(refreshCtx, false)
+			_, _ = refreshCatalogue(refreshCtx, force)
 		},
 	)
 	go runRefreshLoop(
@@ -187,4 +187,16 @@ func runRefreshLoop(
 			refresh(ctx)
 		}
 	}
+}
+
+func runCatalogueRefreshLoop(
+	ctx context.Context,
+	interval time.Duration,
+	refresh func(context.Context, bool),
+) {
+	force := true
+	runRefreshLoop(ctx, interval, func(ctx context.Context) {
+		refresh(ctx, force)
+		force = false
+	})
 }

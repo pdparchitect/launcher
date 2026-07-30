@@ -141,6 +141,7 @@ export class LauncherApp extends HTMLElement {
     this.filter = 'all'
     this.page = 1
     this.agentRefreshPending = false
+    this.deletedAgentIDs = new Set()
     this.startWatches = new Map()
   }
 
@@ -352,7 +353,7 @@ export class LauncherApp extends HTMLElement {
       this.doctorReport = doctor.ready ? doctor.report : null
       this.runtimeSetup = doctor.ready ? null : doctor.setup
       this.catalog = catalog.catalog || []
-      this.agents = instances.instances || []
+      this.applyAgentSnapshot(instances.instances || [])
       this.catalogLoading = false
       this.render()
 
@@ -378,7 +379,7 @@ export class LauncherApp extends HTMLElement {
     try {
       const result = await this.api.instances()
 
-      this.agents = result.instances || []
+      this.applyAgentSnapshot(result.instances || [])
       await this.checkStartWatches()
       this.renderScreen()
     } catch (error) {
@@ -386,6 +387,20 @@ export class LauncherApp extends HTMLElement {
     } finally {
       this.agentRefreshPending = false
     }
+  }
+
+  applyAgentSnapshot(instances) {
+    const presentIDs = new Set(instances.map((agent) => agent.id))
+
+    for (const id of this.deletedAgentIDs) {
+      if (!presentIDs.has(id)) {
+        this.deletedAgentIDs.delete(id)
+      }
+    }
+
+    this.agents = instances.filter(
+      (agent) => !this.deletedAgentIDs.has(agent.id)
+    )
   }
 
   async refreshLauncherUpdate() {
@@ -1540,6 +1555,9 @@ export class LauncherApp extends HTMLElement {
 
     try {
       await this.api.delete(agent.id)
+      this.deletedAgentIDs.add(agent.id)
+      this.agents = this.agents.filter((candidate) => candidate.id !== agent.id)
+      this.startWatches.delete(agent.id)
       this.recordActivity(
         'delete',
         `Deleted ${agent.name}`,
@@ -1547,8 +1565,9 @@ export class LauncherApp extends HTMLElement {
         'Agent and managed files removed'
       )
       dialog.close()
-      await this.refreshAgents()
+      this.renderScreen()
       this.showToast(`${agent.name} deleted`)
+      void this.refreshAgents()
     } catch (error) {
       dialog.showError('delete', error.message)
     } finally {

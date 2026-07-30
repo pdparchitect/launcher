@@ -55,6 +55,7 @@ function installWindowDragBridge() {
   if (windowDragBridgeInstalled) {
     return
   }
+
   windowDragBridgeInstalled = true
 
   /*
@@ -85,7 +86,18 @@ function installWindowDragBridge() {
         .getPropertyValue('--wails-draggable')
         .trim()
 
-      if (draggable !== 'drag') {
+      const dialogBounds = event.target.matches('dialog.launcher-dialog[open]')
+        ? event.target.getBoundingClientRect()
+        : null
+
+      const onDialogBackdrop =
+        dialogBounds &&
+        (event.clientX < dialogBounds.left ||
+          event.clientX > dialogBounds.right ||
+          event.clientY < dialogBounds.top ||
+          event.clientY > dialogBounds.bottom)
+
+      if (draggable !== 'drag' && !onDialogBackdrop) {
         return
       }
 
