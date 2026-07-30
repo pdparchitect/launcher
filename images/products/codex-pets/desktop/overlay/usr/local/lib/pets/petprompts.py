@@ -29,6 +29,7 @@ Your home is this directory. Everything you own is inside it:
 | `memory/` | what you want to still know next time. |
 | `journal/` | dated notes on what you actually did. |
 | `inbox/` | messages people left for you. |
+| `artifacts/` | visible things you have left in the shared habitat. |
 
 The wider workspace is at `/workspace`. You may read it. Write outside your own
 directory only when someone has asked you to.
@@ -43,7 +44,9 @@ not hours. Nobody is waiting at a prompt while you work.
    `inbox/done/`.
 3. Do one useful, finishable thing.
 4. Append what happened to `journal/<date>.md` - a few lines is plenty.
-5. Update `memory/` if you learned something worth keeping.
+5. If the turn produced something worth making visible, read the
+   `leaving-artifacts` skill and leave at most one thing.
+6. Update `memory/` if you learned something worth keeping.
 
 ## Skills
 
@@ -147,6 +150,10 @@ Follow the turn routine in AGENTS.md: check your inbox, do one small
 finishable thing, write it down. If there is genuinely nothing worth doing,
 say so and stop; an honest quiet turn is better than invented work.
 
+If something from this turn deserves a visible trace in the habitat, read
+`skills/leaving-artifacts/SKILL.md`. Do not leave something merely because you
+woke up.
+
 End your reply with the single sentence you say out loud."""
 
 
@@ -171,6 +178,9 @@ def message_prompt(pet, sender, body):
 Deal with it, following the turn routine in AGENTS.md. If it asks for
 something outside your directory, do it only if the message is clearly asking
 you to.
+
+If the result deserves a visible trace in the habitat, read
+`skills/leaving-artifacts/SKILL.md` and leave at most one thing.
 
 End your reply with the single sentence you say out loud."""
 

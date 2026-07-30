@@ -4,6 +4,20 @@ Codex Pets source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.2.0]
+
+- Pets can leave notes, doodles, gifts, trophies, warnings and found objects
+  as visible pixel-art artifacts on the desktop.
+- Every pet owns a `leaving-artifacts` skill and an `artifacts/` directory;
+  existing pets gain the missing skill without overwriting anything they have
+  changed.
+- Artifacts open into readable cards, can be pinned or cleared from their
+  right-click menu, expire automatically and are capped per pet.
+- `petctl artifact` exposes the same leave, list, pin and cleanup lifecycle to
+  agents and people.
+- The habitat follows local time through distinct dawn, day, dusk and night
+  pixel-art wallpapers, while preserving explicit wallpaper overrides.
+
 ## [0.1.0]
 
 - Codex CLI pinned to 0.146.0, with `codex-setup` for device or API-key

@@ -19,6 +19,7 @@ from xml.sax.saxutils import escape
 
 sys.path.insert(0, "/usr/local/lib/pets")
 
+import petartifacts
 import petlib
 import petprompts
 import petsprites
@@ -58,7 +59,14 @@ def scaffold(name, species, colour, persona, heartbeat):
     persona = persona or f"You are {description}."
 
     try:
-        for directory in (pet.directory, pet.skills, pet.memory, pet.journal, pet.inbox):
+        for directory in (
+            pet.directory,
+            pet.skills,
+            pet.memory,
+            pet.journal,
+            pet.inbox,
+            pet.artifacts,
+        ):
             directory.mkdir(parents=True, exist_ok=True)
         (pet.inbox / "done").mkdir(exist_ok=True)
     except PermissionError:
@@ -88,6 +96,7 @@ def scaffold(name, species, colour, persona, heartbeat):
     petlib.atomic_write(
         pet.memory / "README.md", petprompts.MEMORY_SEED.format(name=name)
     )
+    petartifacts.install(pet)
 
     pet.write_state(activity="idle", detail="just arrived")
     pet.say(f"hello, I am {name}")
@@ -209,6 +218,11 @@ def command_show(arguments):
     journals = sorted(pet.journal.glob("*.md")) if pet.journal.is_dir() else []
     if journals:
         print(f"  journal    {journals[-1].name} ({len(journals)} days)")
+    artifacts = petartifacts.list_for(pet)
+    if artifacts:
+        pinned = sum(1 for artifact in artifacts if artifact["pinned"])
+        suffix = f", {pinned} pinned" if pinned else ""
+        print(f"  artifacts  {len(artifacts)} visible{suffix}")
     return 0
 
 
@@ -288,6 +302,80 @@ def command_tell(arguments):
     return 0
 
 
+def artifact_pet(name=None):
+    name = name or os.environ.get("PET_NAME")
+    if not name:
+        raise petlib.PetError(
+            "name a pet, or run this from a pet turn with PET_NAME set"
+        )
+    pet = petlib.Pet(name)
+    if not pet.exists():
+        raise petlib.PetError(f"no pet named '{name}'")
+    return pet
+
+
+def command_artifact_leave(arguments):
+    pet = artifact_pet(arguments.name)
+    artifact = petartifacts.leave(
+        pet,
+        kind=arguments.kind,
+        title=arguments.title,
+        message=arguments.message,
+        ttl=arguments.ttl,
+    )
+    print(f"{pet.name} left {artifact['kind']} {artifact['id']}")
+    return 0
+
+
+def command_artifact_list(arguments):
+    pet = artifact_pet(arguments.name)
+    artifacts = petartifacts.list_for(pet)
+    if not artifacts:
+        print(f"{pet.name} has left nothing in the habitat.")
+        return 0
+
+    now = time.time()
+    for artifact in artifacts:
+        if artifact["pinned"]:
+            lifetime = "pinned"
+        else:
+            remaining = max(1, int(artifact["expires_at"] - now))
+            lifetime = f"{petlib.format_duration(remaining)} left"
+        print(
+            f"{artifact['id']}  {artifact['kind']:<12} "
+            f"{artifact['title']}  {DIM}{lifetime}{RESET}"
+        )
+    return 0
+
+
+def command_artifact_remove(arguments):
+    pet = artifact_pet(arguments.name)
+    if not petartifacts.remove(pet, arguments.artifact_id):
+        return fail(f"no artifact '{arguments.artifact_id}' for {pet.name}")
+    print(f"cleared away {arguments.artifact_id}")
+    return 0
+
+
+def command_artifact_clear(arguments):
+    pet = artifact_pet(arguments.name)
+    count = petartifacts.clear(pet, include_pinned=arguments.all)
+    noun = "artifact" if count == 1 else "artifacts"
+    print(f"cleared away {count} {noun} from {pet.name}")
+    return 0
+
+
+def command_artifact_pin(arguments):
+    pet = artifact_pet(arguments.name)
+    petartifacts.set_pinned(
+        pet,
+        arguments.artifact_id,
+        not arguments.off,
+    )
+    word = "unpinned" if arguments.off else "pinned"
+    print(f"{word} {arguments.artifact_id}")
+    return 0
+
+
 def command_chat(arguments):
     """Open an interactive Codex session inside the pet's own directory.
 
@@ -307,7 +395,7 @@ def command_chat(arguments):
     environment["PET_NAME"] = pet.name
     environment["PET_HOME"] = str(pet.directory)
     os.chdir(pet.directory)
-    os.execvpe("codex", ["codex", "--skip-git-repo-check"], environment)
+    os.execvpe("codex", ["codex"], environment)
 
 
 def command_edit(arguments):
@@ -487,6 +575,10 @@ def command_menu(_arguments):
             ("Chat", f"kitty -e petctl chat {pet.name}"),
             ("Poke", f"petctl poke {pet.name}"),
             ("Journal", f'kitty -e bash -lc "petctl log {pet.name}; read -n 1 -s -r"'),
+            (
+                "Artifacts",
+                f'kitty -e bash -lc "petctl artifact list {pet.name}; read -n 1 -s -r"',
+            ),
             ("Edit character", f"kitty -e petctl edit {pet.name}"),
             ("Edit body", f"kitty -e petctl edit --config {pet.name}"),
             ("Files", f"kitty -e ranger {pet.directory}"),
@@ -539,6 +631,57 @@ def build_parser():
     tell.add_argument("name")
     tell.add_argument("message", nargs="*")
     tell.set_defaults(handler=command_tell)
+
+    artifact = subparsers.add_parser(
+        "artifact", help="leave and look after visible habitat objects"
+    )
+    artifact_commands = artifact.add_subparsers(
+        dest="artifact_command", required=True
+    )
+
+    artifact_leave = artifact_commands.add_parser(
+        "leave", help="leave one visible thing behind"
+    )
+    artifact_leave.add_argument(
+        "name", nargs="?", help="defaults to PET_NAME during a pet turn"
+    )
+    artifact_leave.add_argument("--kind", required=True, choices=petartifacts.KINDS)
+    artifact_leave.add_argument("--title", required=True)
+    artifact_leave.add_argument("--message", required=True)
+    artifact_leave.add_argument("--ttl", help="override its normal lifetime")
+    artifact_leave.set_defaults(handler=command_artifact_leave)
+
+    artifact_list = artifact_commands.add_parser(
+        "list", help="list one pet's visible things"
+    )
+    artifact_list.add_argument(
+        "name", nargs="?", help="defaults to PET_NAME during a pet turn"
+    )
+    artifact_list.set_defaults(handler=command_artifact_list)
+
+    artifact_remove = artifact_commands.add_parser(
+        "remove", help="clear away one thing"
+    )
+    artifact_remove.add_argument("name")
+    artifact_remove.add_argument("artifact_id")
+    artifact_remove.set_defaults(handler=command_artifact_remove)
+
+    artifact_clear = artifact_commands.add_parser(
+        "clear", help="clear away a pet's unpinned things"
+    )
+    artifact_clear.add_argument("name")
+    artifact_clear.add_argument(
+        "--all", action="store_true", help="also clear pinned things"
+    )
+    artifact_clear.set_defaults(handler=command_artifact_clear)
+
+    artifact_pin = artifact_commands.add_parser(
+        "pin", help="keep one thing until it is cleared"
+    )
+    artifact_pin.add_argument("name")
+    artifact_pin.add_argument("artifact_id")
+    artifact_pin.add_argument("--off", action="store_true", help="let it expire again")
+    artifact_pin.set_defaults(handler=command_artifact_pin)
 
     chat = subparsers.add_parser("chat", help="open a Codex session as this pet")
     chat.add_argument("name")

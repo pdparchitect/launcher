@@ -24,7 +24,7 @@
   "containerPort": 6901,
   "memory": "4g",
   "sharedMemory": "1g",
-  "resolutionEnvironment": "GHOST_RESOLUTION",
+  "resolutionEnvironment": "DESKTOP_RESOLUTION",
   "resolution": "1920x1080",
   "environment": {
     "PANTALK_AUTOSTART": "true"
@@ -36,23 +36,23 @@
     },
     {
       "name": "private/pantalk-config",
-      "target": "/home/ghost/.config/pantalk"
+      "target": "/home/agent/.config/pantalk"
     },
     {
       "name": "private/pantalk-state",
-      "target": "/home/ghost/.local/share/pantalk"
+      "target": "/home/agent/.local/share/pantalk"
     },
     {
       "name": "private/codex",
-      "target": "/home/ghost/.codex"
+      "target": "/home/agent/.codex"
     },
     {
       "name": "private/claude",
-      "target": "/home/ghost/.claude"
+      "target": "/home/agent/.claude"
     },
     {
       "name": "private/kimi",
-      "target": "/home/ghost/.kimi"
+      "target": "/home/agent/.kimi"
     }
   ]
 }

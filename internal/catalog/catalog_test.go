@@ -13,6 +13,7 @@ const (
 	openClawID     = "864bcec3-4f2e-442a-a928-a6a1424a8afd"
 	hermesID       = "f726241a-ff31-423d-92ad-f2b43cca742f"
 	codexPetsID    = "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe"
+	buzzboxID      = "2784cf32-591a-4ba7-9c26-64ce6deeba55"
 )
 
 func TestLoadGhost(t *testing.T) {
@@ -52,6 +53,39 @@ func TestLoadGhost(t *testing.T) {
 	}
 }
 
+func TestLoadBuzzbox(t *testing.T) {
+	manifest, err := Load("buzzbox")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if manifest.Name != "Buzzbox" ||
+		manifest.ID != buzzboxID ||
+		manifest.Slug != "buzzbox" ||
+		manifest.Image != "ghcr.io/pdparchitect/buzzbox:latest" {
+		t.Fatalf("manifest identity = %#v", manifest)
+	}
+	if manifest.ContainerPort != 6901 ||
+		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
+		t.Fatalf("manifest desktop = %#v", manifest)
+	}
+	// The relay's backing services are the reason this entry mounts a state
+	// volume the other desktops have no equivalent of.
+	var hasServiceState bool
+	for _, mount := range manifest.Mounts {
+		if mount.Target == "/var/lib/buzzbox" {
+			hasServiceState = true
+		}
+	}
+	if len(manifest.Mounts) != 5 || !hasServiceState {
+		t.Fatalf("Mounts = %#v", manifest.Mounts)
+	}
+	if manifest.Media.Icon != "buzzbox/icon.png" ||
+		manifest.Media.Cover != "buzzbox/screenshot.png" ||
+		len(manifest.Media.Screenshots) != 1 {
+		t.Fatalf("Media = %#v", manifest.Media)
+	}
+}
+
 func TestLoadBuzznode(t *testing.T) {
 	manifest, err := Load("buzznode")
 	if err != nil {
@@ -67,7 +101,7 @@ func TestLoadBuzznode(t *testing.T) {
 		t.Fatalf("Viewer = %q", manifest.Viewer)
 	}
 	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "BUZZNODE_RESOLUTION" {
+		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
 		t.Fatalf("manifest desktop = %#v", manifest)
 	}
 	if len(manifest.Mounts) != 6 ||
@@ -200,12 +234,13 @@ func TestListContainsCatalogueEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(manifests) != 5 ||
-		manifests[0].ID != buzznodeID ||
-		manifests[1].ID != codexPetsID ||
-		manifests[2].ID != hermesID ||
-		manifests[3].ID != openClawID ||
-		manifests[4].ID != pantalkGhostID {
+	if len(manifests) != 6 ||
+		manifests[0].ID != buzzboxID ||
+		manifests[1].ID != buzznodeID ||
+		manifests[2].ID != codexPetsID ||
+		manifests[3].ID != hermesID ||
+		manifests[4].ID != openClawID ||
+		manifests[5].ID != pantalkGhostID {
 		t.Fatalf("List() = %#v", manifests)
 	}
 }

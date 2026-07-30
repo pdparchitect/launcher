@@ -23,6 +23,7 @@ from it:
   memory/        what it wants to still know next time
   journal/       dated notes on what it did
   inbox/         messages waiting for it; handled ones move to inbox/done/
+  artifacts/     visible things it has left in the shared habitat
   .state/        runtime only - state.json, triggers, turn transcripts
 ```
 
@@ -30,13 +31,14 @@ Because a pet is a directory and not a process, the pen survives a session
 restart, a pet is copied by `cp -r`, and a pet is deleted with `rm -r`. There
 is no registry to keep in step.
 
-## The three programs
+## The four programs
 
 | Program | Job |
 | --- | --- |
 | `petd` | one per session. Keeps a sprite running per pet, decides when each pet takes a turn, dispatches the inbox, caps concurrency. |
 | `pet-run` | one turn. Builds a short prompt, runs `codex exec` with the pet's directory as the working root, records the transcript, and turns the closing line into speech. |
 | `pet-sprite` | one pet on screen. Reads `.state/state.json`, never writes it. |
+| `pet-habitat` | one per session. Watches every pet's `artifacts/` directory and renders its live objects on the desktop floor. |
 
 They never talk to each other directly. The pet's directory is the only
 channel: `pet-sprite` polls `state.json`, and anything that wants a turn to
@@ -105,6 +107,51 @@ Pets sit above the windows, the way desktop pets have always worked. A pet you
 want out of the way for a while is `petctl enable <name> --off`, which stops
 its sprite as well as its turns; `petctl enable <name>` brings it back.
 
+## Time of day
+
+The habitat has four vector backgrounds selected from the desktop's local
+clock:
+
+| Period | Local time |
+| --- | --- |
+| dawn | 05:00–07:59 |
+| day | 08:00–16:59 |
+| dusk | 17:00–19:59 |
+| night | 20:00–04:59 |
+
+`pet-wallpaper` changes the root wallpaper only when the period or display
+resolution changes. This keeps an idle remote desktop still while ensuring a
+browser resize receives the right scaled background. `TZ` controls what
+"local" means. `DESKTOP_WALLPAPER` still takes precedence when explicitly set,
+and `PETS_WALLPAPER_PERIOD=dawn|day|dusk|night` fixes a period for previews.
+
+## Artifacts
+
+Pets have a `skills/leaving-artifacts/SKILL.md` that tells them when a turn is
+worth making visible and how to use `petctl artifact leave`. The resulting
+JSON file belongs to the pet under `artifacts/`; the habitat only renders the
+validated protocol and never executes artifact content.
+
+Six built-in kinds have their own tiny pixel art: notes, doodles, gifts,
+trophies, warnings and found objects. Click one to read its card. Its
+right-click menu can pin it or clear it away. Unpinned objects expire after a
+kind-specific lifetime, and leaving a seventh object clears the oldest
+unpinned one, so a lively pen does not become permanent clutter.
+
+```sh
+petctl artifact leave pip --kind doodle \
+    --title "A suspicious diagram" \
+    --message "I mapped the services that wake up at night."
+petctl artifact list pip
+petctl artifact pin pip <artifact-id>
+petctl artifact remove pip <artifact-id>
+petctl artifact clear pip          # leaves pinned things alone
+petctl artifact clear pip --all
+```
+
+During its own turn `PET_NAME` supplies the name, so the skill uses
+`petctl artifact leave` without repeating it.
+
 ## Getting started
 
 The first session opens `codex-setup`, because nothing thinks until Codex can
@@ -130,6 +177,7 @@ inhabited on first boot.
 | `PETS_ROOT` | where the pen lives. Default `/workspace/pets`. |
 | `PETS_MAX_TURNS` | how many pets may think at once. Default 2. |
 | `PETS_SPRITE_SCALE` | pixel size of a sprite. Default 4, so a pet is 64px. |
+| `PETS_WALLPAPER_PERIOD` | optionally fix dawn, day, dusk or night. |
 | `CODEX_HOME` | Codex credentials and config. Default `/home/agent/.codex`. |
 
 ## Deliberately not here

@@ -8,8 +8,13 @@ if [ ! -x "$hermes_binary" ]; then
     exit 126
 fi
 
+# Only drop privileges when the desktop is actually running as `agent`. Apple
+# fixed-ownership mounts make the entrypoint keep the dedicated VM session as
+# root, including /home/agent; dropping only Hermes there makes its state
+# directory unwritable.
 if [ "$(id -u)" -eq 0 ] &&
-    [ "${HERMES_EXEC_AS_ROOT:-false}" != "true" ]; then
+    [ "${HERMES_EXEC_AS_ROOT:-false}" != "true" ] &&
+    [ "$(stat -c %U /home/agent 2>/dev/null || echo root)" = agent ]; then
     exec sudo -u agent \
         env \
         HOME=/home/agent \

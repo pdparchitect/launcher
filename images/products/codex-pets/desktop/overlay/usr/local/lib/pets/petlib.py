@@ -68,7 +68,7 @@ def validate_name(name):
 
 
 def parse_duration(value, default=None):
-    """Parse `45s`, `20m`, `2h`, `off`. Returns seconds, or None for off."""
+    """Parse `45s`, `20m`, `2h`, `3d`, `off`. Returns seconds, or None."""
 
     if value is None:
         return default
@@ -76,17 +76,25 @@ def parse_duration(value, default=None):
     if text in ("off", "never", "none", "0"):
         return None
 
-    match = re.fullmatch(r"(\d+)\s*([smh]?)", text)
+    match = re.fullmatch(r"(\d+)\s*([smhd]?)", text)
     if not match:
-        raise PetError(f"'{value}' is not a duration - try 30s, 20m or 2h")
+        raise PetError(f"'{value}' is not a duration - try 30s, 20m, 2h or 3d")
 
     amount = int(match.group(1))
-    return amount * {"": 60, "s": 1, "m": 60, "h": 3600}[match.group(2)]
+    return amount * {
+        "": 60,
+        "s": 1,
+        "m": 60,
+        "h": 3600,
+        "d": 86400,
+    }[match.group(2)]
 
 
 def format_duration(seconds):
     if seconds is None:
         return "off"
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}d"
     if seconds % 3600 == 0:
         return f"{seconds // 3600}h"
     if seconds % 60 == 0:
@@ -223,6 +231,10 @@ class Pet:
     @property
     def skills(self):
         return self.directory / "skills"
+
+    @property
+    def artifacts(self):
+        return self.directory / "artifacts"
 
     def exists(self):
         return self.config_path.is_file()

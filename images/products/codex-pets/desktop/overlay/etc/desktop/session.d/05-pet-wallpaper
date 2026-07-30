@@ -1,0 +1,8 @@
+#!/bin/bash
+# Follow the habitat's local clock for the length of the desktop session.
+
+set -uo pipefail
+
+export DISPLAY="${DISPLAY:-:1}"
+
+exec pet-wallpaper >>/var/log/launcher-desktop/pets-wallpaper.log 2>&1

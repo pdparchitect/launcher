@@ -96,22 +96,22 @@ jobs:
       - name: Smoke test the desktop base
         env:
           SMOKE_PORT: 16901
-        run: bash tests/smoke-test.sh pdparchitect/launcher-image-base-desktop:local
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-base-desktop:local
 
       - name: Smoke test the Hermes product
         env:
           SMOKE_PORT: 16902
-        run: bash tests/smoke-test.sh pdparchitect/launcher-image-hermes-desktop:local
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-hermes-desktop:local
 
       - name: Smoke test the OpenClaw product
         env:
           SMOKE_PORT: 16903
-        run: bash tests/smoke-test.sh pdparchitect/launcher-image-openclaw-desktop:local
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-openclaw-desktop:local
 
       - name: Smoke test the Codex Pets product
         env:
           SMOKE_PORT: 16904
-        run: bash tests/smoke-test.sh pdparchitect/launcher-image-codex-pets-desktop:local
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-codex-pets-desktop:local
 
       - name: Collect container logs on failure
         if: failure()

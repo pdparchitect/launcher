@@ -1,0 +1,36 @@
+#!/bin/bash
+# desktop-selftest - what the smoke test runs inside a live session.
+#
+# The shared smoke test proves that the desktop started. Hermes can still be
+# unusable when dependency installation creates its console script without an
+# importable hermes_cli package, so exercise both sides of that boundary.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "hermes selftest"
+
+check "the Python package imports" \
+    /opt/hermes/.venv/bin/python -c 'from hermes_cli.main import main'
+check "the CLI runs" hermes --version
+check "the state directory is writable" \
+    test -w "${HERMES_HOME:-$HOME/.hermes}"
+
+if [ "$failures" -gt 0 ]; then
+    echo "hermes selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "hermes selftest: Hermes is ready"

@@ -11,4 +11,4 @@ if [ ! -s "${CODEX_HOME:-/home/agent/.codex}/auth.json" ]; then
     exec kitty --title "Codex" -e bash -lc 'codex-setup; exec bash'
 fi
 
-exec kitty --title "Codex" -e bash -lc 'cd /workspace && exec codex --skip-git-repo-check'
+exec kitty --title "Codex" -e bash -lc 'cd /workspace && exec codex'

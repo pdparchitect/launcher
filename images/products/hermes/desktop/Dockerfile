@@ -46,8 +46,10 @@ ENV UV_PYTHON=/usr/bin/python3 \
     npm_config_install_links=false
 
 # Match the dependency profiles baked into the upstream Hermes container while
-# retaining this image's Launcher desktop as the final parent.
+# retaining this image's Launcher desktop as the final parent. Install only
+# dependencies here; the project is linked after its generated frontends exist.
 RUN uv sync --frozen \
+        --no-install-project \
         --extra all \
         --extra messaging \
         --extra anthropic \
@@ -66,6 +68,16 @@ RUN npm install --prefer-offline --no-audit --fetch-retries=5 && \
     npm --prefix web run build && \
     npm --prefix ui-tui run build
 
+# Create Hermes' editable package link explicitly, as upstream's container
+# does. Depending on uv sync to do this implicitly produced images with the
+# console script present but no importable hermes_cli package on some builders.
+RUN uv pip install \
+        --python /opt/hermes/.venv/bin/python \
+        --no-cache-dir \
+        --no-deps \
+        -e "." && \
+    /opt/hermes/.venv/bin/python -c 'from hermes_cli.main import main'
+
 # The desktop base exports HOME=/home/agent, so the root-run build steps above
 # deposit their caches in the session user's home and leave them owned by root.
 # Kitty then cannot create /home/agent/.cache/kitty, the welcome terminal dies,
@@ -82,7 +94,10 @@ RUN rm -rf /home/agent/.cache /home/agent/.npm && \
 # Product branding. Everything under overlay/ is installed over the base's
 # defaults, so a file here wins without the base knowing this product exists.
 COPY overlay /
-RUN chmod 0755 /usr/local/bin/desktop-welcome /usr/local/bin/hermes
+RUN chmod 0755 \
+        /usr/local/bin/desktop-selftest \
+        /usr/local/bin/desktop-welcome \
+        /usr/local/bin/hermes
 
 # Rebrand the KasmVNC client. The base already patched it, so this replaces the
 # brand rather than injecting the asset links a second time.

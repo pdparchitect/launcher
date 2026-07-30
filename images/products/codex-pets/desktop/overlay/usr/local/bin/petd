@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """petd - supervises the pen.
 
-One process per desktop session. It owns two things, and nothing else:
+One process per desktop session. It owns three things, and nothing else:
 
   * a sprite process per pet, restarted if it dies
+  * the habitat process that renders things pets leave behind
   * when each pet's next turn runs, and how many run at once
 
 It holds no state of its own that matters. Everything it needs is in the pet
@@ -26,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, "/usr/local/lib/pets")
 
+import petartifacts
 import petlib
 
 POLL_SECONDS = 2.0
@@ -54,6 +56,9 @@ class Supervisor:
         self.sprites = {}  # name -> Popen
         self.sprite_failures = {}  # name -> consecutive failures
         self.sprite_retry_at = {}  # name -> earliest restart time
+        self.habitat = None
+        self.habitat_failures = 0
+        self.habitat_retry_at = 0
         self.turns = {}  # name -> Popen
         self.next_heartbeat = {}  # name -> monotonic-ish wall clock
         self.running = True
@@ -92,6 +97,33 @@ class Supervisor:
         process = self.sprites.pop(name, None)
         if process and process.poll() is None:
             process.terminate()
+
+    # Habitat ---------------------------------------------------------------
+
+    def ensure_habitat(self):
+        if not self.has_display:
+            return
+        if self.habitat and self.habitat.poll() is None:
+            return
+        if self.habitat:
+            self.habitat_failures += 1
+            backoff = SPRITE_BACKOFF[
+                min(self.habitat_failures, len(SPRITE_BACKOFF)) - 1
+            ]
+            self.habitat_retry_at = time.time() + backoff
+            log(
+                f"habitat exited ({self.habitat.returncode}); "
+                f"retrying in {backoff}s"
+            )
+            self.habitat = None
+            return
+        if time.time() < self.habitat_retry_at:
+            return
+        self.habitat = subprocess.Popen(
+            ["pet-habitat"],
+            stdout=subprocess.DEVNULL,
+            stderr=sys.stderr,
+        )
 
     # Turns -----------------------------------------------------------------
 
@@ -170,6 +202,7 @@ class Supervisor:
 
     def pass_once(self):
         self.reap_turns()
+        self.ensure_habitat()
 
         pets = petlib.iter_pets()
         known = {pet.name for pet in pets}
@@ -189,6 +222,10 @@ class Supervisor:
         pen_paused = petlib.paused()
 
         for pet in pets:
+            # Existing pets predate this capability. Add only the missing
+            # standard skill and directory; never rewrite a skill they own.
+            petartifacts.install(pet)
+
             try:
                 enabled = pet.enabled
             except petlib.PetError as error:
@@ -269,6 +306,8 @@ class Supervisor:
         log("stopping")
         for name in list(self.sprites):
             self.stop_sprite(name)
+        if self.habitat and self.habitat.poll() is None:
+            self.habitat.terminate()
         for process in self.turns.values():
             process.terminate()
         petlib.daemon_pidfile().unlink(missing_ok=True)

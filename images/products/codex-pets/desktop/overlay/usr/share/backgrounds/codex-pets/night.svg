@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Night in the pen: moonlight, stars and fully awake machine towers. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"
+     viewBox="0 0 1920 1080" shape-rendering="crispEdges">
+  <defs>
+    <pattern id="stars" width="320" height="256" patternUnits="userSpaceOnUse">
+      <rect x="24" y="40" width="4" height="4" fill="#3B3F80"/>
+      <rect x="152" y="16" width="4" height="4" fill="#7C84B8"/>
+      <rect x="216" y="112" width="4" height="4" fill="#3B3F80"/>
+      <rect x="88" y="184" width="4" height="4" fill="#4A5080"/>
+      <rect x="272" y="208" width="4" height="4" fill="#3B3F80"/>
+    </pattern>
+    <pattern id="floor" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#1E2150"/>
+      <rect width="8" height="8" fill="#212458"/>
+      <rect x="8" y="8" width="8" height="8" fill="#212458"/>
+    </pattern>
+    <pattern id="windows" width="32" height="40" patternUnits="userSpaceOnUse">
+      <rect x="8" y="8" width="8" height="8" fill="#F5C542" opacity=".55"/>
+      <rect x="24" y="24" width="8" height="8" fill="#F5C542" opacity=".3"/>
+    </pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="#0A0B1A"/>
+  <rect width="1920" height="720" fill="url(#stars)"/>
+  <g fill="#F5C542">
+    <rect x="1560" y="120" width="48" height="8"/>
+    <rect x="1544" y="128" width="80" height="16"/>
+    <rect x="1536" y="144" width="96" height="48"/>
+    <rect x="1544" y="192" width="80" height="16"/>
+    <rect x="1560" y="208" width="48" height="8"/>
+  </g>
+  <g fill="#0A0B1A">
+    <rect x="1592" y="144" width="24" height="24"/>
+    <rect x="1560" y="176" width="16" height="16"/>
+  </g>
+  <g>
+    <rect x="240" y="560" width="96" height="200" fill="#121434"/>
+    <rect x="240" y="560" width="96" height="200" fill="url(#windows)"/>
+    <rect x="352" y="480" width="128" height="280" fill="#121434"/>
+    <rect x="352" y="480" width="128" height="280" fill="url(#windows)"/>
+    <rect x="496" y="600" width="80" height="160" fill="#121434"/>
+    <rect x="496" y="600" width="80" height="160" fill="url(#windows)"/>
+    <rect x="1400" y="520" width="112" height="240" fill="#121434"/>
+    <rect x="1400" y="520" width="112" height="240" fill="url(#windows)"/>
+    <rect x="1528" y="608" width="88" height="152" fill="#121434"/>
+    <rect x="1528" y="608" width="88" height="152" fill="url(#windows)"/>
+    <rect x="408" y="440" width="8" height="40" fill="#3B3F80"/>
+    <rect x="400" y="432" width="24" height="8" fill="#63E29E"/>
+  </g>
+  <path fill="#121434" d="M0,820 V700 h180 v-40 h160 v40 h220 v-60 h180 v60
+        h260 v-40 h200 v40 h200 v-60 h180 v60 h340 V820 Z"/>
+  <path fill="#1E2150" d="M0,880 V800 h240 v-40 h180 v40 h300 v-40 h220 v40
+        h260 v-40 h200 v40 h520 V880 Z"/>
+  <rect y="880" width="1920" height="200" fill="url(#floor)"/>
+  <rect y="880" width="1920" height="8" fill="#3B3F80"/>
+  <g fill="#3B3F80">
+    <rect x="80" y="856" width="8" height="32"/>
+    <rect x="400" y="856" width="8" height="32"/>
+    <rect x="720" y="856" width="8" height="32"/>
+    <rect x="1040" y="856" width="8" height="32"/>
+    <rect x="1360" y="856" width="8" height="32"/>
+    <rect x="1680" y="856" width="8" height="32"/>
+  </g>
+  <g fill="#63E29E" opacity=".45">
+    <rect x="176" y="912" width="8" height="16"/>
+    <rect x="864" y="928" width="8" height="16"/>
+    <rect x="1512" y="912" width="8" height="16"/>
+  </g>
+</svg>

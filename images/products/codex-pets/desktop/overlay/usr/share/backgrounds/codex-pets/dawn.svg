@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dawn in the pen: fading stars, a low sun and the first lit windows. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"
+     viewBox="0 0 1920 1080" shape-rendering="crispEdges">
+  <defs>
+    <pattern id="stars" width="320" height="256" patternUnits="userSpaceOnUse">
+      <rect x="24" y="40" width="4" height="4" fill="#D7DCF5"/>
+      <rect x="216" y="112" width="4" height="4" fill="#7C84B8"/>
+      <rect x="88" y="184" width="4" height="4" fill="#D7DCF5"/>
+    </pattern>
+    <pattern id="floor" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#2A3158"/>
+      <rect width="8" height="8" fill="#343B68"/>
+      <rect x="8" y="8" width="8" height="8" fill="#343B68"/>
+    </pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="#3A285E"/>
+  <rect y="360" width="1920" height="360" fill="#75406E"/>
+  <rect y="600" width="1920" height="240" fill="#B65C8A"/>
+  <rect width="1920" height="420" fill="url(#stars)" opacity=".55"/>
+
+  <!-- Blocky sunrise. -->
+  <g fill="#F2D96B">
+    <rect x="248" y="632" width="128" height="16"/>
+    <rect x="224" y="648" width="176" height="32"/>
+    <rect x="208" y="680" width="208" height="72"/>
+  </g>
+  <g fill="#E8724C" opacity=".7">
+    <rect x="80" y="608" width="120" height="8"/>
+    <rect x="432" y="640" width="168" height="8"/>
+  </g>
+
+  <!-- Morning clouds. -->
+  <g fill="#D7DCF5" opacity=".45">
+    <rect x="760" y="232" width="208" height="24"/>
+    <rect x="800" y="216" width="112" height="16"/>
+    <rect x="1224" y="344" width="248" height="24"/>
+    <rect x="1280" y="328" width="112" height="16"/>
+  </g>
+
+  <g fill="#24284C">
+    <rect x="240" y="560" width="96" height="200"/>
+    <rect x="352" y="480" width="128" height="280"/>
+    <rect x="496" y="600" width="80" height="160"/>
+    <rect x="1400" y="520" width="112" height="240"/>
+    <rect x="1528" y="608" width="88" height="152"/>
+  </g>
+  <g fill="#F2D96B" opacity=".45">
+    <rect x="376" y="520" width="8" height="8"/>
+    <rect x="440" y="600" width="8" height="8"/>
+    <rect x="1432" y="560" width="8" height="8"/>
+  </g>
+  <path fill="#2A3158" d="M0,820 V700 h180 v-40 h160 v40 h220 v-60 h180 v60
+        h260 v-40 h200 v40 h200 v-60 h180 v60 h340 V820 Z"/>
+  <path fill="#343B68" d="M0,880 V800 h240 v-40 h180 v40 h300 v-40 h220 v40
+        h260 v-40 h200 v40 h520 V880 Z"/>
+  <rect y="880" width="1920" height="200" fill="url(#floor)"/>
+  <rect y="880" width="1920" height="8" fill="#B65C8A"/>
+  <g fill="#7C84B8">
+    <rect x="80" y="856" width="8" height="32"/>
+    <rect x="400" y="856" width="8" height="32"/>
+    <rect x="720" y="856" width="8" height="32"/>
+    <rect x="1040" y="856" width="8" height="32"/>
+    <rect x="1360" y="856" width="8" height="32"/>
+    <rect x="1680" y="856" width="8" height="32"/>
+  </g>
+  <g fill="#63E29E" opacity=".5">
+    <rect x="176" y="912" width="8" height="16"/>
+    <rect x="864" y="928" width="8" height="16"/>
+    <rect x="1512" y="912" width="8" height="16"/>
+  </g>
+</svg>
