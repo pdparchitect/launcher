@@ -27,7 +27,7 @@ const (
 
 type Runtime interface {
 	Doctor(context.Context) (string, error)
-	Pull(context.Context, string) error
+	Pull(context.Context, string, string) error
 	Create(context.Context, launchruntime.CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
@@ -39,7 +39,7 @@ type Runtime interface {
 }
 
 type pullProgressRuntime interface {
-	PullWithProgress(context.Context, string, func(string)) error
+	PullWithProgress(context.Context, string, string, func(string)) error
 }
 
 type PortAllocator interface {
@@ -296,17 +296,18 @@ func (service *Service) Create(
 	options.report(CreateStagePulling, "Pulling agent image")
 	pull := service.runtime.Pull
 	if progressRuntime, ok := service.runtime.(pullProgressRuntime); ok {
-		pull = func(ctx context.Context, image string) error {
+		pull = func(ctx context.Context, image string, platform string) error {
 			return progressRuntime.PullWithProgress(
 				ctx,
 				image,
+				platform,
 				func(message string) {
 					options.report(CreateStagePulling, message)
 				},
 			)
 		}
 	}
-	if err := pull(ctx, image); err != nil {
+	if err := pull(ctx, image, service.options.Platform); err != nil {
 		return domain.Instance{}, err
 	}
 	options.report(CreateStageCreating, "Creating agent container")
@@ -512,17 +513,18 @@ func (service *Service) UpdateWithProgress(
 	report(UpdateStagePulling, "Pulling the updated agent image")
 	pull := service.runtime.Pull
 	if progressRuntime, ok := service.runtime.(pullProgressRuntime); ok {
-		pull = func(ctx context.Context, image string) error {
+		pull = func(ctx context.Context, image string, platform string) error {
 			return progressRuntime.PullWithProgress(
 				ctx,
 				image,
+				platform,
 				func(message string) {
 					report(UpdateStagePulling, message)
 				},
 			)
 		}
 	}
-	if err := pull(ctx, targetImage); err != nil {
+	if err := pull(ctx, targetImage, service.options.Platform); err != nil {
 		return domain.Instance{}, fmt.Errorf("pull agent update: %w", err)
 	}
 	if status == launchruntime.StatusRunning ||
