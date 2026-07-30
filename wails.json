@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "Agent Launcher",
+  "name": "Launcher",
   "outputfilename": "launcher",
   "wailsjsdir": "build/wailsjs",
   "frontend:install": "",
@@ -10,8 +10,7 @@
   },
   "info": {
     "companyName": "PDPArchitect",
-    "productName": "Agent Launcher",
-    "productVersion": "0.2.0",
+    "productName": "Launcher",
     "copyright": "Copyright © 2026 PDPArchitect",
     "comments": "Experimental local AI agent launcher"
   }

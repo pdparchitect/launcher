@@ -174,7 +174,7 @@ On macOS, build the Apple silicon application bundle with:
 
 ```bash
 make build-macos
-open "build/bin/Agent Launcher.app"
+open "build/bin/Launcher.app"
 ```
 
 The native application requires macOS 26. Its `NavigationSplitView`,
@@ -197,16 +197,15 @@ uses temporary Go module replacements without modifying the module cache.
 This target must run on macOS because Wails links Apple's native Cocoa and
 WebKit frameworks. The project's multi-stage `Build` workflow first checks the
 code, then builds Linux and macOS desktop applications in parallel on
-GitHub-hosted runners. It publishes a Linux x86-64 archive and an Apple silicon
-macOS ZIP. Intel Macs are not supported because Apple's Container runtime
-requires Apple silicon. The macOS application is ad-hoc signed but not
-Developer ID signed or notarized, so macOS may require Control-clicking the
-application and selecting **Open** the first time.
+GitHub-hosted runners. Published macOS releases are Developer ID signed and
+notarized. Intel Macs are not supported because Apple's Container runtime
+requires Apple silicon. Maintainer release and signing instructions are in
+[`docs/releasing.md`](docs/releasing.md).
 
 The packaged application remains a command-line tool:
 
 ```bash
-"Agent Launcher.app/Contents/MacOS/launcher" doctor
+"Launcher.app/Contents/MacOS/launcher" doctor
 ```
 
 The desktop-enabled executable remains a complete command-line program.
@@ -305,8 +304,9 @@ make build-all
 
 `make build-all` produces Linux command-line binaries for AMD64 and ARM64 plus
 the macOS ARM64 command-line binary without requiring macOS. `make build-macos`
-produces the native Apple silicon `.app` on macOS. Developer ID signing,
-notarization, and a polished `.dmg` remain later release steps.
+produces an ad-hoc signed native Apple silicon `.app` on macOS. The release
+workflow replaces that signature with Developer ID signing and notarizes the
+application. A polished `.dmg` remains a later release step.
 
 ## Structure
 

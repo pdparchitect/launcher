@@ -35,6 +35,7 @@
   --content-top: 22px;
   --font-interface: Archivo, Helvetica, Arial, sans-serif;
   --font-technical: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  -webkit-font-smoothing: antialiased;
   font-family: var(--font-interface);
   font-synthesis: none;
 }

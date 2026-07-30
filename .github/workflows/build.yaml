@@ -133,7 +133,7 @@ jobs:
 
       - name: Verify macOS application bundle
         run: |
-          app_path="build/bin/Agent Launcher.app"
+          app_path="build/bin/Launcher.app"
           executable_path="${app_path}/Contents/MacOS/launcher"
 
           test -d "${app_path}"
@@ -168,7 +168,7 @@ jobs:
 
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent \
-            "build/bin/Agent Launcher.app" \
+            "build/bin/Launcher.app" \
             "dist/${archive}"
 
       - name: Upload macOS application

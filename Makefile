@@ -133,6 +133,11 @@ build-macos: native-macos
 		-skipembedcreate \
 		-trimpath \
 		-ldflags "$(DESKTOP_LDFLAGS)"
+	plutil -replace CFBundleVersion -string "$(VERSION)" \
+		build/bin/Launcher.app/Contents/Info.plist
+	plutil -replace CFBundleShortVersionString -string "$(VERSION)" \
+		build/bin/Launcher.app/Contents/Info.plist
+	codesign --force --deep --sign - build/bin/Launcher.app
 
 build-all:
 	mkdir -p dist
