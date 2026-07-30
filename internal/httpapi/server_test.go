@@ -161,6 +161,44 @@ func TestInterfaceKeepsElasticScrollingInsideContentOnly(t *testing.T) {
 	}
 }
 
+func TestMacOSDocumentScrollerKeepsInsetsWithoutRubberBanding(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+	macStart := strings.Index(
+		styles,
+		"/* macOS insets a web view's overlay scrollbar",
+	)
+	if macStart < 0 {
+		t.Fatal("interface missing macOS document-scroller styles")
+	}
+	macEnd := strings.Index(
+		styles[macStart:],
+		"/* Browser preview (?chrome=macos)",
+	)
+	if macEnd < 0 {
+		t.Fatal("macOS document-scroller styles are incomplete")
+	}
+	macRules := styles[macStart : macStart+macEnd]
+
+	for _, expected := range []string{
+		".is-swiftui-host launcher-app,",
+		"height: auto",
+		"min-height: 100%",
+		"overflow: visible",
+		".is-swiftui-host .main-panel {",
+		"overflow-y: visible",
+	} {
+		if !strings.Contains(macRules, expected) {
+			t.Fatalf(
+				"macOS document scroller missing native-inset behavior %q",
+				expected,
+			)
+		}
+	}
+	if strings.Contains(macRules, "overscroll-behavior: auto") {
+		t.Fatal("macOS document scroller enables whole-window rubber-banding")
+	}
+}
+
 func TestInterfacePreventsAccidentalChromeSelection(t *testing.T) {
 	styles := readWebSources(t, "styles.css")
 

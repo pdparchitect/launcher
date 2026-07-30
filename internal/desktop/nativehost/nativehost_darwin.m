@@ -121,6 +121,7 @@ static NSView *gViewerBorder = nil;
 static CGFloat gTitlebarHeight = 0.0;
 static BOOL gTitlebarRevealed = NO;
 static BOOL gTitlebarLayoutRevealed = NO;
+static BOOL gViewerFullscreen = NO;
 static NSUInteger gTitlebarTransition = 0;
 
 static const NSWindowButton kTitlebarButtons[] = {
@@ -214,6 +215,7 @@ static void InstallTitlebarBackdrop(NSWindow *window) {
 }
 
 static void SetTitlebarChromeImmediately(BOOL revealed) {
+    [gTitlebarBackdrop.layer removeAllAnimations];
     gTitlebarBackdrop.alphaValue = revealed ? 1.0 : 0.0;
     gTitlebarBackdrop.hidden = !revealed;
 
@@ -227,11 +229,18 @@ static void SetTitlebarChromeImmediately(BOOL revealed) {
         }
 
         button.wantsLayer = YES;
+        [button.layer removeAllAnimations];
         button.alphaValue = revealed ? 1.0 : 0.0;
         // A zero-alpha control still takes clicks, so invisible controls must
         // leave hit testing as well as the screen.
         button.hidden = !revealed;
     }
+}
+
+static BOOL ViewerIsFullscreen(void) {
+    return gViewerFullscreen
+        || (gViewerWindow != nil
+            && (gViewerWindow.styleMask & NSWindowStyleMaskFullScreen) != 0);
 }
 
 static void AnimateTitlebarChrome(
@@ -319,7 +328,9 @@ static void SetTitlebarLayoutRevealed(BOOL revealed) {
 }
 
 static void SetTitlebarRevealed(BOOL revealed) {
-    if (gViewerWindow == nil || gTitlebarRevealed == revealed) {
+    if (gViewerWindow == nil
+        || ViewerIsFullscreen()
+        || gTitlebarRevealed == revealed) {
         return;
     }
     gTitlebarRevealed = revealed;
@@ -344,6 +355,21 @@ static void SetTitlebarRevealed(BOOL revealed) {
         }
         SetTitlebarLayoutRevealed(NO);
     });
+}
+
+static void SetViewerFullscreen(BOOL fullscreen) {
+    if (gViewerWindow == nil) {
+        return;
+    }
+
+    gViewerFullscreen = fullscreen;
+    gTitlebarRevealed = fullscreen;
+    ++gTitlebarTransition;
+    SetTitlebarChromeImmediately(fullscreen);
+
+    if (!fullscreen) {
+        SetTitlebarLayoutRevealed(NO);
+    }
 }
 
 static bool InstallViewerChromeOnMainThread(void) {
@@ -403,9 +429,8 @@ static bool InstallViewerChromeOnMainThread(void) {
             if (event.window != gViewerWindow) {
                 return event;
             }
-            // Fullscreen reveals the title bar on its own, and the window has
-            // no room to grow into.
-            if ((gViewerWindow.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+            // Fullscreen has no room for the hover chrome to grow into.
+            if (ViewerIsFullscreen()) {
                 return event;
             }
 
@@ -421,6 +446,27 @@ static bool InstallViewerChromeOnMainThread(void) {
         }];
 
     /*
+     AppKit reveals the fullscreen title bar on pointer approach, but it does
+     not undo hidden on standard window buttons. Make the controls eligible to
+     appear before the transition, then restore the viewer's collapsed chrome
+     after AppKit has returned the window to its ordinary frame.
+     */
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowWillEnterFullScreenNotification
+                    object:window
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+                    SetViewerFullscreen(YES);
+                }];
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidExitFullScreenNotification
+                    object:window
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+                    SetViewerFullscreen(NO);
+                }];
+
+    /*
      Moved events stop arriving once the pointer leaves the window, which would
      otherwise strand a revealed title bar on screen.
      */
@@ -429,6 +475,9 @@ static bool InstallViewerChromeOnMainThread(void) {
                     object:window
                      queue:[NSOperationQueue mainQueue]
                 usingBlock:^(NSNotification *notification) {
+                    if (ViewerIsFullscreen()) {
+                        return;
+                    }
                     SetTitlebarRevealed(NO);
                 }];
 

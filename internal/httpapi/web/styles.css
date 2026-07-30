@@ -2411,16 +2411,9 @@ mark {
   overflow-y: visible;
 }
 
-/* The bounce is the document's now. Containing it here was what stopped the
-   window rubber-banding when an inner element scrolled; nothing chains past the
-   document, so keeping the guard would only cancel the elastic scroll that
-   makes the app feel native. */
-.is-swiftui-host,
-.is-swiftui-host body,
-.is-swiftui-host .launcher-shell,
-.is-swiftui-host .main-panel {
-  overscroll-behavior: auto;
-}
+/* The root document keeps overscroll-behavior: none. It still owns scrolling
+   so AppKit applies the native scrollbar insets, but the whole window cannot
+   rubber-band past the page's actual bounds. */
 
 /* Browser preview (?chrome=macos): there is no AppKit panel to hide behind, so
    the HTML sidebar is dressed up as one — same inset, width and radius, driven
