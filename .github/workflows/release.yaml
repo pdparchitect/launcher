@@ -413,6 +413,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
           git fetch --tags --force
           if git show-ref --verify --quiet "refs/tags/${TAG}"; then
             tagged_sha="$(git rev-list -n 1 "$TAG")"
