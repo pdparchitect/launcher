@@ -1,0 +1,441 @@
+name: Release Launcher
+
+# VERSION is the release intent. Merge a new semantic version to main and this
+# workflow builds, signs, notarizes, and publishes that exact commit.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'VERSION'
+      - '.github/workflows/release.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launcher-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+      prerelease: ${{ steps.identity.outputs.prerelease }}
+      release: ${{ steps.identity.outputs.release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check
+        run: make check
+
+      - name: Resolve release identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF_TYPE" != branch ] ||
+            [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Launcher releases must run from the main branch." >&2
+            exit 1
+          fi
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "VERSION is not semantic versioning: $version" >&2
+            exit 1
+          fi
+
+          tag="v${version}"
+          if git show-ref --verify --quiet "refs/tags/${tag}"; then
+            tagged_sha="$(git rev-list -n 1 "$tag")"
+            if [ "$tagged_sha" != "$GITHUB_SHA" ]; then
+              echo "$tag already belongs to $tagged_sha." >&2
+              echo "Bump VERSION for this release." >&2
+              exit 1
+            fi
+          fi
+
+          release=true
+          if gh release view "$tag" >/dev/null 2>&1; then
+            release=false
+            echo "$tag is already published; nothing to release."
+          fi
+
+          prerelease=false
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev
+
+      - name: Build Linux desktop application
+        run: make build-desktop
+
+      - name: Verify and package Linux application
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          test -x dist/launcher-desktop
+          file dist/launcher-desktop
+          file dist/launcher-desktop | grep --quiet 'ELF 64-bit.*x86-64'
+
+          package_dir="dist/Agent Launcher"
+          archive="dist/Agent-Launcher-${VERSION}-Linux-x86_64.tar.gz"
+          mkdir -p "$package_dir"
+          cp dist/launcher-desktop "$package_dir/launcher"
+          cp README.md "$package_dir/README.md"
+          tar -C dist -czf "$archive" "Agent Launcher"
+
+      - name: Upload Linux release asset
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-linux
+          path: dist/Agent-Launcher-*-Linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+
+    # The environment limits the Developer ID certificate and notary key to
+    # this release job. Configure it to allow only the main branch.
+    environment: release
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    env:
+      MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Validate signing configuration
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in \
+            MACOS_CERTIFICATE_P12_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_NOTARY_KEY_P8_BASE64 \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID \
+            APPLE_TEAM_ID
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf 'Missing release environment value: %s\n' \
+              "${missing[@]}" >&2
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        run: |
+          set -euo pipefail
+
+          certificate_path="$RUNNER_TEMP/launcher-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/launcher-signing.keychain-db"
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          keychain_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$keychain_password"
+
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" |
+            base64 --decode > "$certificate_path"
+          printf '%s' "$APPLE_NOTARY_KEY_P8_BASE64" |
+            base64 --decode > "$api_key_path"
+          chmod 600 "$certificate_path" "$api_key_path"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain \
+            -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          echo "SIGNING_CERTIFICATE_PATH=$certificate_path" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
+          echo "NOTARY_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
+
+      - name: Report build toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "SDK path: $(xcrun --show-sdk-path)"
+          echo "SDK version: $(xcrun --show-sdk-version)"
+
+      - name: Build Apple silicon macOS application
+        run: make build-macos
+
+      - name: Sign macOS application
+        run: |
+          set -euo pipefail
+
+          app_path="build/bin/Launcher.app"
+          identity="$(
+            security find-identity \
+              -v -p codesigning "$SIGNING_KEYCHAIN" |
+              awk -v team="(${APPLE_TEAM_ID})" '
+                index($0, "Developer ID Application:") &&
+                index($0, team) {
+                  print $2
+                }
+              '
+          )"
+          if [ -z "$identity" ]; then
+            echo "No Developer ID Application identity for team" \
+              "$APPLE_TEAM_ID was imported." >&2
+            security find-identity \
+              -v -p codesigning "$SIGNING_KEYCHAIN" >&2
+            exit 1
+          fi
+          if [ "$(wc -w <<< "$identity" | tr -d ' ')" -ne 1 ]; then
+            echo "More than one Developer ID identity matched team" \
+              "$APPLE_TEAM_ID." >&2
+            exit 1
+          fi
+
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --sign "$identity" \
+            "$app_path"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature="$(codesign -dvvv "$app_path" 2>&1)"
+          printf '%s\n' "$signature"
+          grep -Fq 'Authority=Developer ID Application:' <<< "$signature"
+          grep -Fq "TeamIdentifier=${APPLE_TEAM_ID}" <<< "$signature"
+          grep -Eq 'flags=.*runtime' <<< "$signature"
+          grep -Fq 'Timestamp=' <<< "$signature"
+
+      - name: Verify macOS application bundle
+        run: |
+          set -euo pipefail
+
+          app_path="build/bin/Launcher.app"
+          executable_path="${app_path}/Contents/MacOS/launcher"
+          plutil -lint "${app_path}/Contents/Info.plist"
+          test "$(
+            plutil -extract LSMinimumSystemVersion raw \
+              "${app_path}/Contents/Info.plist"
+          )" = "26.0"
+          ! plutil -p "${app_path}/Contents/Info.plist" |
+            grep -q UIDesignRequiresCompatibility
+          file "$executable_path"
+          test "$(
+            find "${app_path}/Contents/MacOS" -type f |
+              wc -l |
+              tr -d ' '
+          )" = "1"
+          test ! -e "${app_path}/Contents/Resources/launcher"
+          ! otool -L "$executable_path" | grep -q 'LauncherNative'
+
+          build_version="$(vtool -show-build "$executable_path")"
+          printf '%s\n' "$build_version"
+          grep -Eq 'minos[[:space:]]+26[.]0' <<< "$build_version"
+          grep -Eq 'sdk[[:space:]]+26[.]' <<< "$build_version"
+          test "$(lipo -archs "$executable_path")" = arm64
+
+      - name: Notarize and staple macOS application
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          app_path="build/bin/Launcher.app"
+          submission="$RUNNER_TEMP/Agent-Launcher-${VERSION}-notarization.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app_path" "$submission"
+
+          xcrun notarytool submit "$submission" \
+            --key "$NOTARY_API_KEY_PATH" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+
+          xcrun stapler staple "$app_path"
+          xcrun stapler validate "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+
+      - name: Package macOS release asset
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/bin/Launcher.app" \
+            "dist/Agent-Launcher-${VERSION}-macOS-arm64.zip"
+
+      - name: Upload macOS release asset
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-macos
+          path: dist/Agent-Launcher-*-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" || true
+          fi
+          rm -f \
+            "${SIGNING_CERTIFICATE_PATH:-$RUNNER_TEMP/missing.p12}" \
+            "${NOTARY_API_KEY_PATH:-$RUNNER_TEMP/missing.p8}"
+
+  publish:
+    needs: [prepare, linux, macos]
+    if: >-
+      needs.prepare.outputs.release == 'true' &&
+      needs.linux.result == 'success' &&
+      needs.macos.result == 'success'
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download release assets
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          set -euo pipefail
+
+          cd dist
+          sha256sum \
+            Agent-Launcher-*-Linux-x86_64.tar.gz \
+            Agent-Launcher-*-macOS-arm64.zip \
+            > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          if git show-ref --verify --quiet "refs/tags/${TAG}"; then
+            tagged_sha="$(git rev-list -n 1 "$TAG")"
+            if [ "$tagged_sha" != "$GITHUB_SHA" ]; then
+              echo "$TAG already belongs to $tagged_sha." >&2
+              exit 1
+            fi
+          else
+            git tag -a "$TAG" "$GITHUB_SHA" \
+              -m "Launcher ${VERSION}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+          release_flags=(--generate-notes --verify-tag)
+          if [ "$PRERELEASE" = true ]; then
+            release_flags+=(--prerelease)
+          else
+            release_flags+=(--latest)
+          fi
+
+          gh release create "$TAG" \
+            dist/Agent-Launcher-*-Linux-x86_64.tar.gz \
+            dist/Agent-Launcher-*-macOS-arm64.zip \
+            dist/SHA256SUMS \
+            --title "Launcher ${VERSION}" \
+            "${release_flags[@]}"

@@ -104,6 +104,14 @@ func TestOnlyMacOSNativeShellUsesWebDragRegion(t *testing.T) {
 	}
 }
 
+func TestInterfaceUsesAntialiasedWebKitFontRendering(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+
+	if !strings.Contains(styles, "-webkit-font-smoothing: antialiased;") {
+		t.Fatal("interface missing crisp WebKit font rendering")
+	}
+}
+
 // The document must never rubber-band — that is the whole window bouncing and
 // revealing its background. Content scrollers keep the bounce, which is what
 // makes them feel native, so they use `contain` (no chaining) not `none`.

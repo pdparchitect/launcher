@@ -26,11 +26,17 @@ separate versions:
 - The catalogue uses `internal/catalog/catalogue.json`.
 - Image release units use the `VERSION` files under `images/`.
 
-Do not rebuild or bump Launcher for a catalogue-only change. Every catalogue
-snapshot intended for users must declare a new, unused semantic version and be
-merged to `main`. The **Release catalogue** workflow creates the
-`catalogue-v<version>` tag and publishes `launcher-catalogue.zip`. Never reuse a
-published catalogue version or create its tag manually.
+Do not rebuild or bump Launcher for a catalogue-only change. A Launcher binary
+release must bump the root `VERSION`, the sole Launcher version source, then
+merge to `main`. The **Release Launcher** workflow signs and notarizes the macOS
+application, creates the `v<version>` tag, and publishes the Linux and macOS
+assets. Never create that tag manually.
+
+Every catalogue snapshot intended for users must declare a new, unused
+semantic version and be merged to `main`. The **Release catalogue** workflow
+creates the `catalogue-v<version>` tag and publishes
+`launcher-catalogue.zip`. Never reuse a published catalogue version or create
+its tag manually.
 
 ## Skills
 
