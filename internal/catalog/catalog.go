@@ -160,6 +160,9 @@ func (manifest Manifest) Validate() error {
 	if strings.TrimSpace(manifest.Image) == "" {
 		return errors.New("image is required")
 	}
+	if strings.HasSuffix(strings.TrimSpace(manifest.Image), ":latest") {
+		return errors.New("image must use an immutable release tag or digest")
+	}
 	if manifest.Viewer != "web" && manifest.Viewer != "kasmvnc" {
 		return errors.New("viewer must be web or kasmvnc")
 	}

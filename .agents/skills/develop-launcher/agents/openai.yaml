@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop Launcher"
+  short_description: "Implement and validate Launcher application changes"
+  default_prompt: "Use $develop-launcher to implement and validate a Launcher application change."

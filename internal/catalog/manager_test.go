@@ -24,7 +24,7 @@ func TestManagerStartsWithEmbeddedCatalogue(t *testing.T) {
 	}
 
 	manifests := manager.List()
-	if manager.Version() != "0.1.0" || len(manifests) != 6 {
+	if manager.Version() != "0.1.1" || len(manifests) != 6 {
 		t.Fatalf(
 			"embedded catalogue = version %q, %d entries",
 			manager.Version(),
@@ -34,10 +34,17 @@ func TestManagerStartsWithEmbeddedCatalogue(t *testing.T) {
 	if _, err := manager.Open("openclaw/icon.svg"); err != nil {
 		t.Fatalf("Open() embedded asset error = %v", err)
 	}
+	if manager.refreshInterval != 30*time.Minute {
+		t.Fatalf(
+			"default refresh interval = %v, want %v",
+			manager.refreshInterval,
+			30*time.Minute,
+		)
+	}
 }
 
 func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
-	bundle := testBundle(t, "0.1.1")
+	bundle := testBundle(t, "0.1.2")
 	digest := sha256.Sum256(bundle)
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(
@@ -48,7 +55,7 @@ func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
 		switch request.URL.Path {
 		case "/releases":
 			_ = json.NewEncoder(response).Encode([]map[string]any{{
-				"tag_name":     "catalogue-v0.1.1",
+				"tag_name":     "catalogue-v0.1.2",
 				"draft":        false,
 				"prerelease":   false,
 				"published_at": "2026-07-30T12:00:00Z",
@@ -80,7 +87,7 @@ func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	if !changed || manager.Version() != "0.1.1" {
+	if !changed || manager.Version() != "0.1.2" {
 		t.Fatalf(
 			"Refresh() = %v, version %q",
 			changed,
@@ -98,7 +105,7 @@ func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() restored error = %v", err)
 	}
-	if restored.Version() != "0.1.1" || len(restored.List()) != 6 {
+	if restored.Version() != "0.1.2" || len(restored.List()) != 6 {
 		t.Fatalf(
 			"restored catalogue = version %q, %d entries",
 			restored.Version(),
@@ -111,7 +118,7 @@ func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
 }
 
 func TestManagerRejectsReleaseWithWrongDigest(t *testing.T) {
-	bundle := testBundle(t, "0.1.1")
+	bundle := testBundle(t, "0.1.2")
 	server := httptest.NewServer(http.HandlerFunc(func(
 		response http.ResponseWriter,
 		request *http.Request,
@@ -119,7 +126,7 @@ func TestManagerRejectsReleaseWithWrongDigest(t *testing.T) {
 		switch request.URL.Path {
 		case "/releases":
 			_ = json.NewEncoder(response).Encode([]map[string]any{{
-				"tag_name": "catalogue-v0.1.1",
+				"tag_name": "catalogue-v0.1.2",
 				"assets": []map[string]any{{
 					"name":                 bundleAssetName,
 					"browser_download_url": serverURL(request) + "/bundle",
@@ -146,7 +153,7 @@ func TestManagerRejectsReleaseWithWrongDigest(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "digest") {
 		t.Fatalf("Refresh() = %v, %v, want digest error", changed, err)
 	}
-	if changed || manager.Version() != "0.1.0" {
+	if changed || manager.Version() != "0.1.1" {
 		t.Fatalf(
 			"catalogue changed after rejected release: %v, %q",
 			changed,

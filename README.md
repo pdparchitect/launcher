@@ -87,8 +87,8 @@ publishes the bundle without rebuilding Launcher. Reusing a version for changed
 catalogue contents fails the workflow. `make catalogue-package` creates the
 same release asset locally.
 
-Launcher checks at most once every 24 hours in the background. To check
-immediately and print the active entries:
+Launcher checks in the background when it starts and every 30 minutes while it
+is running. To check immediately and print the active entries:
 
 ```bash
 launcher catalog --refresh

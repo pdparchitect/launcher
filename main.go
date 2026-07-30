@@ -128,12 +128,35 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	go func() {
-		refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		_, _ = refreshCatalogue(refreshCtx, false)
-	}()
+	go runCatalogueRefreshLoop(
+		ctx,
+		catalog.DefaultRefreshInterval,
+		func(ctx context.Context) {
+			refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			_, _ = refreshCatalogue(refreshCtx, false)
+		},
+	)
 	code := app.Run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)
+}
+
+func runCatalogueRefreshLoop(
+	ctx context.Context,
+	interval time.Duration,
+	refresh func(context.Context),
+) {
+	refresh(ctx)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refresh(ctx)
+		}
+	}
 }

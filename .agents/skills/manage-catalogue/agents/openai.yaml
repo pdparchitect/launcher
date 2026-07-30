@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Launcher Catalogue"
+  short_description: "Update and release Launcher catalogue entries"
+  default_prompt: "Use $manage-catalogue to update an application and prepare its catalogue release."
