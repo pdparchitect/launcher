@@ -205,16 +205,21 @@ func (missing *Missing) Doctor(ctx context.Context) (string, error) {
 	}
 	return resolved.Doctor(ctx)
 }
-func (missing *Missing) Pull(ctx context.Context, image string) error {
+func (missing *Missing) Pull(
+	ctx context.Context,
+	image string,
+	platform string,
+) error {
 	resolved, err := missing.resolve()
 	if err != nil {
 		return err
 	}
-	return resolved.Pull(ctx, image)
+	return resolved.Pull(ctx, image, platform)
 }
 func (missing *Missing) PullWithProgress(
 	ctx context.Context,
 	image string,
+	platform string,
 	progress func(string),
 ) error {
 	resolved, err := missing.resolve()
@@ -222,11 +227,11 @@ func (missing *Missing) PullWithProgress(
 		return err
 	}
 	if progressRuntime, ok := resolved.(interface {
-		PullWithProgress(context.Context, string, func(string)) error
+		PullWithProgress(context.Context, string, string, func(string)) error
 	}); ok {
-		return progressRuntime.PullWithProgress(ctx, image, progress)
+		return progressRuntime.PullWithProgress(ctx, image, platform, progress)
 	}
-	return resolved.Pull(ctx, image)
+	return resolved.Pull(ctx, image, platform)
 }
 func (missing *Missing) Create(ctx context.Context, request CreateRequest) error {
 	resolved, err := missing.resolve()

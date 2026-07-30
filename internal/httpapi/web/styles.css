@@ -1604,6 +1604,22 @@ mark {
   line-height: 1.5;
 }
 
+.loading-state > span {
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--line-bright);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  font-size: 0;
+  animation: marketplace-loading 850ms linear infinite;
+}
+
+@keyframes marketplace-loading {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
 .launcher-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);

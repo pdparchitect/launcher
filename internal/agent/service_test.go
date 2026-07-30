@@ -41,6 +41,9 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 		!containerRuntime.startCalled {
 		t.Fatalf("runtime calls = %#v", containerRuntime)
 	}
+	if containerRuntime.pullPlatform != "linux/amd64" {
+		t.Fatalf("pull platform = %q, want linux/amd64", containerRuntime.pullPlatform)
+	}
 	if _, err := service.Stop(t.Context(), "Ada"); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
@@ -287,6 +290,7 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 		t.Fatalf("Update() = %#v", updated)
 	}
 	if containerRuntime.pullImage != "pantalk/ghost:default" ||
+		containerRuntime.pullPlatform != "linux/amd64" ||
 		containerRuntime.createRequest.Image != "pantalk/ghost:default" ||
 		containerRuntime.createRequest.Paths["workspace"] == "" {
 		t.Fatalf("runtime update = %#v", containerRuntime)
@@ -661,23 +665,31 @@ type fakeRuntime struct {
 	statsFunc      func(context.Context, string) (launchruntime.Metrics, error)
 	pullProgress   []string
 	pullImage      string
+	pullPlatform   string
 	calls          []string
 }
 
 func (*fakeRuntime) Doctor(context.Context) (string, error) { return "test", nil }
-func (runtime *fakeRuntime) Pull(_ context.Context, image string) error {
+func (runtime *fakeRuntime) Pull(
+	_ context.Context,
+	image string,
+	platform string,
+) error {
 	runtime.pullCalled = true
 	runtime.pullImage = image
+	runtime.pullPlatform = platform
 	runtime.calls = append(runtime.calls, "pull")
 	return nil
 }
 func (runtime *fakeRuntime) PullWithProgress(
 	_ context.Context,
 	image string,
+	platform string,
 	progress func(string),
 ) error {
 	runtime.pullCalled = true
 	runtime.pullImage = image
+	runtime.pullPlatform = platform
 	runtime.calls = append(runtime.calls, "pull")
 	for _, message := range runtime.pullProgress {
 		progress(message)
@@ -762,6 +774,7 @@ func (runtime *fakeRuntime) resetCalls() {
 	runtime.stopCalled = false
 	runtime.removeCalled = false
 	runtime.pullImage = ""
+	runtime.pullPlatform = ""
 	runtime.createRequests = nil
 	runtime.calls = nil
 }

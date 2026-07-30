@@ -44,7 +44,7 @@ type Metrics struct {
 
 type Lifecycle interface {
 	Doctor(context.Context) (string, error)
-	Pull(context.Context, string) error
+	Pull(context.Context, string, string) error
 	Create(context.Context, CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error

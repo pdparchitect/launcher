@@ -733,6 +733,28 @@ func TestMarketplaceEntriesOpenDetailedImagePages(t *testing.T) {
 	}
 }
 
+func TestMarketplaceDistinguishesLoadingFromUnavailable(t *testing.T) {
+	source := readWebSources(
+		t,
+		"components/launcher-app.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		"this.catalogLoading = true",
+		"this.catalogLoading = false",
+		"LOADING MARKETPLACE",
+		"Fetching application publishers and their latest releases.",
+		`loading.setAttribute('role', 'status')`,
+		`loading.setAttribute('aria-live', 'polite')`,
+		".loading-state > span",
+		"marketplace-loading",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("marketplace loading state missing %q", expected)
+		}
+	}
+}
+
 func TestDesignAssetsAreServed(t *testing.T) {
 	handler := New(
 		&fakeService{},

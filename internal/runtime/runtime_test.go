@@ -64,9 +64,8 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 
 func TestDockerPullStreamsCommandOutput(t *testing.T) {
 	runner := &fakeRunner{
-		captureErr: errExit,
-		runStdout:  "first layer complete\nsecond layer downloading\r",
-		runStderr:  "verifying image\n",
+		runStdout: "first layer complete\nsecond layer downloading\r",
+		runStderr: "verifying image\n",
 	}
 	docker := NewDocker("docker", runner, io.Discard, io.Discard)
 	var progress []string
@@ -74,6 +73,7 @@ func TestDockerPullStreamsCommandOutput(t *testing.T) {
 	err := docker.PullWithProgress(
 		t.Context(),
 		"pantalk/ghost:test",
+		"linux/amd64",
 		func(message string) {
 			progress = append(progress, message)
 		},
@@ -81,6 +81,12 @@ func TestDockerPullStreamsCommandOutput(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("PullWithProgress() error = %v", err)
+	}
+	want := []string{
+		"pull", "--platform", "linux/amd64", "pantalk/ghost:test",
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("PullWithProgress() args = %#v, want %#v", runner.runArgs, want)
 	}
 	for _, expected := range []string{
 		"first layer complete",
@@ -90,6 +96,28 @@ func TestDockerPullStreamsCommandOutput(t *testing.T) {
 		if !containsString(progress, expected) {
 			t.Fatalf("progress = %#v, missing %q", progress, expected)
 		}
+	}
+}
+
+func TestApplePullLimitsDownloadToSelectedPlatform(t *testing.T) {
+	runner := &fakeRunner{}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	err := apple.PullWithProgress(
+		t.Context(),
+		"pantalk/ghost:test",
+		"linux/arm64",
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("PullWithProgress() error = %v", err)
+	}
+	want := []string{
+		"image", "pull", "--platform", "linux/arm64", "pantalk/ghost:test",
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("PullWithProgress() args = %#v, want %#v", runner.runArgs, want)
 	}
 }
 

@@ -4,6 +4,19 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-07-30
+
+### Added
+
+- Show an explicit Marketplace loading state while Launcher requests the
+  application catalogue, then distinguish an unavailable catalogue from one
+  that is still loading.
+
+### Fixed
+
+- Limit image pulls to the platform Launcher will run so Apple container does
+  not download and unpack both AMD64 and ARM64 variants on Apple silicon.
+
 ## [0.4.0] - 2026-07-30
 
 ### Changed

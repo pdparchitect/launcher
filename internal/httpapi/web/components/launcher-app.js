@@ -129,6 +129,8 @@ export class LauncherApp extends HTMLElement {
     this.screen = 'home'
     this.agents = []
     this.catalog = []
+    this.catalogLoading = true
+    this.catalogError = ''
     this.doctorReport = null
     this.runtimeSetup = null
     this.launcherStatus = null
@@ -152,6 +154,7 @@ export class LauncherApp extends HTMLElement {
     this.renderShell()
     this.bindEvents()
     this.setUpNativeSidebar()
+    this.render()
     this.refresh()
     this.refreshLauncherUpdate()
     this.refreshTimer = setInterval(() => this.refreshAgents(), 5000)
@@ -335,6 +338,10 @@ export class LauncherApp extends HTMLElement {
   }
 
   async refresh() {
+    this.catalogLoading = true
+    this.catalogError = ''
+    this.renderScreen()
+
     try {
       const [doctor, catalog, instances] = await Promise.all([
         this.api.doctor(),
@@ -346,6 +353,7 @@ export class LauncherApp extends HTMLElement {
       this.runtimeSetup = doctor.ready ? null : doctor.setup
       this.catalog = catalog.catalog || []
       this.agents = instances.instances || []
+      this.catalogLoading = false
       this.render()
 
       if (!doctor.ready) {
@@ -353,6 +361,8 @@ export class LauncherApp extends HTMLElement {
       }
     } catch (error) {
       console.error('Launcher startup failed:', error)
+      this.catalogLoading = false
+      this.catalogError = error.message
       this.showToast(error.message, true)
       this.render()
     }
@@ -1033,18 +1043,34 @@ export class LauncherApp extends HTMLElement {
             Pick an agent, give it a name, and Launcher handles the machinery.
           </p>
         </div>
-        <span>${this.catalog.length} AGENTS AVAILABLE</span>
+        <span>${
+          this.catalogLoading
+            ? 'LOADING AGENTS…'
+            : `${this.catalog.length} AGENTS AVAILABLE`
+        }</span>
       </section>
       <div class="marketplace-grid" data-marketplace-grid></div>
     `
 
     const grid = screen.querySelector('[data-marketplace-grid]')
 
+    if (this.catalogLoading) {
+      grid.append(
+        this.loadingState(
+          'LOADING MARKETPLACE',
+          'Fetching application publishers and their latest releases.'
+        )
+      )
+
+      return
+    }
+
     if (!this.catalog.length) {
       grid.append(
         this.emptyState(
           'CATALOGUE UNAVAILABLE',
-          'Launcher could not load any application publisher.'
+          this.catalogError ||
+            'Launcher could not load any application publisher.'
         )
       )
 
@@ -1192,6 +1218,16 @@ export class LauncherApp extends HTMLElement {
     }
 
     return empty
+  }
+
+  loadingState(title, copy) {
+    const loading = this.emptyState(title, copy)
+
+    loading.classList.add('loading-state')
+    loading.setAttribute('role', 'status')
+    loading.setAttribute('aria-live', 'polite')
+
+    return loading
   }
 
   renderActivityList(container, events, compact = false) {
