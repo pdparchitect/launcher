@@ -37,6 +37,8 @@ so it can be skipped or swapped. Versions match the Pantalk Ghost toolchain.
 - Chrome on AMD64 and Chromium on ARM64, with a GTK system theme and a
   symbolic resource overlay generated from the Openbox glyph masks, so the
   browser's native menus and window controls match the desktop
+- an on-demand JPEG preview of the active X display, served independently from
+  KasmVNC on port 6902
 - a non-root `agent` user, `/workspace`, entrypoint and health check
 - fixed-ownership mount handling for Apple `container`
 
@@ -153,8 +155,11 @@ repositories through the account's package namespace.
 make run
 ```
 
-Then open <http://localhost:6901>. No login is required; the desktop entrypoint
-starts KasmVNC with basic auth disabled.
+Then open <http://localhost:6901> for the interactive desktop or
+<http://localhost:6902/preview.jpg> for the current non-interactive snapshot.
+No login is required; the desktop entrypoint starts KasmVNC with basic auth
+disabled. The preview is captured on demand and cached inside the container for
+two seconds.
 
 `run` depends on the target it serves, so it always builds first and can never
 put a stale image on screen.
@@ -173,6 +178,7 @@ make run TARGET=hermes-desktop       # the Hermes product image
 make run TARGET=openclaw-desktop     # the OpenClaw product image
 make run TARGET=petbox-desktop       # the Petbox product image
 make run RUN_PORT=7000               # serve on a different port
+make run RUN_PREVIEW_PORT=7001       # serve the preview on a different port
 make run RUN_STATE=                  # throwaway session, no volumes
 ```
 
@@ -196,7 +202,9 @@ access onto the host network.
 The equivalent raw command, if you would rather not go through `make`:
 
 ```sh
-docker run --rm -it --shm-size=1g -p 6901:6901 pdparchitect/launcher-image-hermes-desktop:local
+docker run --rm -it --shm-size=1g \
+  -p 6901:6901 -p 6902:6902 \
+  pdparchitect/launcher-image-hermes-desktop:local
 ```
 
 `--shm-size=1g` matters. Chromium needs the shared memory and will crash on

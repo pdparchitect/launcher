@@ -80,6 +80,14 @@ for product_dir in "${product_dirs[@]}"; do
         echo "$application must derive its image from the OCI subject." >&2
         exit 1
     fi
+    if ! jq -e '
+        .interfaces.preview.kind == "preview" and
+        .interfaces.preview.port == 6902 and
+        .interfaces.preview.path == "/preview.jpg"
+    ' "$application" >/dev/null; then
+        echo "$application does not expose the shared desktop preview." >&2
+        exit 1
+    fi
     while IFS= read -r asset; do
         if [[ "$asset" = /* || "$asset" = *..* || ! -f "$product_dir/launcher/$asset" ]]; then
             echo "$application references invalid media asset '$asset'." >&2

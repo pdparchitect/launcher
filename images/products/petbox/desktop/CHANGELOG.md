@@ -4,6 +4,11 @@ Petbox source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.3.1]
+
+- Expose the shared desktop screenshot endpoint as the Launcher `preview`
+  interface.
+
 ## [0.3.0]
 
 - Rename the product from Codex Pets to Petbox. The Launcher application slug
