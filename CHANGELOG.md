@@ -4,6 +4,18 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.4] - 2026-07-30
+
+### Fixed
+
+- Keep agent viewers content-only in macOS fullscreen by collapsing the custom
+  title strip and suppressing both sets of window chrome.
+- Keep the available Launcher version on the Home screen clickable after the
+  larger update banner is dismissed.
+- Ignore unknown fields in application documents while continuing to validate
+  their known runtime and media configuration, keeping catalogue parsing
+  compatible with both old and newer publisher metadata.
+
 ## [0.4.3] - 2026-07-30
 
 ### Changed
