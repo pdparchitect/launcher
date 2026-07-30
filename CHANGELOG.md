@@ -4,6 +4,15 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-07-30
+
+### Fixed
+
+- Restore the native traffic-light controls in fullscreen agent windows so
+  they can leave fullscreen without being closed.
+- Prevent the macOS Launcher window from rubber-banding past the page bounds
+  while preserving native scrollbar insets around its rounded corners.
+
 ## [0.3.0] - 2026-07-30
 
 ### Added

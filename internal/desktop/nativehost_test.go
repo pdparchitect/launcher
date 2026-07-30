@@ -335,6 +335,63 @@ func TestMacOSViewerChromeNeverFadesOverTheWebContent(t *testing.T) {
 	}
 }
 
+func TestMacOSViewerChromeRestoresTrafficLightsInFullscreen(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate native host test")
+	}
+	launcher := filepath.Join(filepath.Dir(filename), "..", "..")
+	bridge := readNativeHostSource(
+		t,
+		filepath.Join(
+			launcher,
+			"internal",
+			"desktop",
+			"nativehost",
+			"nativehost_darwin.m",
+		),
+	)
+
+	for _, expected := range []string{
+		"NSWindowWillEnterFullScreenNotification",
+		"NSWindowDidExitFullScreenNotification",
+		"static BOOL gViewerFullscreen = NO;",
+		"gViewerFullscreen = fullscreen;",
+		"SetTitlebarChromeImmediately(fullscreen);",
+		"[gTitlebarBackdrop.layer removeAllAnimations];",
+		"[button.layer removeAllAnimations];",
+		"if (ViewerIsFullscreen())",
+	} {
+		if !strings.Contains(bridge, expected) {
+			t.Fatalf("fullscreen viewer chrome missing %q", expected)
+		}
+	}
+
+	enter := strings.Index(
+		bridge,
+		"NSWindowWillEnterFullScreenNotification",
+	)
+	exit := strings.Index(bridge, "NSWindowDidExitFullScreenNotification")
+	if enter < 0 {
+		t.Fatal("viewer missing its fullscreen-entry observer")
+	}
+	if !strings.Contains(
+		bridge[enter:],
+		"SetViewerFullscreen(YES);",
+	) {
+		t.Fatal("viewer must reveal its hidden traffic lights before fullscreen")
+	}
+	if exit < 0 {
+		t.Fatal("viewer missing its fullscreen-exit observer")
+	}
+	if !strings.Contains(
+		bridge[exit:],
+		"SetViewerFullscreen(NO);",
+	) {
+		t.Fatal("viewer must restore collapsed chrome after leaving fullscreen")
+	}
+}
+
 func TestMacOSNativeHostIsStaticallyLinkedIntoWails(t *testing.T) {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
