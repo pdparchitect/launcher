@@ -1,22 +1,49 @@
 # Releasing Launcher
 
+This document describes how to version and publish Launcher binaries.
+
+## Overview
+
+Releases are driven by the root **`VERSION` file**. Bumping it on `main`
+starts the automated pipeline that validates Launcher, builds both platform
+packages, signs and notarizes the macOS application, creates the matching tag,
+and publishes a GitHub Release:
+
+1. Update `VERSION` with a semantic version without a `v` prefix.
+2. Add the matching version section to `CHANGELOG.md`.
+3. Merge both changes to `main`.
+4. The **Release Launcher** workflow validates the commit and release metadata.
+5. After both packages pass validation, the workflow creates the annotated
+   `v<version>` tag and publishes the packages, checksums, and changelog notes.
+
+Existing tags and published releases are immutable. Do not create the version
+tag manually.
+
 Launcher binaries, the application catalogue, and container images have
-independent release versions. This document covers Launcher binaries only.
+independent versions. This document covers Launcher binaries only.
 
-## Publish a version
+## Published platforms
 
-1. Update the root `VERSION`.
-2. Merge the change to `main`.
+| OS    | Architecture | Package |
+| ----- | ------------ | ------- |
+| Linux | x86-64       | `.tar.gz` |
+| macOS | arm64        | `.zip` |
 
-The **Release Launcher** workflow validates the commit, builds Linux x86-64 and
-macOS arm64 packages, signs and notarizes the macOS application, creates the
-`v<version>` tag, and publishes both assets with SHA-256 checksums. Do not create
-the version tag manually. `VERSION` is the only source of the Launcher version;
-the macOS build writes it into the application bundle metadata.
+The macOS package is signed with a Developer ID Application identity,
+notarized by Apple, stapled, and checked with Gatekeeper before publication.
 
-The workflow can also be dispatched manually from `main` to retry a release
-that failed before its GitHub Release was created. A published version is
-immutable and cannot be reused for another commit.
+## Version source
+
+`VERSION` is the only source of the Launcher version. The macOS build also
+writes it into the application bundle metadata.
+
+Use [Semantic Versioning](https://semver.org/). Keep `VERSION` bare
+(`0.3.0`, not `v0.3.0`); GitHub tags add the `v` prefix. Pre-release versions
+may use a suffix such as `0.3.0-beta.1`.
+
+The workflow can be dispatched manually from `main` to retry a release that
+failed before its GitHub Release was created. A published version cannot be
+reused for another commit.
 
 ## Configure macOS signing
 
@@ -109,8 +136,8 @@ In the `pdparchitect/launcher` repository:
 4. Optionally add a required reviewer if every release should require approval.
 
 The repository-wide GitHub Actions permission can remain read-only. The release
-workflow grants `contents: write` only to the final job that creates the tag and
-GitHub Release.
+workflow grants `contents: write` only to the final job that creates the tag
+and GitHub Release.
 
 ### 5. Add the environment secrets and variables
 
@@ -207,9 +234,9 @@ No version tag or GitHub Release is created until both platform packages have
 been built and the macOS application has passed:
 
 - Developer ID signature validation
-- hardened runtime and secure timestamp checks
+- Hardened runtime and secure timestamp checks
 - Apple notarization
-- ticket stapling and validation
+- Ticket stapling and validation
 - Gatekeeper assessment
 
 The regular **Build** workflow still produces temporary development artifacts.

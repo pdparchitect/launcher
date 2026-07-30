@@ -17,6 +17,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 	"github.com/pdparchitect/launcher/internal/store"
+	"github.com/pdparchitect/launcher/internal/updatecheck"
 	"github.com/pdparchitect/launcher/internal/webapp"
 )
 
@@ -36,6 +37,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: load catalogue: %v\n", err)
 		os.Exit(1)
 	}
+	updates := updatecheck.NewManager(root, version, updatecheck.Options{})
 	selection, err := launchruntime.Detect(launchruntime.DetectOptions{
 		GOOS:      goruntime.GOOS,
 		GOARCH:    goruntime.GOARCH,
@@ -85,6 +87,7 @@ func main() {
 				Open:          options.Open,
 				Stdout:        os.Stdout,
 				CatalogAssets: catalogue,
+				UpdateStatus:  updates.Status,
 			})
 		}),
 	}
@@ -96,6 +99,7 @@ func main() {
 					Stdout:        os.Stdout,
 					OpenPath:      systemOpener.OpenPath,
 					CatalogAssets: catalogue,
+					UpdateStatus:  updates.Status,
 				})
 			}),
 			cli.WithViewer(func(ctx context.Context, reference string) error {
@@ -128,7 +132,7 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	go runCatalogueRefreshLoop(
+	go runRefreshLoop(
 		ctx,
 		catalog.DefaultRefreshInterval,
 		func(ctx context.Context) {
@@ -137,12 +141,21 @@ func main() {
 			_, _ = refreshCatalogue(refreshCtx, false)
 		},
 	)
+	go runRefreshLoop(
+		ctx,
+		updatecheck.DefaultRefreshInterval,
+		func(ctx context.Context) {
+			refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			_, _ = updates.Refresh(refreshCtx, false)
+		},
+	)
 	code := app.Run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)
 }
 
-func runCatalogueRefreshLoop(
+func runRefreshLoop(
 	ctx context.Context,
 	interval time.Duration,
 	refresh func(context.Context),

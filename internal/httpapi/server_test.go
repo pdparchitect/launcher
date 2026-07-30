@@ -15,6 +15,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/agent"
 	"github.com/pdparchitect/launcher/internal/domain"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
+	"github.com/pdparchitect/launcher/internal/updatecheck"
 )
 
 const testCatalogID = "370a2228-322d-4089-846b-62fb8c15d154"
@@ -530,6 +531,34 @@ func TestBackgroundRefreshDoesNotShowBlockingAlert(t *testing.T) {
 	}
 }
 
+func TestLauncherUpdateAppearsInBannerAndHomeOverview(t *testing.T) {
+	source := readWebSources(
+		t,
+		"api.js",
+		"desktop-window.js",
+		"components/launcher-app.js",
+		"styles.css",
+	)
+	for _, expected := range []string{
+		"return this.request('/api/launcher')",
+		"data-launcher-update",
+		"LAUNCHER UPDATE AVAILABLE",
+		"VIEW RELEASE",
+		"REMIND ME LATER",
+		"refreshLauncherUpdate()",
+		"launcher-dismissed-update",
+		"desktopWindow.openExternal(releaseURL)",
+		"overview-stat--update",
+		"V${this.launcherStatus.latestVersion} AVAILABLE",
+		".launcher-update-banner {",
+		"grid-template-columns: repeat(4, minmax(0, 1fr));",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("interface missing Launcher update behavior %q", expected)
+		}
+	}
+}
+
 func TestFailedStartShowsRuntimeLogToast(t *testing.T) {
 	source := readWebSources(t, "components/launcher-app.js")
 	for _, expected := range []string{
@@ -779,6 +808,42 @@ func TestAPIRequiresSessionToken(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestLauncherReturnsUpdateStatus(t *testing.T) {
+	checkedAt := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	request := apiRequest(http.MethodGet, "/api/launcher", nil)
+	response := httptest.NewRecorder()
+
+	New(
+		&fakeService{},
+		"test-token",
+		WithUpdateStatus(func() updatecheck.Status {
+			return updatecheck.Status{
+				CurrentVersion:  "0.2.0",
+				LatestVersion:   "0.3.0",
+				ReleaseURL:      "https://github.com/pdparchitect/launcher/releases/tag/v0.3.0",
+				UpdateAvailable: true,
+				CheckedAt:       &checkedAt,
+			}
+		}),
+	).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var status updatecheck.Status
+	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if status.CurrentVersion != "0.2.0" ||
+		status.LatestVersion != "0.3.0" ||
+		!status.UpdateAvailable ||
+		status.ReleaseURL == "" ||
+		status.CheckedAt == nil ||
+		!status.CheckedAt.Equal(checkedAt) {
+		t.Fatalf("Launcher status = %#v", status)
 	}
 }
 

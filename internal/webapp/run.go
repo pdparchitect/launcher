@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pdparchitect/launcher/internal/httpapi"
+	"github.com/pdparchitect/launcher/internal/updatecheck"
 )
 
 type Opener interface {
@@ -29,6 +30,7 @@ type Options struct {
 	Open          bool
 	Stdout        io.Writer
 	CatalogAssets fs.FS
+	UpdateStatus  func() updatecheck.Status
 }
 
 const startupTimeout = 5 * time.Second
@@ -60,6 +62,12 @@ func Run(
 		serverOptions = append(
 			serverOptions,
 			httpapi.WithCatalogAssets(options.CatalogAssets),
+		)
+	}
+	if options.UpdateStatus != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithUpdateStatus(options.UpdateStatus),
 		)
 	}
 	if opener, ok := opener.(pathOpener); ok {

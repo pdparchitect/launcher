@@ -46,6 +46,10 @@ export class LauncherAPI {
     return this.request('/api/doctor')
   }
 
+  launcher() {
+    return this.request('/api/launcher')
+  }
+
   startRuntime() {
     return this.request('/api/runtime/start', {
       method: 'POST',
@@ -144,8 +148,7 @@ export class LauncherAPI {
         const errorBody = await response.json().catch(() => ({}))
 
         throw new Error(
-          errorBody.error ||
-            `${operation} request failed (${response.status})`
+          errorBody.error || `${operation} request failed (${response.status})`
         )
       }
 
@@ -195,9 +198,7 @@ export class LauncherAPI {
       }
 
       if (!completed) {
-        throw new Error(
-          `${operation} ended before the agent was ready`
-        )
+        throw new Error(`${operation} ended before the agent was ready`)
       }
 
       return completed
