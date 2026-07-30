@@ -43,9 +43,7 @@ type Manifest struct {
 }
 
 type applicationDocument struct {
-	SchemaVersion int `json:"schemaVersion"`
-	// LegacyVersion keeps already-published schema v1 bundles readable.
-	LegacyVersion string            `json:"version,omitempty"`
+	SchemaVersion int               `json:"schemaVersion"`
 	ID            string            `json:"id"`
 	Slug          string            `json:"slug"`
 	Name          string            `json:"name"`
@@ -247,7 +245,7 @@ func loadApplicationBundle(
 		)
 	}
 	var document applicationDocument
-	if err := decodeStrictJSON(documentData, &document); err != nil {
+	if err := json.Unmarshal(documentData, &document); err != nil {
 		return applicationBundle{}, fmt.Errorf(
 			"decode application document: %w",
 			err,

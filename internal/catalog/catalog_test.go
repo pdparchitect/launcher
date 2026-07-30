@@ -34,11 +34,15 @@ func TestLoadApplicationBundleDerivesDigestImageAndScopesAssets(t *testing.T) {
 	}
 }
 
-func TestLoadApplicationBundleAcceptsLegacyVersion(t *testing.T) {
+func TestLoadApplicationBundleAcceptsUnknownFields(t *testing.T) {
 	document := strings.Replace(
 		testApplicationJSON("ghost", testApplicationID),
 		`"schemaVersion": 1,`,
-		`"schemaVersion": 1, "version": "1.2.3",`,
+		`"schemaVersion": 1,
+		"version": "1.2.3",
+		"resolutionEnvironment": "DESKTOP_RESOLUTION",
+		"resolution": "1920x1080",
+		"futureMetadata": {"channel": "stable"},`,
 		1,
 	)
 	_, err := loadApplicationBundle(
@@ -51,7 +55,7 @@ func TestLoadApplicationBundleAcceptsLegacyVersion(t *testing.T) {
 		"sha256:"+strings.Repeat("a", 64),
 	)
 	if err != nil {
-		t.Fatalf("loadApplicationBundle() legacy version error = %v", err)
+		t.Fatalf("loadApplicationBundle() unknown fields error = %v", err)
 	}
 }
 

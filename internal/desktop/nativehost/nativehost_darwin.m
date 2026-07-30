@@ -292,7 +292,7 @@ static void AnimateTitlebarChrome(
         }];
 }
 
-static void SetTitlebarLayoutRevealed(BOOL revealed) {
+static void SetTitlebarLayoutRevealed(BOOL revealed, BOOL animated) {
     if (gViewerWindow == nil
         || gViewerWebView == nil
         || gTitlebarHeight <= 0.0
@@ -312,7 +312,7 @@ static void SetTitlebarLayoutRevealed(BOOL revealed) {
      */
     gViewerWebView.autoresizingMask =
         NSViewWidthSizable | NSViewMaxYMargin;
-    [gViewerWindow setFrame:frame display:NO animate:YES];
+    [gViewerWindow setFrame:frame display:NO animate:animated];
 
     NSView *contentView = gViewerWebView.superview;
     NSRect contentBounds = contentView.bounds;
@@ -339,7 +339,7 @@ static void SetTitlebarRevealed(BOOL revealed) {
     if (revealed) {
         // The new strip is transparent until the chrome fades in, so adding it
         // does not produce a flash while the content remains anchored below.
-        SetTitlebarLayoutRevealed(YES);
+        SetTitlebarLayoutRevealed(YES, YES);
         AnimateTitlebarChrome(YES, nil);
         return;
     }
@@ -353,7 +353,7 @@ static void SetTitlebarRevealed(BOOL revealed) {
         if (gTitlebarRevealed || transition != gTitlebarTransition) {
             return;
         }
-        SetTitlebarLayoutRevealed(NO);
+        SetTitlebarLayoutRevealed(NO, YES);
     });
 }
 
@@ -362,14 +362,18 @@ static void SetViewerFullscreen(BOOL fullscreen) {
         return;
     }
 
-    gViewerFullscreen = fullscreen;
-    gTitlebarRevealed = fullscreen;
-    ++gTitlebarTransition;
-    SetTitlebarChromeImmediately(fullscreen);
-
-    if (!fullscreen) {
-        SetTitlebarLayoutRevealed(NO);
+    /*
+     Fullscreen is content-only. Collapse any hover-revealed title strip before
+     AppKit starts its transition and leave the standard controls hidden so its
+     top-edge reveal has no second set of viewer chrome to display.
+     */
+    if (fullscreen) {
+        SetTitlebarLayoutRevealed(NO, NO);
     }
+    gViewerFullscreen = fullscreen;
+    gTitlebarRevealed = NO;
+    ++gTitlebarTransition;
+    SetTitlebarChromeImmediately(NO);
 }
 
 static bool InstallViewerChromeOnMainThread(void) {
@@ -445,12 +449,7 @@ static bool InstallViewerChromeOnMainThread(void) {
             return event;
         }];
 
-    /*
-     AppKit reveals the fullscreen title bar on pointer approach, but it does
-     not undo hidden on standard window buttons. Make the controls eligible to
-     appear before the transition, then restore the viewer's collapsed chrome
-     after AppKit has returned the window to its ordinary frame.
-     */
+    // Fullscreen remains content-only; ordinary hover chrome resumes on exit.
     [[NSNotificationCenter defaultCenter]
         addObserverForName:NSWindowWillEnterFullScreenNotification
                     object:window

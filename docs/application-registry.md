@@ -144,10 +144,11 @@ not been seeded yet.
 
 Launcher verifies OCI descriptor digests through the registry client, bounds
 manifest and layer sizes, rejects unsafe archive paths and symbolic links,
-strictly validates JSON schemas, requires the application artifact to have an
-image subject, validates all referenced artwork, and rejects duplicate UUIDs
-or slugs before activating a snapshot. Cache state and blobs are written
-atomically.
+strictly validates registry sources and publisher feeds, requires known
+application fields to pass runtime and media validation while ignoring unknown
+application metadata, requires the application artifact to have an image
+subject, validates all referenced artwork, and rejects duplicate UUIDs or slugs
+before activating a snapshot. Cache state and blobs are written atomically.
 
 Raster artwork uses Git LFS. Release workflows must check out LFS content
 before assembling application bundles.

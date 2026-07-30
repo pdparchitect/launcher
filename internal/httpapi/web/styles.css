@@ -669,6 +669,26 @@ mark {
   white-space: nowrap;
 }
 
+.overview-stat__update {
+  min-width: 0;
+  justify-self: start;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-technical);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-stat__update:hover {
+  text-decoration: underline;
+}
+
 .overview-stats strong {
   color: var(--accent);
   font-family: var(--font-interface);

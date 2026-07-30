@@ -425,6 +425,7 @@ export class LauncherApp extends HTMLElement {
       status.latestVersion !== this.dismissedUpdateVersion
 
     banner.hidden = !visible
+
     if (!visible) {
       return
     }
@@ -625,6 +626,7 @@ export class LauncherApp extends HTMLElement {
     if (this.nativeSidebarSetup) {
       return
     }
+
     this.nativeSidebarSetup = true
 
     nativeSidebar.onSelect((id) => this.setScreen(id))
@@ -845,14 +847,33 @@ export class LauncherApp extends HTMLElement {
     for (const [label, value, detail] of overviewItems) {
       const item = document.createElement('div')
 
+      const opensLauncherUpdate =
+        label === 'LAUNCHER' &&
+        this.launcherStatus?.updateAvailable &&
+        this.launcherStatus?.releaseUrl
+
       item.classList.toggle(
         'overview-stat--update',
         label === 'LAUNCHER' && this.launcherStatus?.updateAvailable
       )
-      item.innerHTML = '<small></small><strong></strong><span></span>'
+      item.innerHTML = '<small></small><strong></strong>'
       item.querySelector('small').textContent = label
       item.querySelector('strong').textContent = value
-      item.querySelector('span').textContent = detail
+
+      const detailElement = document.createElement(
+        opensLauncherUpdate ? 'button' : 'span'
+      )
+
+      if (opensLauncherUpdate) {
+        detailElement.type = 'button'
+        detailElement.className = 'overview-stat__update'
+        detailElement.textContent = `${detail} →`
+        detailElement.addEventListener('click', () => this.openLauncherUpdate())
+      } else {
+        detailElement.textContent = detail
+      }
+
+      item.append(detailElement)
       overview.append(item)
     }
   }
