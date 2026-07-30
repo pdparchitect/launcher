@@ -1,0 +1,4 @@
+interface:
+  display_name: "Promote Image to Catalogue"
+  short_description: "Release an image and promote its catalogue pin"
+  default_prompt: "Use $promote-image-to-catalogue to release a Launcher product image and promote its immutable version into the catalogue."

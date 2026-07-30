@@ -32,10 +32,11 @@ COPY --from=uv-source /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=uv-source /usr/local/bin/uvx /usr/local/bin/uvx
 
 ARG HERMES_SOURCE_URL=https://github.com/NousResearch/hermes-agent
-ARG HERMES_VERSION=v2026.7.20
+ARG HERMES_VERSION=0.19.0
+ARG HERMES_SOURCE_TAG=v2026.7.20
 ARG HERMES_SOURCE_SHA=3ef6bbd201263d354fd83ec55b3c306ded2eb72a
 
-RUN git clone --branch "${HERMES_VERSION}" --depth 1 \
+RUN git clone --branch "${HERMES_SOURCE_TAG}" --depth 1 \
         "${HERMES_SOURCE_URL}.git" /opt/hermes && \
     test "$(git -C /opt/hermes rev-parse HEAD)" = "$HERMES_SOURCE_SHA"
 
@@ -118,6 +119,7 @@ LABEL org.opencontainers.image.title="Hermes Desktop" \
     org.opencontainers.image.source="https://github.com/pdparchitect/launcher" \
     dev.pdparchitect.launcher.upstream.source="${HERMES_SOURCE_URL}" \
     dev.pdparchitect.launcher.upstream.version="${HERMES_VERSION}" \
+    dev.pdparchitect.launcher.upstream.ref="${HERMES_SOURCE_TAG}" \
     dev.pdparchitect.launcher.upstream.revision="${HERMES_SOURCE_SHA}"
 
 VOLUME ["/workspace", "/home/agent/.hermes"]

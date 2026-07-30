@@ -8,6 +8,25 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.2]
+
+- Separate the upstream Hermes Agent version from its Git release tag so image
+  metadata reports version `0.19.0` while the source remains pinned to the
+  verified `v2026.7.20` tag and commit.
+- Record the upstream Git tag alongside its semantic version and revision.
+
+## [0.1.1]
+
+- Fixed the Hermes package installation so both the CLI and its Python package
+  are available in the published image.
+- Run Hermes as the session user when the desktop starts from a root-owned
+  working directory, keeping its persistent state writable.
+- Added a product self-test that verifies the Hermes CLI, Python package and
+  persistent state directory before an image passes its smoke test.
+- Avoid reinstalling operating-system dependencies while fetching the bundled
+  Playwright browser.
+- Record the upstream Hermes source URL in the image metadata.
+
 ## [0.1.0]
 
 - Hermes Agent in a browser-accessible desktop.
