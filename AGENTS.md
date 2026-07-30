@@ -60,5 +60,7 @@ Read the matching skill before starting specialized work:
   registry caching
 - [manage-images](.agents/skills/manage-images/SKILL.md): build, version, and
   release container images
+- [capture-application-preview](.agents/skills/capture-application-preview/SKILL.md):
+  obtain a screenshot from a declared preview HTTP interface
 - [develop-launcher](.agents/skills/develop-launcher/SKILL.md): change and
   validate the Go, web, Wails, or macOS application

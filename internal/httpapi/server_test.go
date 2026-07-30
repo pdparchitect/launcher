@@ -307,7 +307,7 @@ func TestStartRuntimeStartsServiceAndReturnsReadyReport(t *testing.T) {
 	}
 }
 
-func TestListInstancesReturnsDesktopURL(t *testing.T) {
+func TestListInstancesReturnsInterfaceURLs(t *testing.T) {
 	service := &fakeService{views: []agent.View{{
 		Instance:        testInstance(),
 		State:           launchruntime.StatusRunning,
@@ -340,6 +340,9 @@ func TestListInstancesReturnsDesktopURL(t *testing.T) {
 	if len(body.Instances) != 1 ||
 		body.Instances[0].Interfaces["desktop"].URL !=
 			"http://127.0.0.1:16902/" ||
+		body.Instances[0].Interfaces["preview"].URL !=
+			"http://127.0.0.1:16903/preview.jpg" ||
+		body.Instances[0].Interfaces["preview"].Kind != "preview" ||
 		body.Instances[0].Metrics == nil ||
 		*body.Instances[0].Metrics.CPUPercent != 0.22 ||
 		*body.Instances[0].Metrics.MemoryPercent != 0.34 ||
@@ -865,6 +868,11 @@ func testInstance() domain.Instance {
 		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
 		Interfaces: map[string]domain.Interface{
 			"desktop": {Kind: "kasmweb", Port: 16902, Path: "/"},
+			"preview": {
+				Kind: "preview",
+				Port: 16903,
+				Path: "/preview.jpg",
+			},
 		},
 		DesiredState: domain.DesiredRunning,
 		CreatedAt:    time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),

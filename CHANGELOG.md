@@ -4,6 +4,14 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.7] - 2026-07-30
+
+### Added
+
+- Show live agent thumbnails from a declared `preview` interface while an
+  agent is running, refreshing every 15 seconds and falling back to its
+  packaged catalogue screenshot whenever the preview is unavailable.
+
 ## [0.4.6] - 2026-07-30
 
 ### Added

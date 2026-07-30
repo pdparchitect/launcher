@@ -2,6 +2,43 @@ function assetURL(source) {
   return source ? `/catalog-assets/${source}` : ''
 }
 
+const PREVIEW_REFRESH_MS = 15_000
+
+function livePreviewURL(agent, now = Date.now()) {
+  const preview = agent.state === 'running' && agent.interfaces?.preview
+
+  if (preview?.kind !== 'preview' || !preview.url) {
+    return ''
+  }
+
+  try {
+    const url = new URL(preview.url, globalThis.location?.href)
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return ''
+    }
+
+    // Agent state is already refreshed every five seconds. A time bucket lets
+    // those renders update the thumbnail every 15 seconds without adding a
+    // second timer or forcing a new capture on every state poll.
+    url.searchParams.set(
+      'launcherPreview',
+      Math.floor(now / PREVIEW_REFRESH_MS).toString()
+    )
+
+    return url.href
+  } catch {
+    return ''
+  }
+}
+
+function backgroundImages(...sources) {
+  return sources
+    .filter(Boolean)
+    .map((source) => `url(${JSON.stringify(source)})`)
+    .join(', ')
+}
+
 function statusFor(state) {
   if (state === 'running') {
     return 'ONLINE'
@@ -156,11 +193,21 @@ export class AgentCard extends HTMLElement {
     )}")`
 
     const preview = this.querySelector('[data-preview]')
+    const livePreview = livePreviewURL(agent)
 
-    preview.style.backgroundImage = `url("${screenshotURL}")`
+    // Multiple CSS backgrounds provide a zero-delay fallback: if the live
+    // endpoint cannot load, the packaged catalogue screenshot underneath it
+    // remains visible.
+    preview.style.backgroundImage = backgroundImages(
+      livePreview,
+      screenshotURL
+    )
+    preview.dataset.live = livePreview ? 'true' : 'false'
     preview.setAttribute(
       'aria-label',
-      screenshot?.alt || entry?.name || agent.name
+      livePreview
+        ? `Live preview of ${agent.name}`
+        : screenshot?.alt || entry?.name || agent.name
     )
 
     const tagList = this.querySelector('[data-tags]')

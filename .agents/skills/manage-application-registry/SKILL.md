@@ -27,8 +27,8 @@ product image, read `../manage-images/SKILL.md`.
 2. Preserve an existing UUID. Installed application records use it as their
    durable identity.
 3. Keep the slug unique and preserve it unless an explicit rename is required.
-4. Set `schemaVersion` to the supported schema and set `version` to the owning
-   product `VERSION`.
+4. Set `schemaVersion` to the supported schema. Do not add a `version` field;
+   the owning product `VERSION` is authoritative.
 5. Do not add an `image` field. Launcher derives
    `<repository>@<subject-digest>` from the OCI application artifact.
 6. Keep media paths relative to the owning `launcher/` directory and ensure
