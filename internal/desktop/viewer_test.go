@@ -16,14 +16,20 @@ func TestViewerPageNavigatesToRunningAgentURL(t *testing.T) {
 		Instance: domain.Instance{
 			ID:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Name: "Pantalk Ghost",
-			Port: 16902,
+			Interfaces: map[string]domain.Interface{
+				"desktop": {Kind: "kasmweb", Port: 16902, Path: "/"},
+			},
 		},
 		State: launchruntime.StatusRunning,
 	}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 
-	viewerHandler(view.Name, view.URL(), "kasmvnc").ServeHTTP(response, request)
+	viewerHandler(
+		view.Name,
+		view.Interfaces["desktop"].URL(),
+		"kasmweb",
+	).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)

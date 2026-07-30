@@ -4,6 +4,11 @@ Codex Pets source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.2.3]
+
+- Replace the single Launcher viewer and container port with the `desktop`
+  `kasmweb` interface required by application schema version 2.
+
 ## [0.2.2]
 
 - Remove redundant fixed-resolution metadata from the Launcher application

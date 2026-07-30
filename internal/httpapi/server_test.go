@@ -298,7 +298,8 @@ func TestListInstancesReturnsDesktopURL(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(body.Instances) != 1 ||
-		body.Instances[0].URL != "http://127.0.0.1:16902" ||
+		body.Instances[0].Interfaces["desktop"].URL !=
+			"http://127.0.0.1:16902/" ||
 		body.Instances[0].Metrics == nil ||
 		*body.Instances[0].Metrics.CPUPercent != 0.22 ||
 		*body.Instances[0].Metrics.MemoryPercent != 0.34 ||
@@ -516,6 +517,7 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 	}
 	var opened string
 	var openedURL string
+	var openedKind string
 	request := apiRequest(
 		http.MethodPost,
 		"/api/instances/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/viewer",
@@ -530,6 +532,7 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 		WithViewerOpener(func(target ViewerTarget) error {
 			opened = target.ID
 			openedURL = target.URL
+			openedKind = target.Kind
 			return nil
 		}),
 	).ServeHTTP(response, request)
@@ -542,8 +545,12 @@ func TestOpenInstanceViewerUsesConfiguredViewerOpener(t *testing.T) {
 	}
 	// The spawner must receive a resolved URL so the viewer process never has
 	// to inspect the container again just to learn where the agent lives.
-	if openedURL != instance.URL() {
-		t.Fatalf("opened URL = %q, want %q", openedURL, instance.URL())
+	wantURL := instance.Interfaces["desktop"].URL()
+	if openedURL != wantURL {
+		t.Fatalf("opened URL = %q, want %q", openedURL, wantURL)
+	}
+	if openedKind != "kasmweb" {
+		t.Fatalf("opened kind = %q, want kasmweb", openedKind)
 	}
 }
 
@@ -782,8 +789,10 @@ func testInstance() domain.Instance {
 		Name:          "Ada",
 		Image:         "pantalk/ghost:test",
 		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
-		Port:          16902,
-		DesiredState:  domain.DesiredRunning,
-		CreatedAt:     time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+		Interfaces: map[string]domain.Interface{
+			"desktop": {Kind: "kasmweb", Port: 16902, Path: "/"},
+		},
+		DesiredState: domain.DesiredRunning,
+		CreatedAt:    time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
 	}
 }

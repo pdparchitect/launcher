@@ -342,12 +342,24 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 	if apple && request.Manifest.Memory != "" {
 		args = append(args, "--memory", request.Manifest.Memory)
 	}
-	args = append(
-		args,
-		"--shm-size", request.Manifest.SharedMemory,
-		"--publish",
-		fmt.Sprintf("127.0.0.1:%d:%d", request.Port, request.Manifest.ContainerPort),
-	)
+	args = append(args, "--shm-size", request.Manifest.SharedMemory)
+	containerPorts := make([]int, 0, len(request.Ports))
+	for containerPort := range request.Ports {
+		containerPorts = append(containerPorts, containerPort)
+	}
+	sort.Ints(containerPorts)
+	for _, containerPort := range containerPorts {
+		hostPort := request.Ports[containerPort]
+		if hostPort < 1 || hostPort > 65535 ||
+			containerPort < 1 || containerPort > 65535 {
+			return nil, errors.New("published ports must be between 1 and 65535")
+		}
+		args = append(
+			args,
+			"--publish",
+			fmt.Sprintf("127.0.0.1:%d:%d", hostPort, containerPort),
+		)
+	}
 	environment := make(map[string]string, len(request.Manifest.Environment))
 	for key, value := range request.Manifest.Environment {
 		environment[key] = value

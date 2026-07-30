@@ -61,7 +61,6 @@ type CreateOptions struct {
 	CatalogID string
 	Name      string
 	Image     string
-	Port      int
 	Start     bool
 	Progress  func(CreateProgress)
 }
@@ -110,16 +109,16 @@ type View struct {
 }
 
 type CatalogEntry struct {
-	ID          string        `json:"id"`
-	Slug        string        `json:"slug"`
-	Name        string        `json:"name"`
-	Publisher   string        `json:"publisher"`
-	Description string        `json:"description"`
-	Tags        []string      `json:"tags"`
-	Media       catalog.Media `json:"media"`
-	Image       string        `json:"image"`
-	Viewer      string        `json:"viewer"`
-	Memory      string        `json:"memory,omitempty"`
+	ID          string                       `json:"id"`
+	Slug        string                       `json:"slug"`
+	Name        string                       `json:"name"`
+	Publisher   string                       `json:"publisher"`
+	Description string                       `json:"description"`
+	Tags        []string                     `json:"tags"`
+	Media       catalog.Media                `json:"media"`
+	Image       string                       `json:"image"`
+	Interfaces  map[string]catalog.Interface `json:"interfaces"`
+	Memory      string                       `json:"memory,omitempty"`
 }
 
 type DoctorReport struct {
@@ -183,7 +182,7 @@ func (service *Service) Catalog() []CatalogEntry {
 			ID: manifest.ID, Slug: manifest.Slug, Name: manifest.Name,
 			Publisher: manifest.Publisher, Description: manifest.Description,
 			Tags: manifest.Tags, Media: manifest.Media, Image: manifest.Image,
-			Viewer: manifest.Viewer, Memory: manifest.Memory,
+			Interfaces: manifest.Interfaces, Memory: manifest.Memory,
 		})
 	}
 	sort.Slice(entries, func(left, right int) bool {
@@ -254,11 +253,7 @@ func (service *Service) Create(
 	if err != nil {
 		return domain.Instance{}, err
 	}
-	usedPorts := make(map[int]struct{}, len(instances))
-	for _, instance := range instances {
-		usedPorts[instance.Port] = struct{}{}
-	}
-	port, err := service.options.Ports.Allocate(options.Port, usedPorts)
+	interfaces, err := service.resolveInterfaces(manifest, instances, nil)
 	if err != nil {
 		return domain.Instance{}, err
 	}
@@ -278,7 +273,9 @@ func (service *Service) Create(
 	instance := domain.Instance{
 		ID: id, CatalogID: options.CatalogID, Name: options.Name, Image: image,
 		ContainerName: "launcher-" + manifest.Slug + "-" + id[:12],
-		Port:          port, DesiredState: desiredState, CreatedAt: service.options.Now().UTC(),
+		Interfaces:    interfaces,
+		DesiredState:  desiredState,
+		CreatedAt:     service.options.Now().UTC(),
 	}
 	options.report(CreateStagePreparing, "Preparing local agent storage")
 	paths, err := service.store.Create(instance, manifest)
@@ -311,8 +308,9 @@ func (service *Service) Create(
 	options.report(CreateStageCreating, "Creating agent container")
 	if err := service.runtime.Create(ctx, launchruntime.CreateRequest{
 		InstanceID: instance.ID, ContainerName: instance.ContainerName,
-		Image: instance.Image, Port: instance.Port, Platform: service.options.Platform,
-		Paths: paths.Mounts, Manifest: manifest,
+		Image: instance.Image, Ports: runtimePorts(instance, manifest),
+		Platform: service.options.Platform,
+		Paths:    paths.Mounts, Manifest: manifest,
 	}); err != nil {
 		return domain.Instance{}, err
 	}
@@ -544,6 +542,22 @@ func (service *Service) UpdateWithProgress(
 	paths := service.store.Paths(instance.ID, manifest)
 	updated := instance
 	updated.Image = targetImage
+	instances, listErr := service.store.List()
+	if listErr != nil {
+		return domain.Instance{}, listErr
+	}
+	requestedPorts := make(map[string]int, len(instance.Interfaces))
+	for id, resolved := range instance.Interfaces {
+		requestedPorts[id] = resolved.Port
+	}
+	updated.Interfaces, err = service.resolveInterfaces(
+		manifest,
+		instancesExcept(instances, instance.ID),
+		requestedPorts,
+	)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("resolve updated interfaces: %w", err)
+	}
 	if shouldStart {
 		updated.DesiredState = domain.DesiredRunning
 	}
@@ -594,9 +608,80 @@ func (service *Service) createRuntimeContainer(
 ) error {
 	return service.runtime.Create(ctx, launchruntime.CreateRequest{
 		InstanceID: instance.ID, ContainerName: instance.ContainerName,
-		Image: instance.Image, Port: instance.Port, Platform: service.options.Platform,
-		Paths: paths.Mounts, Manifest: manifest,
+		Image: instance.Image, Ports: runtimePorts(instance, manifest),
+		Platform: service.options.Platform,
+		Paths:    paths.Mounts, Manifest: manifest,
 	})
+}
+
+func (service *Service) resolveInterfaces(
+	manifest catalog.Manifest,
+	instances []domain.Instance,
+	requested map[string]int,
+) (map[string]domain.Interface, error) {
+	usedPorts := make(map[int]struct{})
+	for _, instance := range instances {
+		for _, resolved := range instance.Interfaces {
+			usedPorts[resolved.Port] = struct{}{}
+		}
+	}
+	ids := make([]string, 0, len(manifest.Interfaces))
+	for id := range manifest.Interfaces {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	hostPorts := make(map[int]int)
+	resolved := make(map[string]domain.Interface, len(ids))
+	for _, id := range ids {
+		definition := manifest.Interfaces[id]
+		hostPort, exists := hostPorts[definition.Port]
+		if !exists {
+			var requestedPort int
+			if requested != nil {
+				requestedPort = requested[id]
+			}
+			var err error
+			hostPort, err = service.options.Ports.Allocate(requestedPort, usedPorts)
+			if err != nil {
+				return nil, fmt.Errorf("allocate interface %q: %w", id, err)
+			}
+			hostPorts[definition.Port] = hostPort
+			usedPorts[hostPort] = struct{}{}
+		}
+		resolved[id] = domain.Interface{
+			Kind: definition.Kind,
+			Port: hostPort,
+			Path: definition.Path,
+		}
+	}
+	return resolved, nil
+}
+
+func runtimePorts(
+	instance domain.Instance,
+	manifest catalog.Manifest,
+) map[int]int {
+	ports := make(map[int]int)
+	for id, definition := range manifest.Interfaces {
+		resolved, exists := instance.Interfaces[id]
+		if exists {
+			ports[definition.Port] = resolved.Port
+		}
+	}
+	return ports
+}
+
+func instancesExcept(
+	instances []domain.Instance,
+	id string,
+) []domain.Instance {
+	filtered := make([]domain.Instance, 0, len(instances))
+	for _, instance := range instances {
+		if instance.ID != id {
+			filtered = append(filtered, instance)
+		}
+	}
+	return filtered
 }
 
 func (service *Service) restoreRuntimeContainer(

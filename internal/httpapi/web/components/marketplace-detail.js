@@ -119,8 +119,16 @@ export class MarketplaceDetail extends HTMLElement {
       tags.append(item)
     }
 
+    const interfaces = Object.values(entry.interfaces || {})
     const specifications = [
-      ['EXPERIENCE', entry.viewer === 'kasmvnc' ? 'LOCAL DESKTOP' : 'LOCAL WEB'],
+      [
+        'EXPERIENCE',
+        interfaces.some((item) => item.kind === 'kasmweb')
+          ? 'STREAMED WORKSPACE'
+          : interfaces.some((item) => item.kind === 'web')
+            ? 'LOCAL WEB'
+            : 'CONNECTED SERVICE',
+      ],
       ['MEMORY', entry.memory || 'MANAGED BY LAUNCHER'],
     ]
     const specificationList = this.querySelector('[data-specifications]')

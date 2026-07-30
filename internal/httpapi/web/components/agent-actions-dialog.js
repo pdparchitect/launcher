@@ -71,7 +71,8 @@ export class AgentActionsDialog extends HTMLElement {
               <strong>UPDATE THIS AGENT?</strong>
               <p>
                 Launcher will replace only the runtime container. Its
-                workspace, credentials, name, and port will be preserved.
+                workspace, credentials, name, and interface addresses will be
+                preserved where possible.
               </p>
               <dl>
                 <div><dt>CURRENT</dt><dd data-current-image></dd></div>

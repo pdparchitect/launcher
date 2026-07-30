@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "864bcec3-4f2e-442a-a928-a6a1424a8afd",
   "slug": "openclaw",
   "name": "OpenClaw",
@@ -20,8 +20,13 @@
       }
     ]
   },
-  "viewer": "kasmvnc",
-  "containerPort": 6901,
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    }
+  },
   "memory": "4g",
   "sharedMemory": "1g",
   "environment": {},

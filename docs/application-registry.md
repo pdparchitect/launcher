@@ -64,7 +64,7 @@ runtime configuration:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "f726241a-ff31-423d-92ad-f2b43cca742f",
   "slug": "hermes",
   "name": "Hermes",
@@ -81,8 +81,13 @@ runtime configuration:
       }
     ]
   },
-  "viewer": "kasmvnc",
-  "containerPort": 6901,
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    }
+  },
   "memory": "4g",
   "sharedMemory": "1g",
   "environment": {},
@@ -98,6 +103,14 @@ runtime configuration:
 Never change an existing UUID. Installed agent records use it as their durable
 identity. Slugs must also be unique across all configured publisher feeds.
 Media paths are relative to the owning `launcher/` directory.
+
+`interfaces` maps application-defined interface IDs to the HTTP contracts
+exposed by the container. IDs such as `desktop`, `agent`, or `filesystem` are
+stable names within one application. `kind` selects the Launcher integration;
+the initial kinds are `web`, `kasmweb`, `acp`, and `mcp`. Several interfaces
+may use the same kind, port, or both. Launcher publishes each distinct
+container port once and resolves every interface to its own local URL using
+the declared path.
 
 ## Publish an application update
 
