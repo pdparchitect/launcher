@@ -222,8 +222,8 @@ class Supervisor:
         pen_paused = petlib.paused()
 
         for pet in pets:
-            # Existing pets predate this capability. Add only the missing
-            # standard skill and directory; never rewrite a skill they own.
+            # Add only the missing standard skill; never replace one the pet
+            # already owns.
             petartifacts.install(pet)
 
             try:

@@ -4,6 +4,11 @@ Codex Pets source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.2.4]
+
+- Store pet skills in Codex's discoverable `.agents/skills/` directory.
+- Add the required name and description metadata to built-in skills.
+
 ## [0.2.3]
 
 - Replace the single Launcher viewer and container port with the `desktop`

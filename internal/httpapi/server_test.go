@@ -14,6 +14,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/agent"
 	"github.com/pdparchitect/launcher/internal/domain"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
+	"github.com/pdparchitect/launcher/internal/store"
 	"github.com/pdparchitect/launcher/internal/updatecheck"
 )
 
@@ -188,6 +189,45 @@ func TestLauncherReturnsUpdateStatus(t *testing.T) {
 	}
 }
 
+func TestLauncherChecksForUpdatesImmediately(t *testing.T) {
+	request := apiRequest(http.MethodPost, "/api/launcher/check", []byte(`{}`))
+	response := httptest.NewRecorder()
+	called := false
+
+	New(
+		&fakeService{},
+		"test-token",
+		WithUpdateRefresh(func(
+			context.Context,
+		) (updatecheck.Status, error) {
+			called = true
+			return updatecheck.Status{
+				CurrentVersion:  "0.4.6",
+				LatestVersion:   "0.4.7",
+				ReleaseURL:      "https://github.com/pdparchitect/launcher/releases/tag/v0.4.7",
+				UpdateAvailable: true,
+			}, nil
+		}),
+	).ServeHTTP(response, request)
+
+	if !called {
+		t.Fatal("update refresh was not called")
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var status updatecheck.Status
+	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if status.CurrentVersion != "0.4.6" ||
+		status.LatestVersion != "0.4.7" ||
+		!status.UpdateAvailable ||
+		status.ReleaseURL == "" {
+		t.Fatalf("Launcher status = %#v", status)
+	}
+}
+
 func TestDoctorReturnsMissingRuntimeSetupInstructions(t *testing.T) {
 	service := &fakeService{doctorErr: &fakeRuntimeInstallError{}}
 	request := apiRequest(http.MethodGet, "/api/doctor", nil)
@@ -307,6 +347,34 @@ func TestListInstancesReturnsDesktopURL(t *testing.T) {
 		!body.Instances[0].UpdateAvailable ||
 		body.Instances[0].AvailableImage != "pantalk/ghost:new" {
 		t.Fatalf("instances = %#v", body.Instances)
+	}
+}
+
+func TestListInstancesReturnsIsolatedAgentIssues(t *testing.T) {
+	service := &fakeService{issues: []store.Issue{{
+		ID:    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Error: `validate agent "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": at least one resolved interface is required`,
+	}}}
+	request := apiRequest(http.MethodGet, "/api/instances", nil)
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var body struct {
+		Instances []instanceResponse   `json:"instances"`
+		Issues    []agentIssueResponse `json:"issues"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Instances) != 0 ||
+		len(body.Issues) != 1 ||
+		body.Issues[0].ID != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
+		!strings.Contains(body.Issues[0].Error, "resolved interface") {
+		t.Fatalf("instances response = %#v", body)
 	}
 }
 
@@ -638,6 +706,7 @@ func apiRequest(method string, target string, body []byte) *http.Request {
 
 type fakeService struct {
 	views            []agent.View
+	issues           []store.Issue
 	view             agent.View
 	created          domain.Instance
 	createOptions    agent.CreateOptions
@@ -684,6 +753,11 @@ func (service *fakeService) Create(
 }
 func (service *fakeService) List(context.Context) ([]agent.View, error) {
 	return service.views, nil
+}
+func (service *fakeService) ListWithIssues(
+	context.Context,
+) ([]agent.View, []store.Issue, error) {
+	return service.views, service.issues, nil
 }
 func (service *fakeService) Get(context.Context, string) (agent.View, error) {
 	if service.view.ID != "" {

@@ -169,6 +169,24 @@ export const nativeSidebar = {
     return this.configure(items, selected)
   },
 
+  publishLauncherUpdate(status) {
+    const handler = messageHandler()
+
+    if (!handler || !isMac()) {
+      return false
+    }
+
+    handler.postMessage({
+      action: 'launcherUpdateStatus',
+      checking: Boolean(status?.checking),
+      updateAvailable: Boolean(status?.updateAvailable),
+      latestVersion: status?.latestVersion || '',
+      releaseURL: status?.releaseUrl || '',
+    })
+
+    return true
+  },
+
   onReady(callback) {
     if (this.ready) {
       callback()

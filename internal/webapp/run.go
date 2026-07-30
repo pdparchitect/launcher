@@ -31,6 +31,7 @@ type Options struct {
 	Stdout        io.Writer
 	CatalogAssets fs.FS
 	UpdateStatus  func() updatecheck.Status
+	UpdateRefresh func(context.Context) (updatecheck.Status, error)
 }
 
 const startupTimeout = 5 * time.Second
@@ -68,6 +69,12 @@ func Run(
 		serverOptions = append(
 			serverOptions,
 			httpapi.WithUpdateStatus(options.UpdateStatus),
+		)
+	}
+	if options.UpdateRefresh != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithUpdateRefresh(options.UpdateRefresh),
 		)
 	}
 	if opener, ok := opener.(pathOpener); ok {

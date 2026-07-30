@@ -142,6 +142,7 @@ export class LauncherApp extends HTMLElement {
     this.api = new LauncherAPI()
     this.screen = 'home'
     this.agents = []
+    this.agentIssues = []
     this.catalog = []
     this.catalogLoading = true
     this.catalogError = ''
@@ -218,6 +219,19 @@ export class LauncherApp extends HTMLElement {
               type="button" data-dismiss-launcher-update>
               REMIND ME LATER
             </button>
+          </aside>
+          <aside class="agent-load-warning" data-agent-load-warning
+            aria-live="polite" hidden>
+            <span class="agent-load-warning__light"
+              aria-hidden="true"></span>
+            <details>
+              <summary data-agent-issue-summary></summary>
+              <p>
+                Launcher isolated these records so healthy agents remain
+                available. Their files have not been changed.
+              </p>
+              <ul data-agent-issue-list></ul>
+            </details>
           </aside>
           <div class="content">
             <section class="screen" data-screen="home"></section>
@@ -367,7 +381,10 @@ export class LauncherApp extends HTMLElement {
       this.doctorReport = doctor.ready ? doctor.report : null
       this.runtimeSetup = doctor.ready ? null : doctor.setup
       this.catalog = catalog.catalog || []
-      this.applyAgentSnapshot(instances.instances || [])
+      this.applyAgentSnapshot(
+        instances.instances || [],
+        instances.issues || []
+      )
       this.catalogLoading = false
       this.render()
 
@@ -393,7 +410,7 @@ export class LauncherApp extends HTMLElement {
     try {
       const result = await this.api.instances()
 
-      this.applyAgentSnapshot(result.instances || [])
+      this.applyAgentSnapshot(result.instances || [], result.issues || [])
       await this.checkStartWatches()
       this.renderScreen()
     } catch (error) {
@@ -403,7 +420,7 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
-  applyAgentSnapshot(instances) {
+  applyAgentSnapshot(instances, issues = []) {
     const presentIDs = new Set(instances.map((agent) => agent.id))
 
     for (const id of this.deletedAgentIDs) {
@@ -415,11 +432,48 @@ export class LauncherApp extends HTMLElement {
     this.agents = instances.filter(
       (agent) => !this.deletedAgentIDs.has(agent.id)
     )
+    this.agentIssues = issues
+    this.renderAgentIssues()
+  }
+
+  renderAgentIssues() {
+    const warning = this.querySelector('[data-agent-load-warning]')
+
+    if (!warning) {
+      return
+    }
+
+    warning.hidden = !this.agentIssues.length
+
+    if (!this.agentIssues.length) {
+      return
+    }
+
+    const count = this.agentIssues.length
+    const summary = warning.querySelector('[data-agent-issue-summary]')
+    const list = warning.querySelector('[data-agent-issue-list]')
+
+    summary.textContent = `${count} STORED ${
+      count === 1 ? 'AGENT' : 'AGENTS'
+    } COULD NOT BE LOADED`
+    list.replaceChildren()
+
+    for (const issue of this.agentIssues) {
+      const item = document.createElement('li')
+      const id = document.createElement('code')
+      const error = document.createElement('span')
+
+      id.textContent = issue.id || 'unknown agent'
+      error.textContent = issue.error || 'The stored agent is unreadable.'
+      item.append(id, error)
+      list.append(item)
+    }
   }
 
   async refreshLauncherUpdate() {
     try {
       this.launcherStatus = await this.api.launcher()
+      nativeSidebar.publishLauncherUpdate(this.launcherStatus)
       this.renderUpdateBanner()
 
       if (this.screen === 'home') {
@@ -427,6 +481,30 @@ export class LauncherApp extends HTMLElement {
       }
     } catch (error) {
       console.warn('Launcher update check failed:', error)
+    }
+  }
+
+  async checkForLauncherUpdate() {
+    nativeSidebar.publishLauncherUpdate({
+      ...this.launcherStatus,
+      checking: true,
+    })
+
+    try {
+      this.launcherStatus = await this.api.checkLauncherUpdate()
+      this.renderUpdateBanner()
+
+      if (this.screen === 'home') {
+        this.renderHome()
+      }
+
+      if (!this.launcherStatus.updateAvailable) {
+        this.showToast('Launcher is up to date')
+      }
+    } catch (error) {
+      this.showToast(`Could not check for updates: ${error.message}`, true)
+    } finally {
+      nativeSidebar.publishLauncherUpdate(this.launcherStatus)
     }
   }
 

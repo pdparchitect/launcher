@@ -50,6 +50,14 @@ export class LauncherAPI {
     return this.request('/api/launcher')
   }
 
+  checkLauncherUpdate() {
+    return this.request('/api/launcher/check', {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 30000,
+    })
+  }
+
   startRuntime() {
     return this.request('/api/runtime/start', {
       method: 'POST',

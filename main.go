@@ -53,6 +53,12 @@ func main() {
 		}
 	}
 	updates := updatecheck.NewManager(root, version, updatecheck.Options{})
+	refreshLauncherUpdate := func(
+		ctx context.Context,
+	) (updatecheck.Status, error) {
+		_, refreshErr := updates.Refresh(ctx, true)
+		return updates.Status(), refreshErr
+	}
 	selection, err := launchruntime.Detect(launchruntime.DetectOptions{
 		GOOS:      goruntime.GOOS,
 		GOARCH:    goruntime.GOARCH,
@@ -103,6 +109,7 @@ func main() {
 				Stdout:        os.Stdout,
 				CatalogAssets: catalogue,
 				UpdateStatus:  updates.Status,
+				UpdateRefresh: refreshLauncherUpdate,
 			})
 		}),
 	}
@@ -115,6 +122,7 @@ func main() {
 					OpenPath:      systemOpener.OpenPath,
 					CatalogAssets: catalogue,
 					UpdateStatus:  updates.Status,
+					UpdateRefresh: refreshLauncherUpdate,
 				})
 			}),
 			cli.WithViewer(func(ctx context.Context, reference string) error {

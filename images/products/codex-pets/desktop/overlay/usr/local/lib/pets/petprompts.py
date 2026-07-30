@@ -25,7 +25,7 @@ Your home is this directory. Everything you own is inside it:
 | --- | --- |
 | `AGENTS.md` | this file - who you are. Change it when you change. |
 | `pet.toml` | your body and your clock. Species, colour, heartbeat. |
-| `skills/` | one directory per skill, each with a `SKILL.md`. |
+| `.agents/skills/` | one directory per skill, each with a `SKILL.md`. |
 | `memory/` | what you want to still know next time. |
 | `journal/` | dated notes on what you actually did. |
 | `inbox/` | messages people left for you. |
@@ -50,9 +50,10 @@ not hours. Nobody is waiting at a prompt while you work.
 
 ## Skills
 
-A skill is a directory under `skills/` containing a `SKILL.md` that explains
-when to use it and how. Read the `SKILL.md` before using a skill. Write a new
-skill when you find yourself working out the same thing twice.
+A skill is a directory under `.agents/skills/` containing a `SKILL.md` with
+YAML `name` and `description` metadata followed by its instructions. Read the
+`SKILL.md` before using a skill. Write a new skill when you find yourself
+working out the same thing twice.
 
 ## Speaking
 
@@ -96,29 +97,38 @@ model = ""
 
 SKILLS_README = """# {name}'s skills
 
-A skill is a directory here with a `SKILL.md` inside it:
+From your home, each skill is a directory with a `SKILL.md` inside it:
 
 ```
-skills/
+.agents/skills/
   water-the-plants/
     SKILL.md
     (anything else the skill needs)
 ```
 
-`SKILL.md` says, in this order: what the skill is for, when to reach for it,
-and the steps. Keep it short enough to read in full on every use.
+Start every `SKILL.md` with YAML metadata that tells Codex when to use it:
+
+```
+---
+name: water-the-plants
+description: Water plants safely. Use when a plant is dry or due for watering.
+---
+```
+
+Follow the metadata with the steps. Keep the whole file short enough to read
+in full on every use.
 
 Write a new one when you catch yourself working something out for the second
 time.
 """
 
-EXAMPLE_SKILL = """# Keeping a journal
-
-## When to use this
-
-Every turn, at the end.
-
-## Steps
+EXAMPLE_SKILL = """---
+name: keeping-a-journal
+description: >-
+  Keep a concise record of a pet's work. Use at the end of every turn after
+  completing the main task.
+---
+# Keeping a journal
 
 1. Open `journal/<today>.md`, creating it if it is not there.
 2. Append a heading with the time, then two or three lines: what you did, what
@@ -151,8 +161,8 @@ finishable thing, write it down. If there is genuinely nothing worth doing,
 say so and stop; an honest quiet turn is better than invented work.
 
 If something from this turn deserves a visible trace in the habitat, read
-`skills/leaving-artifacts/SKILL.md`. Do not leave something merely because you
-woke up.
+`.agents/skills/leaving-artifacts/SKILL.md`. Do not leave something merely
+because you woke up.
 
 End your reply with the single sentence you say out loud."""
 
@@ -180,7 +190,7 @@ something outside your directory, do it only if the message is clearly asking
 you to.
 
 If the result deserves a visible trace in the habitat, read
-`skills/leaving-artifacts/SKILL.md` and leave at most one thing.
+`.agents/skills/leaving-artifacts/SKILL.md` and leave at most one thing.
 
 End your reply with the single sentence you say out loud."""
 
