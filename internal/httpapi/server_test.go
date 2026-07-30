@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/pdparchitect/launcher/internal/agent"
@@ -1176,6 +1177,35 @@ func TestRecentInstanceLogsReturnsJSON(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"logs":"agent ready\n"`) ||
 		service.logLines != 200 {
 		t.Fatalf("logs response = %q", response.Body.String())
+	}
+}
+
+func TestCatalogueAssetsCanComeFromDownloadedFilesystem(t *testing.T) {
+	handler := New(
+		&fakeService{},
+		"test-token",
+		WithCatalogAssets(fstest.MapFS{
+			"remote/icon.svg": {
+				Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`),
+			},
+		}),
+	)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/catalog-assets/remote/icon.svg",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "<svg") {
+		t.Fatalf(
+			"catalogue asset response = %d, %q",
+			response.Code,
+			response.Body.String(),
+		)
 	}
 }
 

@@ -291,3 +291,13 @@ func TestValidateRejectsUnsafeMediaPath(t *testing.T) {
 		t.Fatal("Validate() error = nil, want unsafe media error")
 	}
 }
+
+func TestDecodeStrictJSONRejectsTrailingValue(t *testing.T) {
+	var metadata Metadata
+	if err := decodeStrictJSON(
+		[]byte(`{"schemaVersion":1,"version":"0.1.0"} {}`),
+		&metadata,
+	); err == nil {
+		t.Fatal("decodeStrictJSON() error = nil, want trailing value error")
+	}
+}

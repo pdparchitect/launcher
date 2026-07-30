@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	goruntime "runtime"
 	"syscall"
+	"time"
 
 	"github.com/pdparchitect/launcher/cli"
 	"github.com/pdparchitect/launcher/internal/agent"
@@ -30,7 +31,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: locate data folder: %v\n", err)
 		os.Exit(1)
 	}
-	manifests, err := catalog.List()
+	catalogue, err := catalog.NewManager(root, catalog.ManagerOptions{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: load catalogue: %v\n", err)
 		os.Exit(1)
@@ -50,23 +51,40 @@ func main() {
 	service := agent.New(
 		store.New(root),
 		selection.Runtime,
-		manifests,
+		catalogue.List(),
 		agent.Options{
 			RuntimeName: string(selection.Name),
 			RuntimePath: selection.Path,
 		},
 	)
 	systemOpener := cli.SystemOpener{}
+	refreshCatalogue := func(
+		ctx context.Context,
+		force bool,
+	) (bool, error) {
+		changed, refreshErr := catalogue.Refresh(ctx, force)
+		if refreshErr != nil {
+			return false, refreshErr
+		}
+		if changed {
+			service.ReplaceCatalog(catalogue.List())
+		}
+		return changed, nil
+	}
 	appOptions := []cli.Option{
 		cli.WithInput(os.Stdin),
+		cli.WithCatalogRefresh(func(ctx context.Context) (bool, error) {
+			return refreshCatalogue(ctx, true)
+		}),
 		cli.WithServer(func(
 			ctx context.Context,
 			options cli.ServeOptions,
 		) error {
 			return webapp.Run(ctx, service, systemOpener, webapp.Options{
-				Listen: options.Listen,
-				Open:   options.Open,
-				Stdout: os.Stdout,
+				Listen:        options.Listen,
+				Open:          options.Open,
+				Stdout:        os.Stdout,
+				CatalogAssets: catalogue,
 			})
 		}),
 	}
@@ -75,8 +93,9 @@ func main() {
 			appOptions,
 			cli.WithDesktop(func(ctx context.Context) error {
 				return desktop.Run(ctx, service, desktop.Options{
-					Stdout:   os.Stdout,
-					OpenPath: systemOpener.OpenPath,
+					Stdout:        os.Stdout,
+					OpenPath:      systemOpener.OpenPath,
+					CatalogAssets: catalogue,
 				})
 			}),
 			cli.WithViewer(func(ctx context.Context, reference string) error {
@@ -109,6 +128,11 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
+	go func() {
+		refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		_, _ = refreshCatalogue(refreshCtx, false)
+	}()
 	code := app.Run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)

@@ -38,6 +38,7 @@ type App struct {
 	desktop      DesktopFunc
 	viewer       ViewerFunc
 	viewerTarget ViewerTargetFunc
+	refresh      CatalogRefreshFunc
 }
 
 type Option func(*App)
@@ -51,6 +52,7 @@ type ServeFunc func(context.Context, ServeOptions) error
 type DesktopFunc func(context.Context) error
 type ViewerFunc func(context.Context, string) error
 type ViewerTargetFunc func(context.Context, string, string, string) error
+type CatalogRefreshFunc func(context.Context) (bool, error)
 
 func WithInput(input io.Reader) Option {
 	return func(app *App) { app.input = input }
@@ -70,6 +72,10 @@ func WithViewer(viewer ViewerFunc) Option {
 
 func WithViewerTarget(viewer ViewerTargetFunc) Option {
 	return func(app *App) { app.viewerTarget = viewer }
+}
+
+func WithCatalogRefresh(refresh CatalogRefreshFunc) Option {
+	return func(app *App) { app.refresh = refresh }
 }
 
 func New(
@@ -113,7 +119,7 @@ func (app *App) Run(ctx context.Context, args []string) int {
 	case "viewer":
 		err = app.viewerUI(ctx, args[1:])
 	case "catalog", "catalogue":
-		err = app.catalog(args[1:])
+		err = app.catalog(ctx, args[1:])
 	case "create":
 		err = app.create(ctx, args[1:])
 	case "list", "library", "ls":
@@ -270,13 +276,28 @@ func (app *App) serveUI(ctx context.Context, args []string) error {
 	return app.serve(ctx, ServeOptions{Listen: *listen, Open: !*noOpen})
 }
 
-func (app *App) catalog(args []string) error {
+func (app *App) catalog(ctx context.Context, args []string) error {
 	flags := app.flags("catalog", "List available agent applications.")
+	refresh := flags.Bool("refresh", false, "check for a new catalogue release")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("catalog does not accept arguments")
+	}
+	if *refresh {
+		if app.refresh == nil {
+			return errors.New("catalogue refresh is not available")
+		}
+		changed, err := app.refresh(ctx)
+		if err != nil {
+			return err
+		}
+		if changed {
+			fmt.Fprintln(app.stdout, "Catalogue refreshed.")
+		} else {
+			fmt.Fprintln(app.stdout, "Catalogue is up to date.")
+		}
 	}
 	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(table, "SLUG\tAPPLICATION\tPUBLISHER")

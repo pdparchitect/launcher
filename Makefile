@@ -38,7 +38,7 @@ MACOS_BUILD_FLAGS := -devtools
 DESKTOP_TAGS := $(DESKTOP_TAGS),devtools
 endif
 
-.PHONY: help web web-open desktop check test images-check images-build build build-desktop native-macos build-macos build-all clean
+.PHONY: help web web-open desktop check test catalogue-package images-check images-build build build-desktop native-macos build-macos build-all clean
 
 help:
 	@echo "Launcher development"
@@ -48,6 +48,7 @@ help:
 	@echo "  make web-open   Run the web interface and open a local browser"
 	@echo "  make desktop    Run the native Wails desktop application"
 	@echo "  make check      Format-check, test, and vet Launcher"
+	@echo "  make catalogue-package  Validate and package the catalogue release asset"
 	@echo "  make images-check  Validate the container image sources"
 	@echo "  make images-build  Build the Ubuntu, desktop, and Hermes image chain"
 	@echo "  make build      Build Launcher for this machine"
@@ -82,6 +83,12 @@ check:
 
 test:
 	go test ./...
+
+catalogue-package:
+	go test ./internal/catalog
+	mkdir -p dist
+	cd internal/catalog && zip -X -FS -q -r \
+		../../dist/launcher-catalogue.zip catalogue.json manifests
 
 images-check:
 	$(MAKE) --directory images check
