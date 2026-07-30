@@ -53,7 +53,7 @@ func TestCatalogCanRefreshBeforeListing(t *testing.T) {
 		t.Fatalf("Run() code = %d", code)
 	}
 	if !refreshed ||
-		!strings.Contains(stdout.String(), "Catalogue refreshed.") ||
+		!strings.Contains(stdout.String(), "Application registry refreshed.") ||
 		!strings.Contains(stdout.String(), "Remote Agent") {
 		t.Fatalf("refreshed = %v, stdout = %q", refreshed, stdout.String())
 	}

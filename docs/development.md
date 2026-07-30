@@ -7,7 +7,7 @@ Apple `container` are hidden behind the runtime abstraction in
 
 ## Set up the repository
 
-Raster catalogue artwork uses Git LFS:
+Raster application artwork uses Git LFS:
 
 ```bash
 git lfs install
@@ -125,7 +125,7 @@ make build
 main.go                    composition and process exit
 cli/                       commands, prompting, and browser opening
 internal/agent/            application lifecycle
-internal/catalog/          embedded fallback and cached release catalogue
+internal/catalog/          OCI discovery, validation, and application cache
 internal/config/           platform data-folder selection
 internal/desktop/          Wails native desktop host
 internal/domain/           persisted instance model
@@ -142,6 +142,6 @@ and requires a random per-process session token.
 
 ## Related development guides
 
-- [Application catalogue](catalogue.md)
+- [Application registry](application-registry.md)
 - [Container image sources](../images/README.md)
 - [Releasing Launcher](../RELEASES.md)

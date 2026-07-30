@@ -477,5 +477,6 @@ globs, so a new file under an already-included directory is picked up
 automatically. A new *top-level* directory must be added to the allowlist, or
 it will be invisible to the build and will not trigger a rebuild.
 
-Launcher should catalogue only the final product image. Core and base images
-are build-time implementation details rather than installable applications.
+Only a final product image owns and publishes a Launcher application artifact.
+Core and base images are build-time implementation details rather than
+installable applications.

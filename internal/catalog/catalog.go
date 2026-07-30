@@ -1,8 +1,8 @@
 package catalog
 
 import (
+	"archive/zip"
 	"bytes"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +11,19 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"testing/fstest"
 )
 
-//go:embed catalogue.json manifests
-var files embed.FS
+const (
+	ApplicationArtifactType = "application/vnd.pdparchitect.launcher.application.v1"
+	ApplicationBundleType   = "application/vnd.pdparchitect.launcher.application.bundle.v1+zip"
+	FeedArtifactType        = "application/vnd.pdparchitect.launcher.feed.v1"
+	FeedDocumentType        = "application/vnd.pdparchitect.launcher.feed.v1+json"
+
+	maxBundleFileSize = 16 << 20
+	maxBundleContents = 32 << 20
+	maxBundleFiles    = 64
+)
 
 type Manifest struct {
 	ID                    string            `json:"id"`
@@ -35,6 +44,37 @@ type Manifest struct {
 	Mounts                []Mount           `json:"mounts"`
 }
 
+type applicationDocument struct {
+	SchemaVersion         int               `json:"schemaVersion"`
+	Version               string            `json:"version"`
+	ID                    string            `json:"id"`
+	Slug                  string            `json:"slug"`
+	Name                  string            `json:"name"`
+	Publisher             string            `json:"publisher"`
+	Description           string            `json:"description"`
+	Tags                  []string          `json:"tags"`
+	Media                 Media             `json:"media"`
+	Viewer                string            `json:"viewer"`
+	ContainerPort         int               `json:"containerPort"`
+	Memory                string            `json:"memory,omitempty"`
+	SharedMemory          string            `json:"sharedMemory"`
+	ResolutionEnvironment string            `json:"resolutionEnvironment,omitempty"`
+	Resolution            string            `json:"resolution"`
+	Environment           map[string]string `json:"environment"`
+	Mounts                []Mount           `json:"mounts"`
+}
+
+type Feed struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	Publisher     string   `json:"publisher"`
+	Applications  []string `json:"applications"`
+}
+
+type Sources struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	Feeds         []string `json:"feeds"`
+}
+
 type Media struct {
 	Icon        string       `json:"icon"`
 	Cover       string       `json:"cover"`
@@ -51,92 +91,279 @@ type Mount struct {
 	Target string `json:"target"`
 }
 
-func Load(id string) (Manifest, error) {
-	return load(files, id)
+type applicationBundle struct {
+	Version  string
+	Manifest Manifest
+	Assets   map[string][]byte
 }
 
-func load(source fs.FS, id string) (Manifest, error) {
-	if !safeSlug(id) {
-		return Manifest{}, fmt.Errorf("invalid catalogue filename %q", id)
-	}
-	data, err := fs.ReadFile(source, path.Join("manifests", id, "manifest.json"))
-	if err != nil {
-		return Manifest{}, fmt.Errorf("read catalogue entry %q: %w", id, err)
-	}
-	var manifest Manifest
-	if err := decodeStrictJSON(data, &manifest); err != nil {
-		return Manifest{}, fmt.Errorf("decode catalogue entry %q: %w", id, err)
-	}
-	if err := manifest.Validate(); err != nil {
-		return Manifest{}, fmt.Errorf("validate catalogue entry %q: %w", id, err)
-	}
-	if err := manifest.validateAssets(source); err != nil {
-		return Manifest{}, fmt.Errorf("validate catalogue entry %q: %w", id, err)
-	}
-	return manifest, nil
-}
-
+// Assets returns an empty filesystem for callers that do not supply a registry
+// manager. Production callers pass Manager, which serves the active snapshot.
 func Assets() fs.FS {
-	assets, err := fs.Sub(files, "manifests")
-	if err != nil {
-		panic(fmt.Sprintf("open embedded catalogue assets: %v", err))
-	}
-	return assets
+	return fstest.MapFS{}
 }
 
-func List() ([]Manifest, error) {
-	return list(files)
+func parseSources(data []byte) (Sources, error) {
+	var sources Sources
+	if err := decodeStrictJSON(data, &sources); err != nil {
+		return Sources{}, fmt.Errorf("decode registry sources: %w", err)
+	}
+	if sources.SchemaVersion != 1 {
+		return Sources{}, fmt.Errorf(
+			"unsupported registry sources schema version %d",
+			sources.SchemaVersion,
+		)
+	}
+	if len(sources.Feeds) == 0 {
+		return Sources{}, errors.New("registry sources must contain a feed")
+	}
+	seen := make(map[string]struct{}, len(sources.Feeds))
+	for _, reference := range sources.Feeds {
+		if strings.TrimSpace(reference) != reference || reference == "" {
+			return Sources{}, errors.New("registry feed references cannot be empty")
+		}
+		if _, exists := seen[reference]; exists {
+			return Sources{}, fmt.Errorf(
+				"registry feed reference %q is duplicated",
+				reference,
+			)
+		}
+		seen[reference] = struct{}{}
+	}
+	return sources, nil
 }
 
-func list(source fs.FS) ([]Manifest, error) {
-	entries, err := fs.ReadDir(source, "manifests")
-	if err != nil {
-		return nil, fmt.Errorf("list catalogue: %w", err)
+func parseFeed(data []byte) (Feed, error) {
+	var feed Feed
+	if err := decodeStrictJSON(data, &feed); err != nil {
+		return Feed{}, fmt.Errorf("decode publisher feed: %w", err)
 	}
-	manifests := make([]Manifest, 0, len(entries))
-	ids := make(map[string]string, len(entries))
-	slugs := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	if feed.SchemaVersion != 1 {
+		return Feed{}, fmt.Errorf(
+			"unsupported publisher feed schema version %d",
+			feed.SchemaVersion,
+		)
+	}
+	if strings.TrimSpace(feed.Publisher) == "" {
+		return Feed{}, errors.New("publisher feed publisher is required")
+	}
+	if len(feed.Applications) == 0 {
+		return Feed{}, errors.New("publisher feed must contain an application")
+	}
+	seen := make(map[string]struct{}, len(feed.Applications))
+	for _, reference := range feed.Applications {
+		if strings.TrimSpace(reference) != reference || reference == "" {
+			return Feed{}, errors.New(
+				"publisher feed application references cannot be empty",
+			)
+		}
+		if _, exists := seen[reference]; exists {
+			return Feed{}, fmt.Errorf(
+				"publisher feed application %q is duplicated",
+				reference,
+			)
+		}
+		seen[reference] = struct{}{}
+	}
+	return feed, nil
+}
+
+func loadApplicationBundle(
+	data []byte,
+	imageRepository string,
+	imageDigest string,
+) (applicationBundle, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return applicationBundle{}, fmt.Errorf("open application bundle: %w", err)
+	}
+	files := make(map[string][]byte, len(reader.File))
+	var total uint64
+	for _, file := range reader.File {
+		name := strings.TrimSuffix(file.Name, "/")
+		if name == "" {
 			continue
 		}
-		manifest, loadErr := load(source, entry.Name())
-		if loadErr != nil {
-			return nil, loadErr
+		if !fs.ValidPath(name) || strings.Contains(file.Name, `\`) {
+			return applicationBundle{}, fmt.Errorf(
+				"application bundle path %q is invalid",
+				file.Name,
+			)
 		}
+		if file.Mode()&fs.ModeSymlink != 0 {
+			return applicationBundle{}, fmt.Errorf(
+				"application bundle path %q is a symbolic link",
+				file.Name,
+			)
+		}
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		if _, exists := files[name]; exists {
+			return applicationBundle{}, fmt.Errorf(
+				"application bundle path %q is duplicated",
+				file.Name,
+			)
+		}
+		if len(files) >= maxBundleFiles ||
+			file.UncompressedSize64 > maxBundleFileSize {
+			return applicationBundle{}, errors.New(
+				"application bundle exceeds file limits",
+			)
+		}
+		total += file.UncompressedSize64
+		if total > maxBundleContents {
+			return applicationBundle{}, errors.New(
+				"application bundle exceeds uncompressed size limit",
+			)
+		}
+		source, openErr := file.Open()
+		if openErr != nil {
+			return applicationBundle{}, fmt.Errorf(
+				"open application bundle path %q: %w",
+				name,
+				openErr,
+			)
+		}
+		content, readErr := io.ReadAll(source)
+		closeErr := source.Close()
+		if readErr != nil {
+			return applicationBundle{}, fmt.Errorf(
+				"read application bundle path %q: %w",
+				name,
+				readErr,
+			)
+		}
+		if closeErr != nil {
+			return applicationBundle{}, fmt.Errorf(
+				"close application bundle path %q: %w",
+				name,
+				closeErr,
+			)
+		}
+		files[name] = content
+	}
+
+	documentData, exists := files["application.json"]
+	if !exists {
+		return applicationBundle{}, errors.New(
+			"application bundle has no application.json",
+		)
+	}
+	var document applicationDocument
+	if err := decodeStrictJSON(documentData, &document); err != nil {
+		return applicationBundle{}, fmt.Errorf(
+			"decode application document: %w",
+			err,
+		)
+	}
+	if document.SchemaVersion != 1 {
+		return applicationBundle{}, fmt.Errorf(
+			"unsupported application schema version %d",
+			document.SchemaVersion,
+		)
+	}
+	if !semanticVersion.MatchString(document.Version) {
+		return applicationBundle{}, fmt.Errorf(
+			"application version %q is not semantic versioning",
+			document.Version,
+		)
+	}
+	if imageRepository == "" || !strings.HasPrefix(imageDigest, "sha256:") {
+		return applicationBundle{}, errors.New(
+			"application artifact must identify its image subject",
+		)
+	}
+	manifest := Manifest{
+		ID:                    document.ID,
+		Slug:                  document.Slug,
+		Name:                  document.Name,
+		Publisher:             document.Publisher,
+		Description:           document.Description,
+		Tags:                  document.Tags,
+		Media:                 document.Media,
+		Image:                 imageRepository + "@" + imageDigest,
+		Viewer:                document.Viewer,
+		ContainerPort:         document.ContainerPort,
+		Memory:                document.Memory,
+		SharedMemory:          document.SharedMemory,
+		ResolutionEnvironment: document.ResolutionEnvironment,
+		Resolution:            document.Resolution,
+		Environment:           document.Environment,
+		Mounts:                document.Mounts,
+	}
+	if err := manifest.Validate(); err != nil {
+		return applicationBundle{}, fmt.Errorf(
+			"validate application document: %w",
+			err,
+		)
+	}
+
+	localAssets := manifest.assetPaths()
+	assets := make(map[string][]byte, len(localAssets))
+	for _, name := range localAssets {
+		content, assetExists := files[name]
+		if !assetExists {
+			return applicationBundle{}, fmt.Errorf(
+				"application media asset %q is missing",
+				name,
+			)
+		}
+		assets[path.Join(manifest.Slug, name)] = content
+	}
+	manifest.prefixAssets()
+	return applicationBundle{
+		Version:  document.Version,
+		Manifest: manifest,
+		Assets:   assets,
+	}, nil
+}
+
+func manifestsFromBundles(
+	bundles map[string]applicationBundle,
+) ([]Manifest, fstest.MapFS, error) {
+	manifests := make([]Manifest, 0, len(bundles))
+	assets := make(fstest.MapFS)
+	ids := make(map[string]string, len(bundles))
+	slugs := make(map[string]string, len(bundles))
+	for reference, bundle := range bundles {
+		manifest := bundle.Manifest
 		if owner, exists := ids[manifest.ID]; exists {
-			return nil, fmt.Errorf(
-				"catalogue ID %q is used by both %q and %q",
+			return nil, nil, fmt.Errorf(
+				"application ID %q is published by both %q and %q",
 				manifest.ID,
 				owner,
-				manifest.Slug,
+				reference,
 			)
 		}
 		if owner, exists := slugs[manifest.Slug]; exists {
-			return nil, fmt.Errorf(
-				"catalogue slug %q is used by both %q and %q",
+			return nil, nil, fmt.Errorf(
+				"application slug %q is published by both %q and %q",
 				manifest.Slug,
 				owner,
-				manifest.ID,
+				reference,
 			)
 		}
-		ids[manifest.ID] = manifest.Slug
-		slugs[manifest.Slug] = manifest.ID
+		ids[manifest.ID] = reference
+		slugs[manifest.Slug] = reference
+		for name, content := range bundle.Assets {
+			assets[name] = &fstest.MapFile{Data: append([]byte(nil), content...)}
+		}
 		manifests = append(manifests, manifest)
 	}
 	sort.Slice(manifests, func(left, right int) bool {
 		return manifests[left].Name < manifests[right].Name
 	})
-	return manifests, nil
+	return manifests, assets, nil
 }
 
 func (manifest Manifest) Validate() error {
 	if !validUUID(manifest.ID) {
-		return errors.New("catalogue ID must be a lowercase UUID")
+		return errors.New("application ID must be a lowercase UUID")
 	}
 	if !safeSlug(manifest.Slug) {
 		return errors.New(
-			"catalogue slug must use lowercase letters, numbers, and hyphens",
+			"application slug must use lowercase letters, numbers, and hyphens",
 		)
 	}
 	if strings.TrimSpace(manifest.Name) == "" ||
@@ -157,10 +384,11 @@ func (manifest Manifest) Validate() error {
 	if err := manifest.Media.validate(); err != nil {
 		return err
 	}
-	if strings.TrimSpace(manifest.Image) == "" {
+	image := strings.TrimSpace(manifest.Image)
+	if image == "" {
 		return errors.New("image is required")
 	}
-	if strings.HasSuffix(strings.TrimSpace(manifest.Image), ":latest") {
+	if strings.HasSuffix(image, ":latest") {
 		return errors.New("image must use an immutable release tag or digest")
 	}
 	if manifest.Viewer != "web" && manifest.Viewer != "kasmvnc" {
@@ -192,6 +420,25 @@ func (manifest Manifest) Validate() error {
 	return nil
 }
 
+func (manifest Manifest) assetPaths() []string {
+	names := []string{manifest.Media.Icon, manifest.Media.Cover}
+	for _, screenshot := range manifest.Media.Screenshots {
+		names = append(names, screenshot.Source)
+	}
+	return names
+}
+
+func (manifest *Manifest) prefixAssets() {
+	manifest.Media.Icon = path.Join(manifest.Slug, manifest.Media.Icon)
+	manifest.Media.Cover = path.Join(manifest.Slug, manifest.Media.Cover)
+	for index := range manifest.Media.Screenshots {
+		manifest.Media.Screenshots[index].Source = path.Join(
+			manifest.Slug,
+			manifest.Media.Screenshots[index].Source,
+		)
+	}
+}
+
 func (media Media) validate() error {
 	if !safeAssetPath(media.Icon) {
 		return errors.New("media icon must be a safe relative asset path")
@@ -208,23 +455,6 @@ func (media Media) validate() error {
 		}
 		if strings.TrimSpace(screenshot.Alt) == "" {
 			return errors.New("screenshot alt text is required")
-		}
-	}
-	return nil
-}
-
-func (manifest Manifest) validateAssets(source fs.FS) error {
-	names := []string{manifest.Media.Icon, manifest.Media.Cover}
-	for _, screenshot := range manifest.Media.Screenshots {
-		names = append(names, screenshot.Source)
-	}
-	for _, name := range names {
-		info, err := fs.Stat(source, path.Join("manifests", name))
-		if err != nil {
-			return fmt.Errorf("media asset %q: %w", name, err)
-		}
-		if info.IsDir() {
-			return fmt.Errorf("media asset %q is a directory", name)
 		}
 	}
 	return nil

@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 1,
+  "version": "0.2.1",
   "id": "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe",
   "slug": "codex-pets",
   "name": "Codex Pets",
@@ -10,16 +12,15 @@
     "DESKTOP"
   ],
   "media": {
-    "icon": "codex-pets/icon.svg",
-    "cover": "codex-pets/screenshot.png",
+    "icon": "icon.svg",
+    "cover": "screenshot.png",
     "screenshots": [
       {
-        "source": "codex-pets/screenshot.png",
+        "source": "screenshot.png",
         "alt": "Codex Pets showing its sign-in terminal and Pip on the pixel-art desktop"
       }
     ]
   },
-  "image": "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:0.2.0-substrate.0.1.0",
   "viewer": "kasmvnc",
   "containerPort": 6901,
   "memory": "4g",

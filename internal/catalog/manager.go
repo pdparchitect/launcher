@@ -1,12 +1,8 @@
 package catalog
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,91 +11,117 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
-	"strconv"
+	"sort"
 	"strings"
 	"sync"
+	"testing/fstest"
 	"time"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 const (
 	DefaultRefreshInterval = 30 * time.Minute
-	bundleAssetName        = "launcher-catalogue.zip"
-	defaultReleasesURL     = "https://api.github.com/repos/pdparchitect/launcher/releases?per_page=100"
-	maxReleaseResponse     = 2 << 20
-	maxBundleSize          = 32 << 20
-	maxBundleFileSize      = 16 << 20
-	maxBundleContents      = 64 << 20
-	maxBundleFiles         = 1000
+	maxManifestSize        = 1 << 20
+	maxFeedSize            = 1 << 20
+	maxApplicationBundle   = 32 << 20
 )
 
 var semanticVersion = regexp.MustCompile(
 	`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`,
 )
 
-type Metadata struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Version       string `json:"version"`
+//go:embed sources.json
+var sourceFiles embed.FS
+
+type Artifact struct {
+	Reference      string
+	ManifestDigest string
+	ArtifactType   string
+	LayerType      string
+	Repository     string
+	SubjectDigest  string
+	Content        []byte
+}
+
+type Resolver interface {
+	Fetch(context.Context, string) (Artifact, error)
 }
 
 type ManagerOptions struct {
-	Client          *http.Client
-	ReleasesURL     string
+	Resolver        Resolver
+	SourceData      []byte
 	RefreshInterval time.Duration
 	Now             func() time.Time
 }
 
 type snapshot struct {
-	version   string
 	manifests []Manifest
 	assets    fs.FS
 }
 
+type cacheRecord struct {
+	Reference      string `json:"reference"`
+	ManifestDigest string `json:"manifestDigest"`
+	Repository     string `json:"repository,omitempty"`
+	SubjectDigest  string `json:"subjectDigest,omitempty"`
+	Blob           string `json:"blob"`
+}
+
 type cacheState struct {
-	CheckedAt time.Time `json:"checkedAt"`
-	Version   string    `json:"version,omitempty"`
-	Tag       string    `json:"tag,omitempty"`
-	Digest    string    `json:"digest,omitempty"`
-	Bundle    string    `json:"bundle,omitempty"`
-	ETag      string    `json:"etag,omitempty"`
+	CheckedAt    time.Time              `json:"checkedAt"`
+	Feeds        map[string]cacheRecord `json:"feeds"`
+	Applications map[string]cacheRecord `json:"applications"`
 }
 
-type githubRelease struct {
-	TagName    string        `json:"tag_name"`
-	Draft      bool          `json:"draft"`
-	Prerelease bool          `json:"prerelease"`
-	Assets     []githubAsset `json:"assets"`
+type pendingRecord struct {
+	record  cacheRecord
+	content []byte
 }
 
-type githubAsset struct {
-	Name        string `json:"name"`
-	DownloadURL string `json:"browser_download_url"`
-	Digest      string `json:"digest"`
-	Size        int64  `json:"size"`
+type applicationResolution struct {
+	reference string
+	record    cacheRecord
+	bundle    applicationBundle
+	pending   *pendingRecord
+	warning   string
+	available bool
 }
 
 type Manager struct {
 	mutex           sync.RWMutex
 	refreshMutex    sync.Mutex
 	root            string
-	client          *http.Client
-	releasesURL     string
+	resolver        Resolver
+	sources         Sources
 	refreshInterval time.Duration
 	now             func() time.Time
 	current         snapshot
 	state           cacheState
+	warnings        []string
 }
 
 func NewManager(root string, options ManagerOptions) (*Manager, error) {
-	embedded, err := loadSnapshot(files)
+	sourceData := options.SourceData
+	if len(sourceData) == 0 {
+		var err error
+		sourceData, err = sourceFiles.ReadFile("sources.json")
+		if err != nil {
+			return nil, fmt.Errorf("read embedded registry sources: %w", err)
+		}
+	}
+	sources, err := parseSources(sourceData)
 	if err != nil {
-		return nil, fmt.Errorf("load embedded catalogue: %w", err)
+		return nil, err
 	}
-	if options.Client == nil {
-		options.Client = &http.Client{Timeout: 30 * time.Second}
-	}
-	if options.ReleasesURL == "" {
-		options.ReleasesURL = defaultReleasesURL
+	if options.Resolver == nil {
+		options.Resolver = NewOCIResolver(nil)
 	}
 	if options.RefreshInterval <= 0 {
 		options.RefreshInterval = DefaultRefreshInterval
@@ -108,12 +130,18 @@ func NewManager(root string, options ManagerOptions) (*Manager, error) {
 		options.Now = time.Now
 	}
 	manager := &Manager{
-		root:            filepath.Join(root, "catalogue"),
-		client:          options.Client,
-		releasesURL:     options.ReleasesURL,
+		root:            filepath.Join(root, "registry"),
+		resolver:        options.Resolver,
+		sources:         sources,
 		refreshInterval: options.RefreshInterval,
 		now:             options.Now,
-		current:         embedded,
+		current: snapshot{
+			assets: fstest.MapFS{},
+		},
+		state: cacheState{
+			Feeds:        map[string]cacheRecord{},
+			Applications: map[string]cacheRecord{},
+		},
 	}
 	manager.restore()
 	return manager, nil
@@ -125,13 +153,13 @@ func (manager *Manager) List() []Manifest {
 	return append([]Manifest(nil), manager.current.manifests...)
 }
 
-func (manager *Manager) Version() string {
+func (manager *Manager) Warnings() []string {
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
-	return manager.current.version
+	return append([]string(nil), manager.warnings...)
 }
 
-// Open implements fs.FS for catalogue artwork. Each opened file retains the
+// Open implements fs.FS for application artwork. Each opened file retains the
 // snapshot it came from while a concurrent refresh swaps future requests.
 func (manager *Manager) Open(name string) (fs.File, error) {
 	manager.mutex.RLock()
@@ -151,169 +179,214 @@ func (manager *Manager) Refresh(
 	defer manager.refreshMutex.Unlock()
 
 	manager.mutex.RLock()
-	state := manager.state
+	previous := cloneState(manager.state)
 	manager.mutex.RUnlock()
 	now := manager.now().UTC()
-	if !force && !state.CheckedAt.IsZero() &&
-		now.Sub(state.CheckedAt) < manager.refreshInterval {
+	if !force && !previous.CheckedAt.IsZero() &&
+		now.Sub(previous.CheckedAt) < manager.refreshInterval {
 		return false, nil
 	}
 
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		manager.releasesURL,
-		nil,
-	)
-	if err != nil {
-		return false, fmt.Errorf("create catalogue release request: %w", err)
+	next := cacheState{
+		CheckedAt:    now,
+		Feeds:        make(map[string]cacheRecord),
+		Applications: make(map[string]cacheRecord),
 	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("X-GitHub-Api-Version", "2026-03-10")
-	request.Header.Set("User-Agent", "pdparchitect-launcher")
-	if state.ETag != "" {
-		request.Header.Set("If-None-Match", state.ETag)
-	}
-	response, err := manager.client.Do(request)
-	if err != nil {
-		return false, fmt.Errorf("check catalogue releases: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotModified {
-		state.CheckedAt = now
-		if err := manager.commitState(state); err != nil {
-			return false, err
+	pending := make(map[string]pendingRecord)
+	var warnings []string
+	applicationReferences := make(map[string]struct{})
+
+	for _, reference := range manager.sources.Feeds {
+		artifact, fetchErr := manager.resolver.Fetch(ctx, reference)
+		var feed Feed
+		var record cacheRecord
+		switch {
+		case fetchErr == nil:
+			if validateErr := validateFeedArtifact(artifact); validateErr != nil {
+				fetchErr = validateErr
+			} else if feed, fetchErr = parseFeed(artifact.Content); fetchErr == nil {
+				record = recordFromArtifact(artifact)
+				pending[record.Blob] = pendingRecord{
+					record:  record,
+					content: artifact.Content,
+				}
+			}
 		}
-		return false, nil
-	}
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, response.Body)
-		return false, fmt.Errorf(
-			"check catalogue releases: GitHub returned %s",
-			response.Status,
-		)
-	}
-	data, err := readBounded(response.Body, maxReleaseResponse)
-	if err != nil {
-		return false, fmt.Errorf("read catalogue releases: %w", err)
-	}
-	var releases []githubRelease
-	if err := json.Unmarshal(data, &releases); err != nil {
-		return false, fmt.Errorf("decode catalogue releases: %w", err)
-	}
-	release, asset, err := selectRelease(releases)
-	if err != nil {
-		return false, err
-	}
-	digest, err := parseDigest(asset.Digest)
-	if err != nil {
-		return false, fmt.Errorf("catalogue release %q: %w", release.TagName, err)
-	}
-	etag := response.Header.Get("ETag")
-	if state.Digest == asset.Digest && state.Tag == release.TagName {
-		state.CheckedAt = now
-		state.ETag = etag
-		if err := manager.commitState(state); err != nil {
-			return false, err
+		if fetchErr != nil {
+			cached, exists := previous.Feeds[reference]
+			if !exists {
+				warnings = append(warnings, fmt.Sprintf(
+					"publisher feed %q: %v",
+					reference,
+					fetchErr,
+				))
+				continue
+			}
+			content, readErr := manager.readRecord(cached, maxFeedSize)
+			if readErr != nil {
+				warnings = append(warnings, fmt.Sprintf(
+					"publisher feed %q: %v; cached copy: %v",
+					reference,
+					fetchErr,
+					readErr,
+				))
+				continue
+			}
+			feed, readErr = parseFeed(content)
+			if readErr != nil {
+				warnings = append(warnings, fmt.Sprintf(
+					"publisher feed %q cached copy: %v",
+					reference,
+					readErr,
+				))
+				continue
+			}
+			record = cached
+			warnings = append(warnings, fmt.Sprintf(
+				"publisher feed %q is using its cached copy: %v",
+				reference,
+				fetchErr,
+			))
 		}
-		return false, nil
-	}
-	if asset.Size < 1 || asset.Size > maxBundleSize {
-		return false, fmt.Errorf(
-			"catalogue release %q has invalid asset size %d",
-			release.TagName,
-			asset.Size,
-		)
-	}
-	bundle, err := manager.download(ctx, asset)
-	if err != nil {
-		return false, err
-	}
-	actual := sha256.Sum256(bundle)
-	if subtle.ConstantTimeCompare(actual[:], digest) != 1 {
-		return false, fmt.Errorf(
-			"catalogue release %q asset digest does not match GitHub metadata",
-			release.TagName,
-		)
-	}
-	next, err := loadArchive(bundle)
-	if err != nil {
-		return false, fmt.Errorf(
-			"validate catalogue release %q: %w",
-			release.TagName,
-			err,
-		)
-	}
-	if release.TagName != "catalogue-v"+next.version {
-		return false, fmt.Errorf(
-			"catalogue release tag %q does not match bundle version %q",
-			release.TagName,
-			next.version,
-		)
+		next.Feeds[reference] = record
+		for _, applicationReference := range feed.Applications {
+			applicationReferences[applicationReference] = struct{}{}
+		}
 	}
 
-	hexDigest := hex.EncodeToString(digest)
-	bundleName := filepath.Join("bundles", hexDigest+".zip")
-	if err := manager.writeBundle(bundleName, bundle); err != nil {
+	if len(next.Feeds) == 0 {
+		return false, errors.New("no publisher feed is available")
+	}
+
+	bundles := make(map[string]applicationBundle)
+	references := make([]string, 0, len(applicationReferences))
+	for reference := range applicationReferences {
+		references = append(references, reference)
+	}
+	sort.Strings(references)
+	results := make(chan applicationResolution, len(references))
+	concurrency := make(chan struct{}, 4)
+	var resolveGroup sync.WaitGroup
+	for _, reference := range references {
+		resolveGroup.Add(1)
+		go func() {
+			defer resolveGroup.Done()
+			concurrency <- struct{}{}
+			defer func() { <-concurrency }()
+			cached, exists := previous.Applications[reference]
+			results <- manager.resolveApplication(
+				ctx,
+				reference,
+				cached,
+				exists,
+			)
+		}()
+	}
+	resolveGroup.Wait()
+	close(results)
+	resolutions := make(map[string]applicationResolution, len(references))
+	for result := range results {
+		resolutions[result.reference] = result
+	}
+	for _, reference := range references {
+		result := resolutions[reference]
+		if result.warning != "" {
+			warnings = append(warnings, result.warning)
+		}
+		if !result.available {
+			continue
+		}
+		next.Applications[reference] = result.record
+		bundles[reference] = result.bundle
+		if result.pending != nil {
+			pending[result.pending.record.Blob] = *result.pending
+		}
+	}
+
+	if len(bundles) == 0 {
+		return false, errors.New("no Launcher application is available")
+	}
+	manifests, assets, err := manifestsFromBundles(bundles)
+	if err != nil {
 		return false, err
 	}
-	nextState := cacheState{
-		CheckedAt: now,
-		Version:   next.version,
-		Tag:       release.TagName,
-		Digest:    asset.Digest,
-		Bundle:    bundleName,
-		ETag:      etag,
+	for _, item := range pending {
+		if err := manager.writeRecord(item.record, item.content); err != nil {
+			return false, err
+		}
 	}
-	if err := writeJSONAtomic(manager.statePath(), nextState); err != nil {
-		return false, fmt.Errorf("save catalogue state: %w", err)
+	if err := writeJSONAtomic(manager.statePath(), next); err != nil {
+		return false, fmt.Errorf("save application registry state: %w", err)
 	}
+	changed := !sameRecords(previous, next)
 	manager.mutex.Lock()
-	manager.current = next
-	manager.state = nextState
+	manager.current = snapshot{manifests: manifests, assets: assets}
+	manager.state = next
+	manager.warnings = warnings
 	manager.mutex.Unlock()
-	return true, nil
+	return changed, nil
 }
 
-func (manager *Manager) download(
+func (manager *Manager) resolveApplication(
 	ctx context.Context,
-	asset githubAsset,
-) ([]byte, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		asset.DownloadURL,
-		nil,
+	reference string,
+	cached cacheRecord,
+	hasCached bool,
+) applicationResolution {
+	result := applicationResolution{reference: reference}
+	artifact, fetchErr := manager.resolver.Fetch(ctx, reference)
+	if fetchErr == nil {
+		fetchErr = validateApplicationArtifact(artifact)
+	}
+	if fetchErr == nil {
+		result.bundle, fetchErr = loadApplicationBundle(
+			artifact.Content,
+			artifact.Repository,
+			artifact.SubjectDigest,
+		)
+	}
+	if fetchErr == nil {
+		result.record = recordFromArtifact(artifact)
+		result.pending = &pendingRecord{
+			record:  result.record,
+			content: artifact.Content,
+		}
+		result.available = true
+		return result
+	}
+	if !hasCached {
+		result.warning = fmt.Sprintf(
+			"application %q: %v",
+			reference,
+			fetchErr,
+		)
+		return result
+	}
+	content, readErr := manager.readRecord(cached, maxApplicationBundle)
+	if readErr == nil {
+		result.bundle, readErr = loadApplicationBundle(
+			content,
+			cached.Repository,
+			cached.SubjectDigest,
+		)
+	}
+	if readErr != nil {
+		result.warning = fmt.Sprintf(
+			"application %q: %v; cached copy: %v",
+			reference,
+			fetchErr,
+			readErr,
+		)
+		return result
+	}
+	result.record = cached
+	result.available = true
+	result.warning = fmt.Sprintf(
+		"application %q is using its cached copy: %v",
+		reference,
+		fetchErr,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("create catalogue download request: %w", err)
-	}
-	request.Header.Set("Accept", "application/octet-stream")
-	request.Header.Set("User-Agent", "pdparchitect-launcher")
-	response, err := manager.client.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("download catalogue release: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, response.Body)
-		return nil, fmt.Errorf(
-			"download catalogue release: GitHub returned %s",
-			response.Status,
-		)
-	}
-	data, err := readBounded(response.Body, maxBundleSize)
-	if err != nil {
-		return nil, fmt.Errorf("download catalogue release: %w", err)
-	}
-	if int64(len(data)) != asset.Size {
-		return nil, fmt.Errorf(
-			"download catalogue release: got %d bytes, want %d",
-			len(data),
-			asset.Size,
-		)
-	}
-	return data, nil
+	return result
 }
 
 func (manager *Manager) restore() {
@@ -322,55 +395,115 @@ func (manager *Manager) restore() {
 		return
 	}
 	var state cacheState
-	if json.Unmarshal(data, &state) != nil {
+	if decodeStrictJSON(data, &state) != nil {
 		return
 	}
-	if state.Bundle == "" {
-		manager.state = state
+	if state.Feeds == nil || state.Applications == nil {
 		return
 	}
-	digest, err := parseDigest(state.Digest)
-	if err != nil || !safeBundleName(state.Bundle) {
-		return
+	bundles := make(map[string]applicationBundle, len(state.Applications))
+	for reference, record := range state.Applications {
+		if reference != record.Reference {
+			return
+		}
+		content, readErr := manager.readRecord(record, maxApplicationBundle)
+		if readErr != nil {
+			return
+		}
+		bundle, loadErr := loadApplicationBundle(
+			content,
+			record.Repository,
+			record.SubjectDigest,
+		)
+		if loadErr != nil {
+			return
+		}
+		bundles[reference] = bundle
 	}
-	bundlePath := filepath.Join(manager.root, filepath.FromSlash(state.Bundle))
-	bundle, err := readFileBounded(bundlePath, maxBundleSize)
+	manifests, assets, err := manifestsFromBundles(bundles)
 	if err != nil {
 		return
 	}
-	actual := sha256.Sum256(bundle)
-	if subtle.ConstantTimeCompare(actual[:], digest) != 1 {
-		return
-	}
-	cached, err := loadArchive(bundle)
-	if err != nil || cached.version != state.Version ||
-		state.Tag != "catalogue-v"+cached.version {
-		return
-	}
-	manager.current = cached
+	manager.current = snapshot{manifests: manifests, assets: assets}
 	manager.state = state
 }
 
-func (manager *Manager) commitState(state cacheState) error {
-	if err := writeJSONAtomic(manager.statePath(), state); err != nil {
-		return fmt.Errorf("save catalogue state: %w", err)
+func validateFeedArtifact(artifact Artifact) error {
+	if artifact.ArtifactType != FeedArtifactType {
+		return fmt.Errorf(
+			"artifact type %q is not %q",
+			artifact.ArtifactType,
+			FeedArtifactType,
+		)
 	}
-	manager.mutex.Lock()
-	manager.state = state
-	manager.mutex.Unlock()
+	if artifact.LayerType != FeedDocumentType {
+		return fmt.Errorf(
+			"layer type %q is not %q",
+			artifact.LayerType,
+			FeedDocumentType,
+		)
+	}
+	if artifact.SubjectDigest != "" {
+		return errors.New("publisher feed artifact must not have a subject")
+	}
 	return nil
 }
 
-func (manager *Manager) markChecked(checkedAt time.Time) {
-	manager.mutex.Lock()
-	manager.state.CheckedAt = checkedAt
-	manager.mutex.Unlock()
+func validateApplicationArtifact(artifact Artifact) error {
+	if artifact.ArtifactType != ApplicationArtifactType {
+		return fmt.Errorf(
+			"artifact type %q is not %q",
+			artifact.ArtifactType,
+			ApplicationArtifactType,
+		)
+	}
+	if artifact.LayerType != ApplicationBundleType {
+		return fmt.Errorf(
+			"layer type %q is not %q",
+			artifact.LayerType,
+			ApplicationBundleType,
+		)
+	}
+	if artifact.Repository == "" || artifact.SubjectDigest == "" {
+		return errors.New("application artifact must have an image subject")
+	}
+	return nil
 }
 
-func (manager *Manager) writeBundle(name string, data []byte) error {
-	target := filepath.Join(manager.root, filepath.FromSlash(name))
+func recordFromArtifact(artifact Artifact) cacheRecord {
+	safeDigest := strings.ReplaceAll(artifact.ManifestDigest, ":", "-")
+	return cacheRecord{
+		Reference:      artifact.Reference,
+		ManifestDigest: artifact.ManifestDigest,
+		Repository:     artifact.Repository,
+		SubjectDigest:  artifact.SubjectDigest,
+		Blob:           filepath.ToSlash(filepath.Join("blobs", safeDigest)),
+	}
+}
+
+func (manager *Manager) readRecord(
+	record cacheRecord,
+	limit int64,
+) ([]byte, error) {
+	if !safeBlobName(record.Blob) {
+		return nil, errors.New("cached blob path is invalid")
+	}
+	return readFileBounded(
+		filepath.Join(manager.root, filepath.FromSlash(record.Blob)),
+		limit,
+	)
+}
+
+func (manager *Manager) writeRecord(
+	record cacheRecord,
+	data []byte,
+) error {
+	if !safeBlobName(record.Blob) {
+		return errors.New("registry blob path is invalid")
+	}
+	target := filepath.Join(manager.root, filepath.FromSlash(record.Blob))
 	if err := writeFileAtomic(target, data, 0o600); err != nil {
-		return fmt.Errorf("cache catalogue bundle: %w", err)
+		return fmt.Errorf("cache registry blob: %w", err)
 	}
 	return nil
 }
@@ -379,179 +512,147 @@ func (manager *Manager) statePath() string {
 	return filepath.Join(manager.root, "state.json")
 }
 
-func loadSnapshot(source fs.FS) (snapshot, error) {
-	metadata, err := loadMetadata(source)
-	if err != nil {
-		return snapshot{}, err
+func cloneState(state cacheState) cacheState {
+	clone := cacheState{
+		CheckedAt:    state.CheckedAt,
+		Feeds:        make(map[string]cacheRecord, len(state.Feeds)),
+		Applications: make(map[string]cacheRecord, len(state.Applications)),
 	}
-	manifests, err := list(source)
-	if err != nil {
-		return snapshot{}, err
+	for reference, record := range state.Feeds {
+		clone.Feeds[reference] = record
 	}
-	assets, err := fs.Sub(source, "manifests")
-	if err != nil {
-		return snapshot{}, fmt.Errorf("open catalogue assets: %w", err)
+	for reference, record := range state.Applications {
+		clone.Applications[reference] = record
 	}
-	return snapshot{
-		version:   metadata.Version,
-		manifests: manifests,
-		assets:    assets,
-	}, nil
+	return clone
 }
 
-func loadMetadata(source fs.FS) (Metadata, error) {
-	data, err := fs.ReadFile(source, "catalogue.json")
-	if err != nil {
-		return Metadata{}, fmt.Errorf("read catalogue metadata: %w", err)
-	}
-	var metadata Metadata
-	if err := decodeStrictJSON(data, &metadata); err != nil {
-		return Metadata{}, fmt.Errorf("decode catalogue metadata: %w", err)
-	}
-	if metadata.SchemaVersion != 1 {
-		return Metadata{}, fmt.Errorf(
-			"unsupported catalogue schema version %d",
-			metadata.SchemaVersion,
-		)
-	}
-	if !semanticVersion.MatchString(metadata.Version) {
-		return Metadata{}, fmt.Errorf(
-			"catalogue version %q is not semantic versioning",
-			metadata.Version,
-		)
-	}
-	return metadata, nil
+func sameRecords(left cacheState, right cacheState) bool {
+	return reflect.DeepEqual(left.Feeds, right.Feeds) &&
+		reflect.DeepEqual(left.Applications, right.Applications)
 }
 
-func loadArchive(data []byte) (snapshot, error) {
-	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return snapshot{}, fmt.Errorf("open catalogue archive: %w", err)
-	}
-	seen := make(map[string]struct{}, len(reader.File))
-	var total uint64
-	var count int
-	for _, file := range reader.File {
-		name := strings.TrimSuffix(file.Name, "/")
-		if name == "" || !fs.ValidPath(name) || strings.Contains(file.Name, `\`) {
-			return snapshot{}, fmt.Errorf(
-				"catalogue archive path %q is invalid",
-				file.Name,
-			)
-		}
-		if _, exists := seen[name]; exists {
-			return snapshot{}, fmt.Errorf(
-				"catalogue archive path %q is duplicated",
-				file.Name,
-			)
-		}
-		seen[name] = struct{}{}
-		if file.Mode()&fs.ModeSymlink != 0 {
-			return snapshot{}, fmt.Errorf(
-				"catalogue archive path %q is a symbolic link",
-				file.Name,
-			)
-		}
-		if file.FileInfo().IsDir() {
-			continue
-		}
-		count++
-		if count > maxBundleFiles ||
-			file.UncompressedSize64 > maxBundleFileSize {
-			return snapshot{}, errors.New("catalogue archive exceeds file limits")
-		}
-		total += file.UncompressedSize64
-		if total > maxBundleContents {
-			return snapshot{}, errors.New(
-				"catalogue archive exceeds uncompressed size limit",
-			)
-		}
-	}
-	return loadSnapshot(reader)
-}
-
-func selectRelease(
-	releases []githubRelease,
-) (githubRelease, githubAsset, error) {
-	var selected githubRelease
-	var selectedAsset githubAsset
-	var selectedVersion [3]uint64
-	found := false
-	for _, release := range releases {
-		if release.Draft || release.Prerelease ||
-			!strings.HasPrefix(release.TagName, "catalogue-v") {
-			continue
-		}
-		version, valid := stableVersion(
-			strings.TrimPrefix(release.TagName, "catalogue-v"),
-		)
-		if !valid || found && compareVersion(version, selectedVersion) <= 0 {
-			continue
-		}
-		for _, asset := range release.Assets {
-			if asset.Name == bundleAssetName {
-				selected = release
-				selectedAsset = asset
-				selectedVersion = version
-				found = true
-				break
-			}
-		}
-	}
-	if found {
-		return selected, selectedAsset, nil
-	}
-	return githubRelease{}, githubAsset{}, errors.New(
-		"no published stable catalogue release was found",
-	)
-}
-
-func stableVersion(value string) ([3]uint64, bool) {
-	if !semanticVersion.MatchString(value) || strings.Contains(value, "-") {
-		return [3]uint64{}, false
-	}
-	parts := strings.Split(value, ".")
-	var version [3]uint64
-	for index, part := range parts {
-		number, err := strconv.ParseUint(part, 10, 64)
-		if err != nil {
-			return [3]uint64{}, false
-		}
-		version[index] = number
-	}
-	return version, true
-}
-
-func compareVersion(left [3]uint64, right [3]uint64) int {
-	for index := range left {
-		switch {
-		case left[index] < right[index]:
-			return -1
-		case left[index] > right[index]:
-			return 1
-		}
-	}
-	return 0
-}
-
-func parseDigest(value string) ([]byte, error) {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) {
-		return nil, errors.New("catalogue asset has no SHA-256 digest")
-	}
-	digest, err := hex.DecodeString(strings.TrimPrefix(value, prefix))
-	if err != nil || len(digest) != sha256.Size {
-		return nil, errors.New("catalogue asset has an invalid SHA-256 digest")
-	}
-	return digest, nil
-}
-
-func safeBundleName(name string) bool {
+func safeBlobName(name string) bool {
 	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(name)))
 	return cleaned == name &&
-		strings.HasPrefix(name, "bundles/") &&
-		!strings.Contains(name, "..") &&
-		strings.HasSuffix(name, ".zip")
+		strings.HasPrefix(name, "blobs/sha256-") &&
+		!strings.Contains(name, "..")
+}
+
+type OCIResolver struct {
+	client *auth.Client
+}
+
+func NewOCIResolver(client *http.Client) *OCIResolver {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	authClient := &auth.Client{
+		Client: client,
+		Cache:  auth.NewCache(),
+	}
+	authClient.SetUserAgent("pdparchitect-launcher")
+	return &OCIResolver{client: authClient}
+}
+
+func (resolver *OCIResolver) Fetch(
+	ctx context.Context,
+	reference string,
+) (Artifact, error) {
+	parsed, err := registry.ParseReference(reference)
+	if err != nil {
+		return Artifact{}, fmt.Errorf(
+			"parse OCI reference %q: %w",
+			reference,
+			err,
+		)
+	}
+	if parsed.Reference == "" {
+		return Artifact{}, fmt.Errorf(
+			"OCI reference %q has no tag or digest",
+			reference,
+		)
+	}
+	repositoryName := parsed.Registry + "/" + parsed.Repository
+	repository, err := remote.NewRepository(repositoryName)
+	if err != nil {
+		return Artifact{}, fmt.Errorf(
+			"open OCI repository %q: %w",
+			repositoryName,
+			err,
+		)
+	}
+	repository.Client = resolver.client
+	descriptor, err := repository.Resolve(ctx, parsed.Reference)
+	if err != nil {
+		return Artifact{}, fmt.Errorf(
+			"resolve OCI artifact %q: %w",
+			reference,
+			err,
+		)
+	}
+	if descriptor.Size < 1 || descriptor.Size > maxManifestSize {
+		return Artifact{}, fmt.Errorf(
+			"OCI artifact %q manifest size %d is invalid",
+			reference,
+			descriptor.Size,
+		)
+	}
+	manifestData, err := content.FetchAll(ctx, repository, descriptor)
+	if err != nil {
+		return Artifact{}, fmt.Errorf(
+			"fetch OCI artifact %q manifest: %w",
+			reference,
+			err,
+		)
+	}
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return Artifact{}, fmt.Errorf(
+			"decode OCI artifact %q manifest: %w",
+			reference,
+			err,
+		)
+	}
+	if len(manifest.Layers) != 1 {
+		return Artifact{}, fmt.Errorf(
+			"OCI artifact %q must contain exactly one layer",
+			reference,
+		)
+	}
+	layer := manifest.Layers[0]
+	limit := int64(maxApplicationBundle)
+	if manifest.ArtifactType == FeedArtifactType {
+		limit = maxFeedSize
+	}
+	if layer.Size < 1 || layer.Size > limit {
+		return Artifact{}, fmt.Errorf(
+			"OCI artifact %q layer size %d is invalid",
+			reference,
+			layer.Size,
+		)
+	}
+	payload, err := content.FetchAll(ctx, repository, layer)
+	if err != nil {
+		return Artifact{}, fmt.Errorf(
+			"fetch OCI artifact %q layer: %w",
+			reference,
+			err,
+		)
+	}
+	var subjectDigest string
+	if manifest.Subject != nil {
+		subjectDigest = manifest.Subject.Digest.String()
+	}
+	return Artifact{
+		Reference:      reference,
+		ManifestDigest: descriptor.Digest.String(),
+		ArtifactType:   manifest.ArtifactType,
+		LayerType:      layer.MediaType,
+		Repository:     repositoryName,
+		SubjectDigest:  subjectDigest,
+		Content:        payload,
+	}, nil
 }
 
 func readBounded(reader io.Reader, limit int64) ([]byte, error) {
@@ -587,7 +688,7 @@ func writeFileAtomic(name string, data []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".catalogue-*")
+	temporary, err := os.CreateTemp(directory, ".registry-*")
 	if err != nil {
 		return err
 	}

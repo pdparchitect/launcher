@@ -29,14 +29,20 @@ Use `make --directory images versions` and
 Merge the version and changelog change to `main`. Do not create image tags
 manually. After the **Images** workflow passes, **Release images** creates the
 missing immutable tag and dispatches **Publish images**. Publishing builds and
-smoke-tests native AMD64 and ARM64 images before assembling their manifest.
+smoke-tests native AMD64 and ARM64 images before assembling their manifest. A
+product release then attaches its image-owned Launcher application bundle to
+the final multi-architecture digest and moves its stable application channel.
 
 Treat the GitHub Release and the resolved GHCR digest as proof of publication,
 not the existence of a Git tag alone.
 
-## Connect an image to the catalogue
+## Publish the Launcher application
 
-Publish the image first. Then update the corresponding catalogue manifest to
-the immutable release tag or digest and follow `manage-catalogue` to version
-and release the new catalogue snapshot. Never put `latest` in a catalogue
-manifest. Use `promote-image-to-catalogue` when the task spans both releases.
+Every product owns `launcher/application.json` and its artwork beside the
+Dockerfile. Keep its version equal to the product `VERSION` and omit an image
+field. The publish workflow derives the runnable image from the artifact's OCI
+subject, so image and Launcher metadata ship as one release.
+
+Use `publish-launcher-application` for end-to-end product releases and
+`manage-application-registry` for application schema, artwork, feed, or cache
+changes.

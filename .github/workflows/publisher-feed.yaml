@@ -1,0 +1,70 @@
+name: Publish application feed
+
+# This feed is only a discovery list. Application definitions and artwork are
+# published by their owning image release workflows.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publisher-feed
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate feed
+        run: |
+          set -euo pipefail
+          test "$(jq -er '.schemaVersion' publisher/feed.json)" = 1
+          test -n "$(jq -er '.publisher' publisher/feed.json)"
+          test "$(jq -er '.applications | length' publisher/feed.json)" -gt 0
+          duplicate="$(
+            jq -r '.applications[]' publisher/feed.json |
+              LC_ALL=C sort |
+              uniq -d |
+              head -1
+          )"
+          test -z "$duplicate"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.3
+
+      - name: Verify application channels
+        run: |
+          set -euo pipefail
+          while IFS= read -r reference; do
+            metadata="$(oras manifest fetch "$reference" --format json)"
+            test "$(
+              jq -er '.content.artifactType' <<<"$metadata"
+            )" = application/vnd.pdparchitect.launcher.application.v1
+            test -n "$(jq -er '.content.subject.digest' <<<"$metadata")"
+          done < <(jq -er '.applications[]' publisher/feed.json)
+
+      - name: Publish stable feed
+        env:
+          REPOSITORY: ghcr.io/${{ github.repository_owner }}/launcher-feed
+        run: |
+          oras push \
+            --artifact-type \
+              application/vnd.pdparchitect.launcher.feed.v1 \
+            "${REPOSITORY}:stable" \
+            "publisher/feed.json:application/vnd.pdparchitect.launcher.feed.v1+json"

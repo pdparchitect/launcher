@@ -6,9 +6,6 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'internal/catalog/catalogue.json'
-      - 'internal/catalog/manifests/**'
     tags:
       - 'v*'
 

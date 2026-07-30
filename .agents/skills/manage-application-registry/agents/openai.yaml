@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Application Registry"
+  short_description: "Manage Launcher OCI applications and discovery feeds"
+  default_prompt: "Use $manage-application-registry to update an image-owned Launcher application, publisher feed, or registry behavior."

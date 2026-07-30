@@ -4,6 +4,11 @@ Codex Pets source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.2.1]
+
+- Publish the Launcher application definition and artwork as an OCI artifact
+  attached to the final multi-architecture image digest.
+
 ## [0.2.0]
 
 - Pets can leave notes, doodles, gifts, trophies, warnings and found objects

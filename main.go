@@ -37,6 +37,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: load catalogue: %v\n", err)
 		os.Exit(1)
 	}
+	if len(catalogue.List()) == 0 {
+		registryContext, cancelRegistry := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		_, registryErr := catalogue.Refresh(registryContext, false)
+		cancelRegistry()
+		if registryErr != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"warning: application registry is unavailable: %v\n",
+				registryErr,
+			)
+		}
+	}
 	updates := updatecheck.NewManager(root, version, updatecheck.Options{})
 	selection, err := launchruntime.Detect(launchruntime.DetectOptions{
 		GOOS:      goruntime.GOOS,

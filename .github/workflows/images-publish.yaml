@@ -57,6 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Verify the unit and version
         id: check
@@ -143,6 +145,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Free disk space
         run: |
@@ -212,6 +216,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -219,6 +225,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.3
 
       - name: Create multi-architecture manifests
         id: manifest
@@ -273,6 +284,49 @@ jobs:
               docker buildx imagetools inspect "${repository}:${IMAGE_VERSION}" \
                 --format '{{json .Manifest.Digest}}' | tr -d '"'
             )"
+
+            # Composite products own their Launcher definition. Attach the
+            # definition and artwork only after the final multi-architecture
+            # digest exists, then move the stable discovery channel.
+            if [ "$KIND" = product ]; then
+              product="${target%-desktop}"
+              source="products/${product}/desktop/launcher"
+              declared="$(jq -er '.version' "${source}/application.json")"
+              if [ "$declared" != "$VERSION" ]; then
+                echo "${source}/application.json declares ${declared}," \
+                  "expected ${VERSION}." >&2
+                exit 1
+              fi
+              archive_directory="$(mktemp -d)"
+              archive_name="${product}-launcher-application.zip"
+              archive="${archive_directory}/${archive_name}"
+              (
+                cd "$source"
+                find . -maxdepth 1 -type f -printf '%P\n' |
+                  LC_ALL=C sort |
+                  zip -X -q "$archive" -@
+              )
+              attachment="$(
+                cd "$archive_directory"
+                oras attach \
+                  --artifact-type \
+                    application/vnd.pdparchitect.launcher.application.v1 \
+                  --annotation \
+                    "org.opencontainers.image.title=${product} Launcher application" \
+                  --format json \
+                  "${repository}@${digest}" \
+                  "${archive_name}:application/vnd.pdparchitect.launcher.application.bundle.v1+zip"
+              )"
+              application_digest="$(jq -er '.digest' <<<"$attachment")"
+              application_tags=("launcher-${IMAGE_VERSION}")
+              if [ "$PRERELEASE" = false ]; then
+                application_tags+=("launcher-stable")
+              fi
+              oras tag \
+                "${repository}@${application_digest}" \
+                "${application_tags[@]}"
+            fi
+
             printf -- '- `%s:%s`\n  `%s`\n' \
               "$repository" "$IMAGE_VERSION" "$digest" >> /tmp/published.md
           done

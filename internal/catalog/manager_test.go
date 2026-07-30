@@ -1,284 +1,266 @@
 package catalog
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"io"
-	"io/fs"
-	"net/http"
-	"net/http/httptest"
+	"fmt"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestManagerStartsWithEmbeddedCatalogue(t *testing.T) {
-	manager, err := NewManager(t.TempDir(), ManagerOptions{})
-	if err != nil {
-		t.Fatalf("NewManager() error = %v", err)
-	}
+const (
+	testFeedReference = "ghcr.io/example/feed:stable"
+	testAppReference  = "ghcr.io/example/ghost:launcher-stable"
+)
 
-	manifests := manager.List()
-	if manager.Version() != "0.1.1" || len(manifests) != 6 {
-		t.Fatalf(
-			"embedded catalogue = version %q, %d entries",
-			manager.Version(),
-			len(manifests),
-		)
-	}
-	if _, err := manager.Open("openclaw/icon.svg"); err != nil {
-		t.Fatalf("Open() embedded asset error = %v", err)
-	}
-	if manager.refreshInterval != 30*time.Minute {
-		t.Fatalf(
-			"default refresh interval = %v, want %v",
-			manager.refreshInterval,
-			30*time.Minute,
-		)
-	}
+type fakeResolver struct {
+	mutex     sync.Mutex
+	artifacts map[string]Artifact
+	errors    map[string]error
+	requests  int
 }
 
-func TestManagerRefreshesAndRestoresCachedRelease(t *testing.T) {
-	bundle := testBundle(t, "0.1.2")
-	digest := sha256.Sum256(bundle)
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(
-		response http.ResponseWriter,
-		request *http.Request,
-	) {
-		requests.Add(1)
-		switch request.URL.Path {
-		case "/releases":
-			_ = json.NewEncoder(response).Encode([]map[string]any{{
-				"tag_name":     "catalogue-v0.1.2",
-				"draft":        false,
-				"prerelease":   false,
-				"published_at": "2026-07-30T12:00:00Z",
-				"assets": []map[string]any{{
-					"name":                 bundleAssetName,
-					"browser_download_url": serverURL(request) + "/bundle",
-					"digest":               "sha256:" + hex.EncodeToString(digest[:]),
-					"size":                 len(bundle),
-				}},
-			}})
-		case "/bundle":
-			response.Header().Set("Content-Type", "application/zip")
-			_, _ = response.Write(bundle)
-		default:
-			http.NotFound(response, request)
-		}
-	}))
-	defer server.Close()
+func (resolver *fakeResolver) Fetch(
+	_ context.Context,
+	reference string,
+) (Artifact, error) {
+	resolver.mutex.Lock()
+	defer resolver.mutex.Unlock()
+	resolver.requests++
+	if err := resolver.errors[reference]; err != nil {
+		return Artifact{}, err
+	}
+	artifact, exists := resolver.artifacts[reference]
+	if !exists {
+		return Artifact{}, fmt.Errorf("no artifact for %s", reference)
+	}
+	return artifact, nil
+}
 
+func TestManagerStartsEmptyThenRefreshesAndRestoresCache(t *testing.T) {
+	resolver := testResolver(t, "ghost", testApplicationID)
 	root := t.TempDir()
 	manager, err := NewManager(root, ManagerOptions{
-		Client:      server.Client(),
-		ReleasesURL: server.URL + "/releases",
+		Resolver:   resolver,
+		SourceData: testSources(),
 	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
+	}
+	if len(manager.List()) != 0 {
+		t.Fatalf("initial applications = %#v, want empty", manager.List())
 	}
 	changed, err := manager.Refresh(t.Context(), true)
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	if !changed || manager.Version() != "0.1.2" {
-		t.Fatalf(
-			"Refresh() = %v, version %q",
-			changed,
-			manager.Version(),
-		)
+	if !changed || len(manager.List()) != 1 {
+		t.Fatalf("Refresh() = %v, applications = %#v", changed, manager.List())
 	}
-	if _, err := manager.Open("buzzbox/screenshot.png"); err != nil {
-		t.Fatalf("Open() refreshed asset error = %v", err)
+	manifest := manager.List()[0]
+	if manifest.Image !=
+		"ghcr.io/example/ghost@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("image = %q", manifest.Image)
+	}
+	if _, err := manager.Open("ghost/icon.svg"); err != nil {
+		t.Fatalf("Open() error = %v", err)
 	}
 
 	restored, err := NewManager(root, ManagerOptions{
-		Client:      server.Client(),
-		ReleasesURL: server.URL + "/releases",
+		Resolver:   &fakeResolver{},
+		SourceData: testSources(),
 	})
 	if err != nil {
 		t.Fatalf("NewManager() restored error = %v", err)
 	}
-	if restored.Version() != "0.1.2" || len(restored.List()) != 6 {
-		t.Fatalf(
-			"restored catalogue = version %q, %d entries",
-			restored.Version(),
-			len(restored.List()),
-		)
-	}
-	if requests.Load() != 2 {
-		t.Fatalf("HTTP requests = %d, want release and bundle", requests.Load())
+	if len(restored.List()) != 1 ||
+		restored.List()[0].Image != manifest.Image {
+		t.Fatalf("restored applications = %#v", restored.List())
 	}
 }
 
-func TestManagerRejectsReleaseWithWrongDigest(t *testing.T) {
-	bundle := testBundle(t, "0.1.2")
-	server := httptest.NewServer(http.HandlerFunc(func(
-		response http.ResponseWriter,
-		request *http.Request,
-	) {
-		switch request.URL.Path {
-		case "/releases":
-			_ = json.NewEncoder(response).Encode([]map[string]any{{
-				"tag_name": "catalogue-v0.1.2",
-				"assets": []map[string]any{{
-					"name":                 bundleAssetName,
-					"browser_download_url": serverURL(request) + "/bundle",
-					"digest":               "sha256:" + strings.Repeat("0", 64),
-					"size":                 len(bundle),
-				}},
-			}})
-		case "/bundle":
-			_, _ = response.Write(bundle)
-		default:
-			http.NotFound(response, request)
-		}
-	}))
-	defer server.Close()
-
+func TestManagerUpdatesOtherApplicationsWhileOneUsesCache(t *testing.T) {
+	resolver := testResolver(t, "ghost", testApplicationID)
 	manager, err := NewManager(t.TempDir(), ManagerOptions{
-		Client:      server.Client(),
-		ReleasesURL: server.URL + "/releases",
+		Resolver:   resolver,
+		SourceData: testSources(),
 	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	changed, err := manager.Refresh(t.Context(), true)
-	if err == nil || !strings.Contains(err.Error(), "digest") {
-		t.Fatalf("Refresh() = %v, %v, want digest error", changed, err)
+	if _, err := manager.Refresh(t.Context(), true); err != nil {
+		t.Fatalf("initial Refresh() error = %v", err)
 	}
-	if changed || manager.Version() != "0.1.1" {
-		t.Fatalf(
-			"catalogue changed after rejected release: %v, %q",
-			changed,
-			manager.Version(),
-		)
+
+	secondReference := "ghcr.io/example/second:launcher-stable"
+	resolver.artifacts[testFeedReference] = feedArtifact(
+		testAppReference,
+		secondReference,
+	)
+	resolver.artifacts[secondReference] = applicationArtifact(
+		t,
+		secondReference,
+		"second",
+		"2784cf32-591a-4ba7-9c26-64ce6deeba55",
+		"b",
+	)
+	resolver.errors[testAppReference] = fmt.Errorf("temporary registry failure")
+
+	changed, err := manager.Refresh(t.Context(), true)
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if !changed || len(manager.List()) != 2 {
+		t.Fatalf("Refresh() = %v, applications = %#v", changed, manager.List())
+	}
+	if len(manager.Warnings()) != 1 ||
+		!strings.Contains(manager.Warnings()[0], "cached copy") {
+		t.Fatalf("Warnings() = %#v", manager.Warnings())
 	}
 }
 
-func TestManagerSkipsFreshReleaseCheck(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(
-		http.ResponseWriter,
-		*http.Request,
-	) {
-		requests.Add(1)
-	}))
-	defer server.Close()
+func TestManagerRejectsCollisionWithoutReplacingSnapshot(t *testing.T) {
+	resolver := testResolver(t, "ghost", testApplicationID)
+	manager, err := NewManager(t.TempDir(), ManagerOptions{
+		Resolver:   resolver,
+		SourceData: testSources(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	if _, err := manager.Refresh(t.Context(), true); err != nil {
+		t.Fatalf("initial Refresh() error = %v", err)
+	}
 
+	secondReference := "ghcr.io/example/collision:launcher-stable"
+	resolver.artifacts[testFeedReference] = feedArtifact(
+		testAppReference,
+		secondReference,
+	)
+	resolver.artifacts[secondReference] = applicationArtifact(
+		t,
+		secondReference,
+		"collision",
+		testApplicationID,
+		"c",
+	)
+	changed, err := manager.Refresh(t.Context(), true)
+	if err == nil || !strings.Contains(err.Error(), "published by both") {
+		t.Fatalf("Refresh() = %v, %v, want collision", changed, err)
+	}
+	if changed || len(manager.List()) != 1 ||
+		manager.List()[0].Slug != "ghost" {
+		t.Fatalf("snapshot changed after collision: %#v", manager.List())
+	}
+}
+
+func TestManagerSkipsRefreshInsideInterval(t *testing.T) {
+	resolver := testResolver(t, "ghost", testApplicationID)
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	manager, err := NewManager(t.TempDir(), ManagerOptions{
-		Client:          server.Client(),
-		ReleasesURL:     server.URL,
-		RefreshInterval: 24 * time.Hour,
+		Resolver:        resolver,
+		SourceData:      testSources(),
+		RefreshInterval: time.Hour,
 		Now:             func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	manager.markChecked(now)
-
+	if _, err := manager.Refresh(t.Context(), false); err != nil {
+		t.Fatalf("first Refresh() error = %v", err)
+	}
+	requests := resolver.requests
 	changed, err := manager.Refresh(t.Context(), false)
 	if err != nil {
-		t.Fatalf("Refresh() error = %v", err)
+		t.Fatalf("second Refresh() error = %v", err)
 	}
-	if changed || requests.Load() != 0 {
-		t.Fatalf("Refresh() = %v, HTTP requests = %d", changed, requests.Load())
+	if changed || resolver.requests != requests {
+		t.Fatalf(
+			"second Refresh() = %v, requests = %d, want %d",
+			changed,
+			resolver.requests,
+			requests,
+		)
 	}
-}
-
-func TestSelectReleaseUsesHighestStableCatalogueVersion(t *testing.T) {
-	release, _, err := selectRelease([]githubRelease{
-		{
-			TagName: "catalogue-v0.2.0",
-			Assets:  []githubAsset{{Name: bundleAssetName}},
-		},
-		{
-			TagName: "catalogue-v1.0.0-beta.1",
-			Assets:  []githubAsset{{Name: bundleAssetName}},
-		},
-		{
-			TagName: "catalogue-v0.10.0",
-			Assets:  []githubAsset{{Name: bundleAssetName}},
-		},
-		{
-			TagName: "launcher-v9.0.0",
-			Assets:  []githubAsset{{Name: bundleAssetName}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("selectRelease() error = %v", err)
-	}
-	if release.TagName != "catalogue-v0.10.0" {
-		t.Fatalf("selected release = %q", release.TagName)
-	}
-}
-
-func testBundle(t *testing.T, version string) []byte {
-	t.Helper()
-	var buffer bytes.Buffer
-	writer := zip.NewWriter(&buffer)
-	metadata, err := writer.Create("catalogue.json")
-	if err != nil {
-		t.Fatalf("create catalogue metadata: %v", err)
-	}
-	_, _ = io.WriteString(
-		metadata,
-		`{"schemaVersion":1,"version":"`+version+`"}`+"\n",
-	)
-	err = fs.WalkDir(files, "manifests", func(
-		name string,
-		entry fs.DirEntry,
-		walkErr error,
-	) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			_, createErr := writer.Create(name + "/")
-			return createErr
-		}
-		data, readErr := fs.ReadFile(files, name)
-		if readErr != nil {
-			return readErr
-		}
-		target, createErr := writer.Create(name)
-		if createErr != nil {
-			return createErr
-		}
-		_, createErr = target.Write(data)
-		return createErr
-	})
-	if err != nil {
-		t.Fatalf("write test bundle: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close test bundle: %v", err)
-	}
-	return buffer.Bytes()
-}
-
-func serverURL(request *http.Request) string {
-	return "http://" + request.Host
 }
 
 func TestManagerRefreshHonoursCancelledContext(t *testing.T) {
 	manager, err := NewManager(t.TempDir(), ManagerOptions{
-		ReleasesURL: "https://example.invalid/releases",
+		Resolver:   &fakeResolver{},
+		SourceData: testSources(),
 	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-
 	if _, err := manager.Refresh(ctx, true); err == nil {
 		t.Fatal("Refresh() error = nil, want cancelled context")
 	}
+}
+
+func testResolver(t *testing.T, slug string, id string) *fakeResolver {
+	t.Helper()
+	return &fakeResolver{
+		artifacts: map[string]Artifact{
+			testFeedReference: feedArtifact(testAppReference),
+			testAppReference: applicationArtifact(
+				t,
+				testAppReference,
+				slug,
+				id,
+				"a",
+			),
+		},
+		errors: make(map[string]error),
+	}
+}
+
+func feedArtifact(references ...string) Artifact {
+	content := []byte(`{
+		"schemaVersion": 1,
+		"publisher": "Example",
+		"applications": ["` + strings.Join(references, `","`) + `"]
+	}`)
+	return Artifact{
+		Reference:      testFeedReference,
+		ManifestDigest: digestFor(content),
+		ArtifactType:   FeedArtifactType,
+		LayerType:      FeedDocumentType,
+		Content:        content,
+	}
+}
+
+func applicationArtifact(
+	t *testing.T,
+	reference string,
+	slug string,
+	id string,
+	digestCharacter string,
+) Artifact {
+	t.Helper()
+	content := testApplicationBundle(t, slug, id)
+	return Artifact{
+		Reference:      reference,
+		ManifestDigest: digestFor(content),
+		ArtifactType:   ApplicationArtifactType,
+		LayerType:      ApplicationBundleType,
+		Repository:     strings.TrimSuffix(reference, ":launcher-stable"),
+		SubjectDigest:  "sha256:" + strings.Repeat(digestCharacter, 64),
+		Content:        content,
+	}
+}
+
+func digestFor(data []byte) string {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", sum)
+}
+
+func testSources() []byte {
+	return []byte(`{
+		"schemaVersion": 1,
+		"feeds": ["` + testFeedReference + `"]
+	}`)
 }

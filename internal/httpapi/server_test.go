@@ -734,7 +734,21 @@ func TestMarketplaceEntriesOpenDetailedImagePages(t *testing.T) {
 }
 
 func TestDesignAssetsAreServed(t *testing.T) {
-	handler := New(&fakeService{}, "test-token")
+	handler := New(
+		&fakeService{},
+		"test-token",
+		WithCatalogAssets(fstest.MapFS{
+			"pantalk-ghost/icon.svg": {
+				Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`),
+			},
+			"pantalk-ghost/screenshot.png": {
+				Data: []byte("\x89PNG\r\n\x1a\n"),
+			},
+			"buzznode/screenshot.png": {
+				Data: []byte("\x89PNG\r\n\x1a\n"),
+			},
+		}),
+	)
 	tests := []struct {
 		path         string
 		contentType  string
