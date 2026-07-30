@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe",
   "slug": "codex-pets",
   "name": "Codex Pets",
@@ -20,8 +20,13 @@
       }
     ]
   },
-  "viewer": "kasmvnc",
-  "containerPort": 6901,
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    }
+  },
   "memory": "4g",
   "sharedMemory": "1g",
   "environment": {},

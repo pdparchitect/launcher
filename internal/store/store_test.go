@@ -96,9 +96,11 @@ func testInstance(id string, name string) domain.Instance {
 		Name:          name,
 		Image:         "pantalk/ghost:test",
 		ContainerName: "launcher-ghost-" + id[:12],
-		Port:          16902,
-		DesiredState:  domain.DesiredStopped,
-		CreatedAt:     time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+		Interfaces: map[string]domain.Interface{
+			"desktop": {Kind: "kasmweb", Port: 16902, Path: "/"},
+		},
+		DesiredState: domain.DesiredStopped,
+		CreatedAt:    time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -118,11 +120,12 @@ func testManifest() catalog.Manifest {
 				Alt:    "Ghost desktop",
 			}},
 		},
-		Image:         "pantalk/ghost:test",
-		Viewer:        "kasmvnc",
-		ContainerPort: 6901,
-		SharedMemory:  "1g",
-		Environment:   map[string]string{"PANTALK_AUTOSTART": "true"},
+		Image: "pantalk/ghost:test",
+		Interfaces: map[string]catalog.Interface{
+			"desktop": {Kind: "kasmweb", Port: 6901, Path: "/"},
+		},
+		SharedMemory: "1g",
+		Environment:  map[string]string{"PANTALK_AUTOSTART": "true"},
 		Mounts: []catalog.Mount{
 			{Name: "workspace", Target: "/workspace"},
 			{Name: "private/config", Target: "/home/ghost/.config"},

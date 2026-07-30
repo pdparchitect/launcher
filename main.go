@@ -124,12 +124,12 @@ func main() {
 				ctx context.Context,
 				name string,
 				url string,
-				viewer string,
+				kind string,
 			) error {
 				return desktop.RunViewerTarget(ctx, httpapi.ViewerTarget{
-					Name:   name,
-					URL:    url,
-					Viewer: viewer,
+					Name: name,
+					URL:  url,
+					Kind: kind,
 				})
 			}),
 		)

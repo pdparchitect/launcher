@@ -72,7 +72,7 @@ for product_dir in "${product_dirs[@]}"; do
         echo "Product $product_dir has no Launcher application document." >&2
         exit 1
     fi
-    if [ "$(jq -er '.schemaVersion' "$application")" != 1 ]; then
+    if [ "$(jq -er '.schemaVersion' "$application")" != 2 ]; then
         echo "$application has an unsupported schema version." >&2
         exit 1
     fi

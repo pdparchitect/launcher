@@ -194,7 +194,7 @@ func run(
 	return nil
 }
 
-func runViewer(ctx context.Context, name string, target string, viewer string) error {
+func runViewer(ctx context.Context, name string, target string, kind string) error {
 	finished := make(chan struct{})
 	defer close(finished)
 
@@ -214,7 +214,7 @@ func runViewer(ctx context.Context, name string, target string, viewer string) e
 			4,
 		),
 		AssetServer: &assetserver.Options{
-			Handler: viewerHandler(name, target, viewer),
+			Handler: viewerHandler(name, target, kind),
 		},
 		OnStartup: func(wailsContext context.Context) {
 			nativehost.BadgeDockIcon()

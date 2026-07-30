@@ -44,14 +44,11 @@ func RunViewer(
 	if view.State != launchruntime.StatusRunning {
 		return fmt.Errorf("start %s before opening it in a window", view.Name)
 	}
-	viewer := "web"
-	for _, entry := range service.Catalog() {
-		if entry.ID == view.CatalogID {
-			viewer = entry.Viewer
-			break
-		}
+	_, resolved, exists := view.DisplayInterface()
+	if !exists {
+		return fmt.Errorf("%s has no display interface", view.Name)
 	}
-	return runViewer(ctx, view.Name, view.URL(), viewer)
+	return runViewer(ctx, view.Name, resolved.URL(), resolved.Kind)
 }
 
 // RunViewerTarget opens an already-resolved agent. The launcher process has
@@ -61,11 +58,10 @@ func RunViewerTarget(ctx context.Context, target httpapi.ViewerTarget) error {
 	if target.URL == "" {
 		return errors.New("agent window needs a resolved agent URL")
 	}
-	viewer := target.Viewer
-	if viewer == "" {
-		viewer = "web"
+	if target.Kind == "" {
+		return errors.New("agent window needs an interface kind")
 	}
-	return runViewer(ctx, target.Name, target.URL, viewer)
+	return runViewer(ctx, target.Name, target.URL, target.Kind)
 }
 
 // One window per agent. Both windows would be the same view of the same
@@ -134,7 +130,7 @@ func SpawnViewer(target httpapi.ViewerTarget) error {
 		"viewer",
 		"--url", target.URL,
 		"--name", target.Name,
-		"--viewer", target.Viewer,
+		"--kind", target.Kind,
 	)
 	if err := command.Start(); err != nil {
 		viewers.release(target.Name)

@@ -448,21 +448,23 @@ func testCreateRequest(platform string) CreateRequest {
 		InstanceID:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
 		Image:         "pantalk/ghost:test",
-		Port:          16902,
+		Ports:         map[int]int{6901: 16902},
 		Platform:      platform,
 		Paths: map[string]string{
 			"workspace": "/data/agents/a/workspace",
 		},
 		Manifest: catalog.Manifest{
-			ID:            "370a2228-322d-4089-846b-62fb8c15d154",
-			Slug:          "pantalk-ghost",
-			Name:          "Pantalk Ghost",
-			Publisher:     "Pantalk",
-			ContainerPort: 6901,
-			Memory:        "4g",
-			SharedMemory:  "1g",
-			Environment:   map[string]string{"PANTALK_AUTOSTART": "true"},
-			Mounts:        []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
+			ID:        "370a2228-322d-4089-846b-62fb8c15d154",
+			Slug:      "pantalk-ghost",
+			Name:      "Pantalk Ghost",
+			Publisher: "Pantalk",
+			Interfaces: map[string]catalog.Interface{
+				"desktop": {Kind: "kasmweb", Port: 6901, Path: "/"},
+			},
+			Memory:       "4g",
+			SharedMemory: "1g",
+			Environment:  map[string]string{"PANTALK_AUTOSTART": "true"},
+			Mounts:       []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
 		},
 	}
 }

@@ -112,7 +112,7 @@ func TestOpenPrintsDesktopURL(t *testing.T) {
 	if code := app.Run(t.Context(), []string{"open", "Ada"}); code != 0 {
 		t.Fatalf("Run() code = %d", code)
 	}
-	if opener.url != "http://127.0.0.1:16902" ||
+	if opener.url != "http://127.0.0.1:16902/" ||
 		!strings.Contains(stdout.String(), opener.url) {
 		t.Fatalf("opened = %q, stdout = %q", opener.url, stdout.String())
 	}
@@ -260,7 +260,7 @@ func TestViewerCommandOpensFramedAgentViewer(t *testing.T) {
 
 func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 	service := &fakeService{}
-	var gotName, gotURL, gotViewer string
+	var gotName, gotURL, gotKind string
 	resolved := false
 	app := New(
 		service,
@@ -272,8 +272,8 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 			resolved = true
 			return nil
 		}),
-		WithViewerTarget(func(_ context.Context, name, url, viewer string) error {
-			gotName, gotURL, gotViewer = name, url, viewer
+		WithViewerTarget(func(_ context.Context, name, url, kind string) error {
+			gotName, gotURL, gotKind = name, url, kind
 			return nil
 		}),
 	)
@@ -282,7 +282,7 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 		"viewer",
 		"-url", "http://127.0.0.1:16902",
 		"-name", "Pantalk Ghost",
-		"-viewer", "kasmvnc",
+		"-kind", "kasmweb",
 	}); code != 0 {
 		t.Fatalf("Run() code = %d", code)
 	}
@@ -294,8 +294,8 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 	if gotURL != "http://127.0.0.1:16902" {
 		t.Fatalf("url = %q", gotURL)
 	}
-	if gotName != "Pantalk Ghost" || gotViewer != "kasmvnc" {
-		t.Fatalf("name = %q, viewer = %q", gotName, gotViewer)
+	if gotName != "Pantalk Ghost" || gotKind != "kasmweb" {
+		t.Fatalf("name = %q, kind = %q", gotName, gotKind)
 	}
 }
 
@@ -370,8 +370,10 @@ func testInstance() domain.Instance {
 		Name:          "Ada",
 		Image:         "pantalk/ghost:test",
 		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
-		Port:          16902,
-		DesiredState:  domain.DesiredRunning,
-		CreatedAt:     time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+		Interfaces: map[string]domain.Interface{
+			"desktop": {Kind: "kasmweb", Port: 16902, Path: "/"},
+		},
+		DesiredState: domain.DesiredRunning,
+		CreatedAt:    time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
 	}
 }

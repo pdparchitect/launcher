@@ -237,6 +237,21 @@ static void SetTitlebarChromeImmediately(BOOL revealed) {
     }
 }
 
+static void MakeFullscreenControlsAvailable(void) {
+    for (size_t index = 0;
+         index < sizeof(kTitlebarButtons) / sizeof(kTitlebarButtons[0]);
+         index++) {
+        NSButton *button =
+            [gViewerWindow standardWindowButton:kTitlebarButtons[index]];
+        if (button == nil) {
+            continue;
+        }
+
+        button.alphaValue = 1.0;
+        button.hidden = NO;
+    }
+}
+
 static BOOL ViewerIsFullscreen(void) {
     return gViewerFullscreen
         || (gViewerWindow != nil
@@ -363,9 +378,11 @@ static void SetViewerFullscreen(BOOL fullscreen) {
     }
 
     /*
-     Fullscreen is content-only. Collapse any hover-revealed title strip before
-     AppKit starts its transition and leave the standard controls hidden so its
-     top-edge reveal has no second set of viewer chrome to display.
+     Fullscreen is content-only at rest. Collapse the custom hover strip and
+     keep its backdrop hidden, but leave the standard controls eligible for
+     AppKit's own transient top-edge title bar. AppKit hides that native title
+     bar with the menu bar and reveals both together when the pointer reaches
+     the screen edge.
      */
     if (fullscreen) {
         SetTitlebarLayoutRevealed(NO, NO);
@@ -374,6 +391,9 @@ static void SetViewerFullscreen(BOOL fullscreen) {
     gTitlebarRevealed = NO;
     ++gTitlebarTransition;
     SetTitlebarChromeImmediately(NO);
+    if (fullscreen) {
+        MakeFullscreenControlsAvailable();
+    }
 }
 
 static bool InstallViewerChromeOnMainThread(void) {
@@ -449,7 +469,10 @@ static bool InstallViewerChromeOnMainThread(void) {
             return event;
         }];
 
-    // Fullscreen remains content-only; ordinary hover chrome resumes on exit.
+    /*
+     Fullscreen uses AppKit's transient title bar, while ordinary windows use
+     the custom hover strip.
+     */
     [[NSNotificationCenter defaultCenter]
         addObserverForName:NSWindowWillEnterFullScreenNotification
                     object:window

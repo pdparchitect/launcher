@@ -26,37 +26,35 @@ const (
 )
 
 type Manifest struct {
-	ID            string            `json:"id"`
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Publisher     string            `json:"publisher"`
-	Description   string            `json:"description"`
-	Tags          []string          `json:"tags"`
-	Media         Media             `json:"media"`
-	Image         string            `json:"image"`
-	Viewer        string            `json:"viewer"`
-	ContainerPort int               `json:"containerPort"`
-	Memory        string            `json:"memory,omitempty"`
-	SharedMemory  string            `json:"sharedMemory"`
-	Environment   map[string]string `json:"environment"`
-	Mounts        []Mount           `json:"mounts"`
+	ID           string               `json:"id"`
+	Slug         string               `json:"slug"`
+	Name         string               `json:"name"`
+	Publisher    string               `json:"publisher"`
+	Description  string               `json:"description"`
+	Tags         []string             `json:"tags"`
+	Media        Media                `json:"media"`
+	Image        string               `json:"image"`
+	Interfaces   map[string]Interface `json:"interfaces"`
+	Memory       string               `json:"memory,omitempty"`
+	SharedMemory string               `json:"sharedMemory"`
+	Environment  map[string]string    `json:"environment"`
+	Mounts       []Mount              `json:"mounts"`
 }
 
 type applicationDocument struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	ID            string            `json:"id"`
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Publisher     string            `json:"publisher"`
-	Description   string            `json:"description"`
-	Tags          []string          `json:"tags"`
-	Media         Media             `json:"media"`
-	Viewer        string            `json:"viewer"`
-	ContainerPort int               `json:"containerPort"`
-	Memory        string            `json:"memory,omitempty"`
-	SharedMemory  string            `json:"sharedMemory"`
-	Environment   map[string]string `json:"environment"`
-	Mounts        []Mount           `json:"mounts"`
+	SchemaVersion int                  `json:"schemaVersion"`
+	ID            string               `json:"id"`
+	Slug          string               `json:"slug"`
+	Name          string               `json:"name"`
+	Publisher     string               `json:"publisher"`
+	Description   string               `json:"description"`
+	Tags          []string             `json:"tags"`
+	Media         Media                `json:"media"`
+	Interfaces    map[string]Interface `json:"interfaces"`
+	Memory        string               `json:"memory,omitempty"`
+	SharedMemory  string               `json:"sharedMemory"`
+	Environment   map[string]string    `json:"environment"`
+	Mounts        []Mount              `json:"mounts"`
 }
 
 type Feed struct {
@@ -84,6 +82,12 @@ type Screenshot struct {
 type Mount struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
+}
+
+type Interface struct {
+	Kind string `json:"kind"`
+	Port int    `json:"port"`
+	Path string `json:"path"`
 }
 
 type applicationBundle struct {
@@ -251,7 +255,7 @@ func loadApplicationBundle(
 			err,
 		)
 	}
-	if document.SchemaVersion != 1 {
+	if document.SchemaVersion != 2 {
 		return applicationBundle{}, fmt.Errorf(
 			"unsupported application schema version %d",
 			document.SchemaVersion,
@@ -263,20 +267,19 @@ func loadApplicationBundle(
 		)
 	}
 	manifest := Manifest{
-		ID:            document.ID,
-		Slug:          document.Slug,
-		Name:          document.Name,
-		Publisher:     document.Publisher,
-		Description:   document.Description,
-		Tags:          document.Tags,
-		Media:         document.Media,
-		Image:         imageRepository + "@" + imageDigest,
-		Viewer:        document.Viewer,
-		ContainerPort: document.ContainerPort,
-		Memory:        document.Memory,
-		SharedMemory:  document.SharedMemory,
-		Environment:   document.Environment,
-		Mounts:        document.Mounts,
+		ID:           document.ID,
+		Slug:         document.Slug,
+		Name:         document.Name,
+		Publisher:    document.Publisher,
+		Description:  document.Description,
+		Tags:         document.Tags,
+		Media:        document.Media,
+		Image:        imageRepository + "@" + imageDigest,
+		Interfaces:   document.Interfaces,
+		Memory:       document.Memory,
+		SharedMemory: document.SharedMemory,
+		Environment:  document.Environment,
+		Mounts:       document.Mounts,
 	}
 	if err := manifest.Validate(); err != nil {
 		return applicationBundle{}, fmt.Errorf(
@@ -376,11 +379,34 @@ func (manifest Manifest) Validate() error {
 	if strings.HasSuffix(image, ":latest") {
 		return errors.New("image must use an immutable release tag or digest")
 	}
-	if manifest.Viewer != "web" && manifest.Viewer != "kasmvnc" {
-		return errors.New("viewer must be web or kasmvnc")
+	if len(manifest.Interfaces) == 0 {
+		return errors.New("at least one interface is required")
 	}
-	if manifest.ContainerPort < 1 || manifest.ContainerPort > 65535 {
-		return errors.New("container port must be between 1 and 65535")
+	for id, definition := range manifest.Interfaces {
+		if !safeSlug(id) {
+			return fmt.Errorf(
+				"interface ID %q must use lowercase letters, numbers, and hyphens",
+				id,
+			)
+		}
+		if !safeSlug(definition.Kind) {
+			return fmt.Errorf(
+				"interface %q kind must use lowercase letters, numbers, and hyphens",
+				id,
+			)
+		}
+		if definition.Port < 1 || definition.Port > 65535 {
+			return fmt.Errorf(
+				"interface %q port must be between 1 and 65535",
+				id,
+			)
+		}
+		if !validInterfacePath(definition.Path) {
+			return fmt.Errorf(
+				"interface %q path must be a clean absolute URL path",
+				id,
+			)
+		}
 	}
 	if strings.TrimSpace(manifest.SharedMemory) == "" {
 		return errors.New("shared memory is required")
@@ -470,6 +496,12 @@ func safeSlug(value string) bool {
 		return false
 	}
 	return true
+}
+
+func validInterfacePath(value string) bool {
+	return strings.HasPrefix(value, "/") &&
+		path.Clean(value) == value &&
+		!strings.ContainsAny(value, "?#")
 }
 
 func validUUID(value string) bool {

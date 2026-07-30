@@ -8,6 +8,11 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.6]
+
+- Replace the single Launcher viewer and container port with the `desktop`
+  `kasmweb` interface required by application schema version 2.
+
 ## [0.1.5]
 
 - Remove the unused product-version copy from the Launcher application

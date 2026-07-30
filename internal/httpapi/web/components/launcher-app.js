@@ -73,6 +73,20 @@ function statusFor(agent) {
   return 'offline'
 }
 
+function displayInterface(agent) {
+  const interfaces = agent.interfaces || {}
+  const desktop = interfaces.desktop
+
+  if (desktop && (desktop.kind === 'web' || desktop.kind === 'kasmweb')) {
+    return desktop
+  }
+
+  return Object.keys(interfaces)
+    .sort()
+    .map((id) => interfaces[id])
+    .find((item) => item.kind === 'web' || item.kind === 'kasmweb')
+}
+
 function formatTime(value) {
   return new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
@@ -1411,8 +1425,16 @@ export class LauncherApp extends HTMLElement {
       return
     }
 
+    const display = displayInterface(agent)
+
+    if (!display) {
+      this.showToast(`${agent.name} has no display interface`, true)
+
+      return
+    }
+
     if (!desktopWindow.isDesktop()) {
-      if (!desktopWindow.openExternal(agent.url)) {
+      if (!desktopWindow.openExternal(display.url)) {
         this.showToast(`Could not open ${agent.name} in a browser window`, true)
 
         return

@@ -4,6 +4,23 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] - 2026-07-30
+
+### Changed
+
+- **Breaking.** Replace the single application `viewer` and `containerPort`
+  with schema-version-2 named `interfaces`. Launcher now resolves every
+  declared `web`, `kasmweb`, `acp`, or `mcp` interface and publishes shared
+  container ports only once.
+- Store and return resolved interface URLs for installed agents instead of one
+  global port and URL. The built-in viewer opens the agent's display interface
+  and applies Kasm-specific browser settings only to `kasmweb`.
+
+### Fixed
+
+- Let macOS reveal the native traffic-light controls with its transient
+  fullscreen title bar while keeping the viewer content-only at rest.
+
 ## [0.4.4] - 2026-07-30
 
 ### Fixed

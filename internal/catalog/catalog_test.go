@@ -37,8 +37,8 @@ func TestLoadApplicationBundleDerivesDigestImageAndScopesAssets(t *testing.T) {
 func TestLoadApplicationBundleAcceptsUnknownFields(t *testing.T) {
 	document := strings.Replace(
 		testApplicationJSON("ghost", testApplicationID),
-		`"schemaVersion": 1,`,
-		`"schemaVersion": 1,
+		`"schemaVersion": 2,`,
+		`"schemaVersion": 2,
 		"version": "1.2.3",
 		"resolutionEnvironment": "DESKTOP_RESOLUTION",
 		"resolution": "1920x1080",
@@ -140,19 +140,20 @@ func TestValidateRejectsUnsafeMountName(t *testing.T) {
 
 func validManifest() Manifest {
 	return Manifest{
-		ID:            testApplicationID,
-		Slug:          "ghost",
-		Name:          "Ghost",
-		Publisher:     "Example",
-		Description:   "A test application.",
-		Tags:          []string{"TEST"},
-		Media:         Media{Icon: "icon.svg", Cover: "screenshot.png", Screenshots: []Screenshot{{Source: "screenshot.png", Alt: "Ghost screen"}}},
-		Image:         "ghcr.io/example/ghost@sha256:" + strings.Repeat("a", 64),
-		Viewer:        "kasmvnc",
-		ContainerPort: 6901,
-		SharedMemory:  "1g",
-		Environment:   map[string]string{},
-		Mounts:        []Mount{{Name: "workspace", Target: "/workspace"}},
+		ID:          testApplicationID,
+		Slug:        "ghost",
+		Name:        "Ghost",
+		Publisher:   "Example",
+		Description: "A test application.",
+		Tags:        []string{"TEST"},
+		Media:       Media{Icon: "icon.svg", Cover: "screenshot.png", Screenshots: []Screenshot{{Source: "screenshot.png", Alt: "Ghost screen"}}},
+		Image:       "ghcr.io/example/ghost@sha256:" + strings.Repeat("a", 64),
+		Interfaces: map[string]Interface{
+			"desktop": {Kind: "kasmweb", Port: 6901, Path: "/"},
+		},
+		SharedMemory: "1g",
+		Environment:  map[string]string{},
+		Mounts:       []Mount{{Name: "workspace", Target: "/workspace"}},
 	}
 }
 
@@ -167,7 +168,7 @@ func testApplicationBundle(t *testing.T, slug string, id string) []byte {
 
 func testApplicationJSON(slug string, id string) string {
 	return `{
-		"schemaVersion": 1,
+		"schemaVersion": 2,
 		"id": "` + id + `",
 		"slug": "` + slug + `",
 		"name": "` + slug + `",
@@ -179,8 +180,9 @@ func testApplicationJSON(slug string, id string) string {
 			"cover": "screenshot.png",
 			"screenshots": [{"source": "screenshot.png", "alt": "Screen"}]
 		},
-		"viewer": "kasmvnc",
-		"containerPort": 6901,
+		"interfaces": {
+			"desktop": {"kind": "kasmweb", "port": 6901, "path": "/"}
+		},
 		"sharedMemory": "1g",
 		"environment": {},
 		"mounts": [{"name": "workspace", "target": "/workspace"}]

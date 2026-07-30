@@ -20,8 +20,8 @@ var viewerPage = template.Must(template.New("viewer").Parse(`<!doctype html>
 </body>
 </html>`))
 
-func viewerURL(rawURL string, viewer string) string {
-	if viewer != "kasmvnc" {
+func viewerURL(rawURL string, kind string) string {
+	if kind != "kasmweb" {
 		return rawURL
 	}
 	target, err := url.Parse(rawURL)
@@ -40,7 +40,7 @@ func viewerURL(rawURL string, viewer string) string {
 	return target.String()
 }
 
-func viewerHandler(name string, target string, viewer string) http.Handler {
+func viewerHandler(name string, target string, kind string) http.Handler {
 	return http.HandlerFunc(func(
 		response http.ResponseWriter,
 		request *http.Request,
@@ -52,7 +52,7 @@ func viewerHandler(name string, target string, viewer string) http.Handler {
 		var page bytes.Buffer
 		if err := viewerPage.Execute(&page, map[string]string{
 			"Name":   name,
-			"Target": viewerURL(target, viewer),
+			"Target": viewerURL(target, kind),
 		}); err != nil {
 			http.Error(response, "prepare agent viewer", http.StatusInternalServerError)
 			return

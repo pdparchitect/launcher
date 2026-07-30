@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,39 @@ func TestCreateRollsBackWhenRuntimeCreateFails(t *testing.T) {
 	instances, err := service.store.List()
 	if err != nil || len(instances) != 0 {
 		t.Fatalf("instances after rollback = %#v, %v", instances, err)
+	}
+}
+
+func TestCreateResolvesEveryInterfaceAndSharesPublishedPorts(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	manifest, _ := service.manifest(testGhostCatalogID)
+	manifest.Interfaces = map[string]catalog.Interface{
+		"desktop":    {Kind: "kasmweb", Port: 6901, Path: "/"},
+		"agent":      {Kind: "acp", Port: 8765, Path: "/acp"},
+		"filesystem": {Kind: "mcp", Port: 8765, Path: "/mcp/filesystem"},
+	}
+	service.ReplaceCatalog([]catalog.Manifest{manifest})
+	service.options.Ports = &sequencePortAllocator{next: 16902}
+
+	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	desktopPort := instance.Interfaces["desktop"].Port
+	agentPort := instance.Interfaces["agent"].Port
+	if desktopPort == agentPort ||
+		instance.Interfaces["filesystem"].Port != agentPort {
+		t.Fatalf("resolved interfaces = %#v", instance.Interfaces)
+	}
+	wantPorts := map[int]int{6901: desktopPort, 8765: agentPort}
+	if !reflect.DeepEqual(containerRuntime.createRequest.Ports, wantPorts) {
+		t.Fatalf(
+			"runtime ports = %#v, want %#v",
+			containerRuntime.createRequest.Ports,
+			wantPorts,
+		)
 	}
 }
 
@@ -284,7 +318,7 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 	if updated.Image != "pantalk/ghost:default" ||
 		updated.ID != instance.ID ||
 		updated.ContainerName != instance.ContainerName ||
-		updated.Port != instance.Port ||
+		updated.Interfaces["desktop"].Port != instance.Interfaces["desktop"].Port ||
 		updated.DesiredState != domain.DesiredRunning {
 		t.Fatalf("Update() = %#v", updated)
 	}
@@ -548,9 +582,11 @@ func testStoredInstance(
 		Name:          name,
 		Image:         "pantalk/ghost:test",
 		ContainerName: containerName,
-		Port:          port,
-		DesiredState:  domain.DesiredStopped,
-		CreatedAt:     time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+		Interfaces: map[string]domain.Interface{
+			"desktop": {Kind: "kasmweb", Port: port, Path: "/"},
+		},
+		DesiredState: domain.DesiredStopped,
+		CreatedAt:    time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -616,12 +652,13 @@ func newTestService(t *testing.T, containerRuntime *fakeRuntime) *Service {
 				Alt:    "Ghost desktop",
 			}},
 		},
-		Image:         "pantalk/ghost:default",
-		Viewer:        "kasmvnc",
-		ContainerPort: 6901,
-		SharedMemory:  "1g",
-		Environment:   map[string]string{"PANTALK_AUTOSTART": "true"},
-		Mounts:        []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
+		Image: "pantalk/ghost:default",
+		Interfaces: map[string]catalog.Interface{
+			"desktop": {Kind: "kasmweb", Port: 6901, Path: "/"},
+		},
+		SharedMemory: "1g",
+		Environment:  map[string]string{"PANTALK_AUTOSTART": "true"},
+		Mounts:       []catalog.Mount{{Name: "workspace", Target: "/workspace"}},
 	}
 	return New(store.New(t.TempDir()), containerRuntime, []catalog.Manifest{manifest}, Options{
 		ID: func() (string, error) {
@@ -640,6 +677,21 @@ type fixedPortAllocator struct{ port int }
 
 func (allocator fixedPortAllocator) Allocate(int, map[int]struct{}) (int, error) {
 	return allocator.port, nil
+}
+
+type sequencePortAllocator struct{ next int }
+
+func (allocator *sequencePortAllocator) Allocate(
+	_ int,
+	used map[int]struct{},
+) (int, error) {
+	for {
+		port := allocator.next
+		allocator.next++
+		if _, exists := used[port]; !exists {
+			return port, nil
+		}
+	}
 }
 
 type fakeRuntime struct {

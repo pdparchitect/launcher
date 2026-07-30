@@ -171,7 +171,7 @@ func (app *App) viewerUI(ctx context.Context, args []string) error {
 	flags := app.flags("viewer", "Open an agent in a framed desktop window.")
 	url := flags.String("url", "", "open an already-resolved agent URL")
 	name := flags.String("name", "", "window title, with -url")
-	viewer := flags.String("viewer", "web", "viewer kind, with -url (web or kasmvnc)")
+	kind := flags.String("kind", "", "interface kind, with -url")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (app *App) viewerUI(ctx context.Context, args []string) error {
 		if app.viewerTarget == nil {
 			return errors.New("desktop agent viewer is not available in this build")
 		}
-		return app.viewerTarget(ctx, *name, *url, *viewer)
+		return app.viewerTarget(ctx, *name, *url, *kind)
 	}
 	if flags.NArg() != 1 || strings.TrimSpace(flags.Arg(0)) == "" {
 		return errors.New("usage: launcher viewer NAME")
@@ -320,7 +320,6 @@ func (app *App) create(ctx context.Context, args []string) error {
 		"application slug or ID",
 	)
 	image := flags.String("image", "", "container image override")
-	port := flags.Int("port", 0, "local desktop port")
 	stopped := flags.Bool("stopped", false, "create without starting")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -332,14 +331,16 @@ func (app *App) create(ctx context.Context, args []string) error {
 	}
 	instance, err := app.service.Create(ctx, agent.CreateOptions{
 		CatalogID: *appID, Name: *name, Image: *image,
-		Port: *port, Start: !*stopped,
+		Start: !*stopped,
 	})
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(app.stdout, "Created %s\n", instance.Name)
 	if instance.DesiredState == domain.DesiredRunning {
-		fmt.Fprintf(app.stdout, "Open: %s\n", instance.URL())
+		if target, exists := displayURL(instance); exists {
+			fmt.Fprintf(app.stdout, "Open: %s\n", target)
+		}
 	} else {
 		fmt.Fprintf(app.stdout, "Start with: launcher start %q\n", instance.Name)
 	}
@@ -363,15 +364,19 @@ func (app *App) list(ctx context.Context, args []string) error {
 		return nil
 	}
 	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "NAME\tAPP\tSTATE\tPORT\tIMAGE")
+	fmt.Fprintln(table, "NAME\tAPP\tSTATE\tENDPOINT\tIMAGE")
 	for _, view := range views {
 		application := view.CatalogSlug
 		if application == "" {
 			application = view.CatalogID
 		}
+		target, exists := displayURL(view.Instance)
+		if !exists {
+			target = "-"
+		}
 		fmt.Fprintf(
-			table, "%s\t%s\t%s\t%d\t%s\n",
-			view.Name, application, view.State, view.Port, view.Image,
+			table, "%s\t%s\t%s\t%s\t%s\n",
+			view.Name, application, view.State, target, view.Image,
 		)
 	}
 	return table.Flush()
@@ -393,7 +398,9 @@ func (app *App) status(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(app.stdout, "Application:   %s\n", application)
 	fmt.Fprintf(app.stdout, "State:         %s\n", view.State)
-	fmt.Fprintf(app.stdout, "Open:          %s\n", view.URL())
+	if target, exists := displayURL(view.Instance); exists {
+		fmt.Fprintf(app.stdout, "Open:          %s\n", target)
+	}
 	fmt.Fprintf(app.stdout, "Image:         %s\n", view.Image)
 	fmt.Fprintf(app.stdout, "Container:     %s\n", view.ContainerName)
 	fmt.Fprintf(app.stdout, "ID:            %s\n", view.ID)
@@ -409,7 +416,10 @@ func (app *App) start(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(app.stdout, "Started %s\nOpen: %s\n", instance.Name, instance.URL())
+	fmt.Fprintf(app.stdout, "Started %s\n", instance.Name)
+	if target, exists := displayURL(instance); exists {
+		fmt.Fprintf(app.stdout, "Open: %s\n", target)
+	}
 	return nil
 }
 
@@ -435,9 +445,20 @@ func (app *App) open(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	url := view.URL()
-	fmt.Fprintln(app.stdout, url)
-	return app.opener.Open(url)
+	target, exists := displayURL(view.Instance)
+	if !exists {
+		return fmt.Errorf("%s has no display interface", view.Name)
+	}
+	fmt.Fprintln(app.stdout, target)
+	return app.opener.Open(target)
+}
+
+func displayURL(instance domain.Instance) (string, bool) {
+	_, resolved, exists := instance.DisplayInterface()
+	if !exists {
+		return "", false
+	}
+	return resolved.URL(), true
 }
 
 func (app *App) logs(ctx context.Context, args []string) error {

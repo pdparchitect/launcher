@@ -26,7 +26,7 @@ type CreateRequest struct {
 	InstanceID    string
 	ContainerName string
 	Image         string
-	Port          int
+	Ports         map[int]int
 	Platform      string
 	Paths         map[string]string
 	Manifest      catalog.Manifest

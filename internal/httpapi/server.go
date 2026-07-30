@@ -94,10 +94,10 @@ func WithUpdateStatus(status func() updatecheck.Status) Option {
 // ViewerTarget carries everything a viewer window needs, so the spawned
 // process never has to re-resolve the agent through the container runtime.
 type ViewerTarget struct {
-	ID     string
-	Name   string
-	URL    string
-	Viewer string
+	ID   string
+	Name string
+	URL  string
+	Kind string
 }
 
 func WithViewerOpener(opener func(ViewerTarget) error) Option {
@@ -107,18 +107,22 @@ func WithViewerOpener(opener func(ViewerTarget) error) Option {
 }
 
 type instanceResponse struct {
-	ID              string               `json:"id"`
-	CatalogID       string               `json:"catalogId"`
-	Name            string               `json:"name"`
-	Image           string               `json:"image"`
-	ContainerName   string               `json:"containerName"`
-	Port            int                  `json:"port"`
-	State           launchruntime.Status `json:"state"`
-	URL             string               `json:"url"`
-	CreatedAt       time.Time            `json:"createdAt"`
-	UpdateAvailable bool                 `json:"updateAvailable"`
-	AvailableImage  string               `json:"availableImage,omitempty"`
-	Metrics         *metricsResponse     `json:"metrics,omitempty"`
+	ID              string                       `json:"id"`
+	CatalogID       string                       `json:"catalogId"`
+	Name            string                       `json:"name"`
+	Image           string                       `json:"image"`
+	ContainerName   string                       `json:"containerName"`
+	Interfaces      map[string]interfaceResponse `json:"interfaces"`
+	State           launchruntime.Status         `json:"state"`
+	CreatedAt       time.Time                    `json:"createdAt"`
+	UpdateAvailable bool                         `json:"updateAvailable"`
+	AvailableImage  string                       `json:"availableImage,omitempty"`
+	Metrics         *metricsResponse             `json:"metrics,omitempty"`
+}
+
+type interfaceResponse struct {
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
 }
 
 type metricsResponse struct {
@@ -134,7 +138,6 @@ type createRequest struct {
 	CatalogID string `json:"catalogId"`
 	Name      string `json:"name"`
 	Image     string `json:"image"`
-	Port      int    `json:"port"`
 	Start     *bool  `json:"start"`
 }
 
@@ -493,7 +496,6 @@ func (server *Server) createInstance(
 		CatalogID: body.CatalogID,
 		Name:      body.Name,
 		Image:     body.Image,
-		Port:      body.Port,
 		Start:     start,
 	})
 	if err != nil {
@@ -536,7 +538,6 @@ func (server *Server) installInstance(
 		CatalogID: body.CatalogID,
 		Name:      body.Name,
 		Image:     body.Image,
-		Port:      body.Port,
 		Start:     start,
 		Progress: func(progress agent.CreateProgress) {
 			server.logger.Printf(
@@ -629,17 +630,17 @@ func (server *Server) openInstanceViewer(
 		)
 		return
 	}
-	target := ViewerTarget{
-		ID:     view.ID,
-		Name:   view.Name,
-		URL:    view.URL(),
-		Viewer: "web",
+	_, resolved, exists := view.DisplayInterface()
+	if !exists {
+		writeError(
+			response,
+			http.StatusConflict,
+			fmt.Sprintf("%s has no display interface", view.Name),
+		)
+		return
 	}
-	for _, entry := range server.service.Catalog() {
-		if entry.ID == view.CatalogID {
-			target.Viewer = entry.Viewer
-			break
-		}
+	target := ViewerTarget{
+		ID: view.ID, Name: view.Name, URL: resolved.URL(), Kind: resolved.Kind,
 	}
 	if err := server.openViewer(target); err != nil {
 		writeServiceError(response, err)
@@ -759,15 +760,21 @@ func responseFromInstance(
 	instance domain.Instance,
 	state launchruntime.Status,
 ) instanceResponse {
+	interfaces := make(map[string]interfaceResponse, len(instance.Interfaces))
+	for id, resolved := range instance.Interfaces {
+		interfaces[id] = interfaceResponse{
+			Kind: resolved.Kind,
+			URL:  resolved.URL(),
+		}
+	}
 	return instanceResponse{
 		ID:            instance.ID,
 		CatalogID:     instance.CatalogID,
 		Name:          instance.Name,
 		Image:         instance.Image,
 		ContainerName: instance.ContainerName,
-		Port:          instance.Port,
+		Interfaces:    interfaces,
 		State:         state,
-		URL:           instance.URL(),
 		CreatedAt:     instance.CreatedAt,
 	}
 }

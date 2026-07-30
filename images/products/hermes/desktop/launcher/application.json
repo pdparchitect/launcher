@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "f726241a-ff31-423d-92ad-f2b43cca742f",
   "slug": "hermes",
   "name": "Hermes",
@@ -20,8 +20,13 @@
       }
     ]
   },
-  "viewer": "kasmvnc",
-  "containerPort": 6901,
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    }
+  },
   "memory": "4g",
   "sharedMemory": "1g",
   "environment": {},
