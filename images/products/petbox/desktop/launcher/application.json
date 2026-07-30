@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "id": "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe",
+  "slug": "petbox",
+  "name": "Petbox",
+  "publisher": "PDP Architect",
+  "description": "A persistent desktop pen where animated pets are Codex agents with their own personas, memory, skills, inboxes, and schedules.",
+  "tags": [
+    "DEVELOPMENT",
+    "MULTI-AGENT",
+    "DESKTOP"
+  ],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "screenshot.png",
+    "screenshots": [
+      {
+        "source": "screenshot.png",
+        "alt": "Petbox showing its sign-in terminal and Pip on the pixel-art desktop"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/codex",
+      "target": "/home/agent/.codex"
+    }
+  ]
+}

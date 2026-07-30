@@ -213,7 +213,7 @@ assert_linked desktop node bases/desktop/Dockerfile NODE_IMAGE
 assert_linked hermes-desktop desktop products/hermes/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked openclaw-desktop desktop \
     products/openclaw/desktop/Dockerfile DESKTOP_IMAGE
-assert_linked codex-pets-desktop desktop \
-    products/codex-pets/desktop/Dockerfile DESKTOP_IMAGE
+assert_linked petbox-desktop desktop \
+    products/petbox/desktop/Dockerfile DESKTOP_IMAGE
 
 echo "Image workspace release and build-graph checks passed."

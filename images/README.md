@@ -9,7 +9,7 @@ core/ubuntu
        -> bases/desktop
             -> products/hermes/desktop
             -> products/openclaw/desktop
-            -> products/codex-pets/desktop
+            -> products/petbox/desktop
 ```
 
 The desktop substrate is ported from **Pantalk Ghost**
@@ -53,11 +53,11 @@ Configuration, credentials and sessions persist in `/home/agent/.openclaw`. It
 has its own [README](products/openclaw/desktop/README.md), which is where the
 gateway supervisor and the onboarding path are explained.
 
-`products/codex-pets/desktop` inherits the desktop base and adds a pinned Codex
+`products/petbox/desktop` inherits the desktop base and adds a pinned Codex
 CLI plus a pen of desktop pets: each pet is a directory under `/workspace/pets`
 with its own `AGENTS.md`, drawn on screen as a shaped 8-bit sprite and thinking
 through `codex exec`. Codex credentials persist in `/home/agent/.codex`. It has
-its own [README](products/codex-pets/desktop/README.md), which is where the
+its own [README](products/petbox/desktop/README.md), which is where the
 supervisor, the turn model and the sprite renderer are explained.
 
 ## How a product customises the desktop
@@ -121,7 +121,7 @@ span multiple projects. The shared live-desktop smoke contract lives under
 actually comes up: KasmVNC serving, openbox and the panel running, the welcome
 terminal started, a wallpaper applied, and nothing in `/home/agent` owned by
 anyone but the session user. If the image ships `/usr/local/bin/desktop-selftest`
-that runs too, so a product can assert whatever "up" means for it — Codex Pets
+that runs too, so a product can assert whatever "up" means for it — Petbox
 uses it to prove a sprite actually reached the screen.
 
 That last assertion is not hypothetical. The desktop base exports
@@ -140,7 +140,7 @@ pdparchitect/launcher-image-runtime-node:local
 pdparchitect/launcher-image-base-desktop:local
 pdparchitect/launcher-image-hermes-desktop:local
 pdparchitect/launcher-image-openclaw-desktop:local
-pdparchitect/launcher-image-codex-pets-desktop:local
+pdparchitect/launcher-image-petbox-desktop:local
 ```
 
 Every image in the chain, products included, is named `launcher-image-*`. The
@@ -171,7 +171,7 @@ new product is runnable without editing the Makefile.
 make run                             # the desktop base
 make run TARGET=hermes-desktop       # the Hermes product image
 make run TARGET=openclaw-desktop     # the OpenClaw product image
-make run TARGET=codex-pets-desktop   # the Codex Pets product image
+make run TARGET=petbox-desktop       # the Petbox product image
 make run RUN_PORT=7000               # serve on a different port
 make run RUN_STATE=                  # throwaway session, no volumes
 ```
@@ -243,12 +243,12 @@ make versions
 
 ```text
 TARGET           KIND       VERSION  FILE
-codex-pets-desktop product  0.1.0    products/codex-pets/desktop/VERSION
 core-ubuntu      substrate  0.1.0    VERSION
 desktop          substrate  0.1.0    VERSION
 hermes-desktop   product    0.1.0    products/hermes/desktop/VERSION
 node             substrate  0.1.0    VERSION
 openclaw-desktop product    0.1.0    products/openclaw/desktop/VERSION
+petbox-desktop   product    0.1.0    products/petbox/desktop/VERSION
 ```
 
 Each image records what it is and what it contains, so those questions never
