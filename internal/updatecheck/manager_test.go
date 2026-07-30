@@ -122,20 +122,77 @@ func TestManagerCachesChecksAndUsesETag(t *testing.T) {
 	if _, err := restored.Refresh(t.Context(), false); err != nil {
 		t.Fatalf("fresh Refresh() error = %v", err)
 	}
-	if requests.Load() != 1 {
-		t.Fatalf("fresh release requests = %d, want 1", requests.Load())
+	if requests.Load() != 2 {
+		t.Fatalf("startup release requests = %d, want 2", requests.Load())
 	}
 
 	now = now.Add(25 * time.Hour)
 	if _, err := restored.Refresh(t.Context(), false); err != nil {
 		t.Fatalf("ETag Refresh() error = %v", err)
 	}
-	if requests.Load() != 2 {
-		t.Fatalf("ETag release requests = %d, want 2", requests.Load())
+	if requests.Load() != 3 {
+		t.Fatalf("ETag release requests = %d, want 3", requests.Load())
 	}
 	if restored.Status().CheckedAt == nil ||
 		!restored.Status().CheckedAt.Equal(now) {
 		t.Fatalf("checked at = %s, want %s", restored.Status().CheckedAt, now)
+	}
+}
+
+func TestManagerRevalidatesRestoredCacheOnStartup(t *testing.T) {
+	var requests atomic.Int32
+	latest := "v0.4.0"
+	now := time.Date(2026, 7, 30, 15, 30, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		if latest == "v0.4.1" &&
+			request.Header.Get("If-None-Match") != `"launcher-v0.4.0"` {
+			t.Fatalf(
+				"If-None-Match = %q",
+				request.Header.Get("If-None-Match"),
+			)
+		}
+		response.Header().Set("ETag", `"launcher-`+latest+`"`)
+		_ = json.NewEncoder(response).Encode([]map[string]any{{
+			"tag_name": latest,
+			"html_url": releaseURL(latest),
+		}})
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	manager := NewManager(root, "0.4.0", Options{
+		Client:          server.Client(),
+		ReleasesURL:     server.URL,
+		RefreshInterval: 24 * time.Hour,
+		Now:             func() time.Time { return now },
+	})
+	if available, err := manager.Refresh(t.Context(), false); err != nil ||
+		available {
+		t.Fatalf("initial Refresh() = %v, %v", available, err)
+	}
+
+	latest = "v0.4.1"
+	now = now.Add(time.Hour)
+	restored := NewManager(root, "0.4.0", Options{
+		Client:          server.Client(),
+		ReleasesURL:     server.URL,
+		RefreshInterval: 24 * time.Hour,
+		Now:             func() time.Time { return now },
+	})
+	available, err := restored.Refresh(t.Context(), false)
+	if err != nil {
+		t.Fatalf("startup Refresh() error = %v", err)
+	}
+	if !available || !restored.Status().UpdateAvailable ||
+		restored.Status().LatestVersion != "0.4.1" {
+		t.Fatalf("startup status = %#v", restored.Status())
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("release requests = %d, want 2", requests.Load())
 	}
 }
 

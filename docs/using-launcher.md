@@ -149,7 +149,9 @@ review its notes and download the package for your platform.
 The banner can be dismissed for that version. The Home overview continues to
 show that an update is available, and a later version displays a new banner.
 
-Checks are cached for 24 hours, use conditional requests, and never block
-startup. Development builds report their version as `dev` and do not check for
-updates. Launcher does not download or install application updates
+The last successful result is cached for immediate display and offline use.
+Launcher revalidates that result with a conditional request once after each
+launch, then caches checks for 24 hours while it remains open. Checks never
+block startup. Development builds report their version as `dev` and do not
+check for updates. Launcher does not download or install application updates
 automatically.

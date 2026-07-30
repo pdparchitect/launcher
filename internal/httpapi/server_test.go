@@ -182,7 +182,7 @@ func TestMacOSDocumentScrollerKeepsInsetsWithoutRubberBanding(t *testing.T) {
 	for _, expected := range []string{
 		".is-swiftui-host launcher-app,",
 		"height: auto",
-		"min-height: 100%",
+		"min-height: 100vh",
 		"overflow: visible",
 		".is-swiftui-host .main-panel {",
 		"overflow-y: visible",
@@ -196,6 +196,34 @@ func TestMacOSDocumentScrollerKeepsInsetsWithoutRubberBanding(t *testing.T) {
 	}
 	if strings.Contains(macRules, "overscroll-behavior: auto") {
 		t.Fatal("macOS document scroller enables whole-window rubber-banding")
+	}
+}
+
+func TestMacOSDocumentScrollerTracksCurrentScreenHeight(t *testing.T) {
+	styles := readWebSources(t, "styles.css")
+	macStart := strings.Index(
+		styles,
+		"/* macOS insets a web view's overlay scrollbar",
+	)
+	if macStart < 0 {
+		t.Fatal("interface missing macOS document-scroller styles")
+	}
+	macEnd := strings.Index(
+		styles[macStart:],
+		"/* Browser preview (?chrome=macos)",
+	)
+	if macEnd < 0 {
+		t.Fatal("macOS document-scroller styles are incomplete")
+	}
+	macRules := styles[macStart : macStart+macEnd]
+
+	if !strings.Contains(macRules, "min-height: 100vh") {
+		t.Fatal("macOS document scroller does not use the viewport minimum")
+	}
+	if strings.Contains(macRules, "min-height: 100%") {
+		t.Fatal(
+			"macOS document scroller retains percentage height across screens",
+		)
 	}
 }
 

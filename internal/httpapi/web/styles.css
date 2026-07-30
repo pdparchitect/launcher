@@ -2413,7 +2413,10 @@ mark {
 .is-swiftui-host launcher-app,
 .is-swiftui-host .launcher-shell {
   height: auto;
-  min-height: 100%;
+  /* A viewport minimum avoids a percentage-height cycle through these
+     auto-height ancestors. WebKit otherwise retains the longest screen's
+     document extent after navigation and leaves blank scrollable space. */
+  min-height: 100vh;
   overflow: visible;
 }
 
@@ -2422,7 +2425,7 @@ mark {
    scrolling straight back off the document. */
 .is-swiftui-host .main-panel {
   height: auto;
-  min-height: 100%;
+  min-height: 100vh;
   overflow-x: clip;
   overflow-y: visible;
 }
