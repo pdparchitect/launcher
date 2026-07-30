@@ -1,6 +1,6 @@
 ---
 name: manage-images
-description: Manage Launcher container image sources, build graphs, tests, versions, and releases. Use when changing files under images, updating an application's packaged software, publishing a substrate or product image, or updating a catalogue manifest to consume a new image.
+description: Manage Launcher container image sources, build graphs, tests, versions, and releases. Use when changing files under images, updating an application's packaged software, or publishing a substrate or product image release.
 ---
 
 # Manage images
@@ -39,4 +39,4 @@ not the existence of a Git tag alone.
 Publish the image first. Then update the corresponding catalogue manifest to
 the immutable release tag or digest and follow `manage-catalogue` to version
 and release the new catalogue snapshot. Never put `latest` in a catalogue
-manifest.
+manifest. Use `promote-image-to-catalogue` when the task spans both releases.

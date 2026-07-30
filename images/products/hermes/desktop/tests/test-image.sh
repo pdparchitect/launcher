@@ -12,9 +12,16 @@ bash tools/check-project-programs.sh "$project"
 
 grep -Eq '^COPY +overlay +/$' "$dockerfile"
 test -d "$project/overlay"
-grep -Eq '^ARG HERMES_VERSION=v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$' "$dockerfile"
+grep -Eq '^ARG HERMES_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$dockerfile"
+grep -Eq '^ARG HERMES_SOURCE_TAG=v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$' \
+    "$dockerfile"
 grep -Eq '^ARG HERMES_SOURCE_SHA=[0-9a-f]{40}$' "$dockerfile"
+grep -Fq 'git clone --branch "${HERMES_SOURCE_TAG}" --depth 1' "$dockerfile"
 grep -Fq 'test "$(git -C /opt/hermes rev-parse HEAD)" = "$HERMES_SOURCE_SHA"' \
+    "$dockerfile"
+grep -Fq 'dev.pdparchitect.launcher.upstream.version="${HERMES_VERSION}"' \
+    "$dockerfile"
+grep -Fq 'dev.pdparchitect.launcher.upstream.ref="${HERMES_SOURCE_TAG}"' \
     "$dockerfile"
 grep -Fq 'HERMES_HOME=/home/agent/.hermes' "$dockerfile"
 grep -Fq 'VOLUME ["/workspace", "/home/agent/.hermes"]' "$dockerfile"

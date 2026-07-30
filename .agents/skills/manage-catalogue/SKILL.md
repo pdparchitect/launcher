@@ -8,6 +8,9 @@ description: Manage Launcher application catalogue entries and independent catal
 Keep catalogue updates independent from Launcher binary releases. Treat every
 published bundle as a complete, immutable snapshot.
 
+For a product image release followed by a catalogue update, use
+`promote-image-to-catalogue` to preserve the required ordering.
+
 ## Update an entry
 
 1. Read `internal/catalog/catalog.go`, its tests, and the existing manifest

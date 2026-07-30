@@ -38,10 +38,28 @@ creates the `catalogue-v<version>` tag and publishes
 `launcher-catalogue.zip`. Never reuse a published catalogue version or create
 its tag manually.
 
+### Promote a product image to the catalogue
+
+Treat this as two ordered releases:
+
+1. Bump the product image `VERSION` and `CHANGELOG.md`, validate it, and merge
+   it to `main`. Wait for the image GitHub Release and GHCR digest; a tag alone
+   is not proof that publishing finished.
+2. Only then update the catalogue manifest to the immutable image version,
+   update its tests, and declare the next unpublished catalogue version. After
+   validation and merge to `main`, **Release catalogue** publishes the new
+   snapshot automatically.
+
+Never point the catalogue at `latest` or at an image that has not finished
+publishing. Use `promote-image-to-catalogue` for the complete workflow.
+
 ## Skills
 
 Read the matching skill before starting specialized work:
 
+- [promote-image-to-catalogue](.agents/skills/promote-image-to-catalogue/SKILL.md):
+  release a product image and then promote its immutable version into the
+  catalogue
 - [manage-catalogue](.agents/skills/manage-catalogue/SKILL.md): add, update,
   validate, and release catalogue entries
 - [manage-images](.agents/skills/manage-images/SKILL.md): build, version, and
