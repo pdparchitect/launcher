@@ -23,14 +23,14 @@ import (
 )
 
 const (
-	bundleAssetName    = "launcher-catalogue.zip"
-	defaultReleasesURL = "https://api.github.com/repos/pdparchitect/launcher/releases?per_page=100"
-	defaultRefresh     = 24 * time.Hour
-	maxReleaseResponse = 2 << 20
-	maxBundleSize      = 32 << 20
-	maxBundleFileSize  = 16 << 20
-	maxBundleContents  = 64 << 20
-	maxBundleFiles     = 1000
+	DefaultRefreshInterval = 30 * time.Minute
+	bundleAssetName        = "launcher-catalogue.zip"
+	defaultReleasesURL     = "https://api.github.com/repos/pdparchitect/launcher/releases?per_page=100"
+	maxReleaseResponse     = 2 << 20
+	maxBundleSize          = 32 << 20
+	maxBundleFileSize      = 16 << 20
+	maxBundleContents      = 64 << 20
+	maxBundleFiles         = 1000
 )
 
 var semanticVersion = regexp.MustCompile(
@@ -102,7 +102,7 @@ func NewManager(root string, options ManagerOptions) (*Manager, error) {
 		options.ReleasesURL = defaultReleasesURL
 	}
 	if options.RefreshInterval <= 0 {
-		options.RefreshInterval = defaultRefresh
+		options.RefreshInterval = DefaultRefreshInterval
 	}
 	if options.Now == nil {
 		options.Now = time.Now

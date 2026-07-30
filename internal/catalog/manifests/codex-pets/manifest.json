@@ -19,7 +19,7 @@
       }
     ]
   },
-  "image": "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:latest",
+  "image": "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:0.2.0-substrate.0.1.0",
   "viewer": "kasmvnc",
   "containerPort": 6901,
   "memory": "4g",

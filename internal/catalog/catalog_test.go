@@ -26,7 +26,7 @@ func TestLoadGhost(t *testing.T) {
 		manifest.Name != "Pantalk Ghost" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
-	if manifest.Image != "ghcr.io/pantalk/ghost:0.0.10" {
+	if manifest.Image != "ghcr.io/pantalk/ghost:v0.1.0" {
 		t.Fatalf("Image = %q", manifest.Image)
 	}
 	if manifest.Viewer != "kasmvnc" {
@@ -61,7 +61,7 @@ func TestLoadBuzzbox(t *testing.T) {
 	if manifest.Name != "Buzzbox" ||
 		manifest.ID != buzzboxID ||
 		manifest.Slug != "buzzbox" ||
-		manifest.Image != "ghcr.io/pdparchitect/buzzbox:latest" {
+		manifest.Image != "ghcr.io/pdparchitect/buzzbox:v0.7.0" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
 	if manifest.ContainerPort != 6901 ||
@@ -94,7 +94,7 @@ func TestLoadBuzznode(t *testing.T) {
 	if manifest.Name != "Buzznode" ||
 		manifest.ID != buzznodeID ||
 		manifest.Slug != "buzznode" ||
-		manifest.Image != "ghcr.io/pdparchitect/buzznode:latest" {
+		manifest.Image != "ghcr.io/pdparchitect/buzznode:v0.5.0" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
 	if manifest.Viewer != "kasmvnc" {
@@ -120,7 +120,7 @@ func TestLoadOpenClaw(t *testing.T) {
 	if manifest.Name != "OpenClaw" ||
 		manifest.ID != openClawID ||
 		manifest.Slug != "openclaw" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:latest" {
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:0.1.0-substrate.0.1.0" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
 	if manifest.Viewer != "kasmvnc" {
@@ -146,7 +146,7 @@ func TestLoadHermes(t *testing.T) {
 	if manifest.Name != "Hermes" ||
 		manifest.ID != hermesID ||
 		manifest.Slug != "hermes" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-hermes-desktop:latest" {
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-hermes-desktop:0.1.0-substrate.0.1.0" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
 	if manifest.Viewer != "kasmvnc" {
@@ -172,7 +172,7 @@ func TestLoadCodexPets(t *testing.T) {
 	if manifest.Name != "Codex Pets" ||
 		manifest.ID != codexPetsID ||
 		manifest.Slug != "codex-pets" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:latest" {
+		manifest.Image != "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:0.2.0-substrate.0.1.0" {
 		t.Fatalf("manifest identity = %#v", manifest)
 	}
 	if manifest.Viewer != "kasmvnc" {
@@ -289,6 +289,36 @@ func TestValidateRejectsUnsafeMediaPath(t *testing.T) {
 	}
 	if err := manifest.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want unsafe media error")
+	}
+}
+
+func TestValidateRejectsFloatingLatestImage(t *testing.T) {
+	manifest := Manifest{
+		ID:                    pantalkGhostID,
+		Slug:                  "floating",
+		Name:                  "Floating",
+		Publisher:             "Test",
+		Description:           "A floating image reference.",
+		Tags:                  []string{"TEST"},
+		Image:                 "example.invalid/floating:latest",
+		Viewer:                "kasmvnc",
+		ContainerPort:         6901,
+		SharedMemory:          "1g",
+		ResolutionEnvironment: "DESKTOP_RESOLUTION",
+		Resolution:            "1920x1080",
+		Environment:           map[string]string{},
+		Media: Media{
+			Icon:  "floating/icon.png",
+			Cover: "floating/cover.png",
+			Screenshots: []Screenshot{{
+				Source: "floating/screenshot.png",
+				Alt:    "Floating screenshot",
+			}},
+		},
+	}
+	if err := manifest.Validate(); err == nil ||
+		!strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("Validate() error = %v, want immutable image error", err)
 	}
 }
 
