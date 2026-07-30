@@ -1044,7 +1044,7 @@ export class LauncherApp extends HTMLElement {
       grid.append(
         this.emptyState(
           'CATALOGUE UNAVAILABLE',
-          'Launcher could not load its built-in catalogue.'
+          'Launcher could not load any application publisher.'
         )
       )
 
@@ -1079,7 +1079,7 @@ export class LauncherApp extends HTMLElement {
       screen.append(
         this.emptyState(
           'IMAGE UNAVAILABLE',
-          'This catalogue image is no longer available.',
+          'This application image is no longer available.',
           'BACK TO MARKETPLACE',
           'marketplace'
         )

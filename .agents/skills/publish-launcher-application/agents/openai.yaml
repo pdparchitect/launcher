@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Launcher Application"
+  short_description: "Release an image with its Launcher OCI application"
+  default_prompt: "Use $publish-launcher-application to release a product image and its attached Launcher application artifact."

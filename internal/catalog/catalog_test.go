@@ -1,333 +1,270 @@
 package catalog
 
 import (
+	"archive/zip"
+	"bytes"
 	"io"
-	"path"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-const (
-	pantalkGhostID = "370a2228-322d-4089-846b-62fb8c15d154"
-	buzznodeID     = "4398d440-4e4f-4137-b25e-303bfeb2a276"
-	openClawID     = "864bcec3-4f2e-442a-a928-a6a1424a8afd"
-	hermesID       = "f726241a-ff31-423d-92ad-f2b43cca742f"
-	codexPetsID    = "3f7f9d60-fd2b-4615-a0a9-c00d8fd4c1fe"
-	buzzboxID      = "2784cf32-591a-4ba7-9c26-64ce6deeba55"
-)
+const testApplicationID = "370a2228-322d-4089-846b-62fb8c15d154"
 
-func TestLoadGhost(t *testing.T) {
-	manifest, err := Load("pantalk-ghost")
+func TestLoadApplicationBundleDerivesDigestImageAndScopesAssets(t *testing.T) {
+	bundle, err := loadApplicationBundle(
+		testApplicationBundle(t, "ghost", testApplicationID),
+		"ghcr.io/example/ghost",
+		"sha256:"+strings.Repeat("a", 64),
+	)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("loadApplicationBundle() error = %v", err)
 	}
-	if manifest.ID != pantalkGhostID ||
-		manifest.Slug != "pantalk-ghost" ||
-		manifest.Name != "Pantalk Ghost" {
-		t.Fatalf("manifest identity = %#v", manifest)
+	if bundle.Version != "1.2.3" ||
+		bundle.Manifest.Image !=
+			"ghcr.io/example/ghost@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("application identity = %#v", bundle)
 	}
-	if manifest.Image != "ghcr.io/pantalk/ghost:v0.1.0" {
-		t.Fatalf("Image = %q", manifest.Image)
+	if bundle.Manifest.Media.Icon != "ghost/icon.svg" ||
+		bundle.Manifest.Media.Cover != "ghost/screenshot.png" ||
+		bundle.Manifest.Media.Screenshots[0].Source !=
+			"ghost/screenshot.png" {
+		t.Fatalf("scoped media = %#v", bundle.Manifest.Media)
 	}
-	if manifest.Viewer != "kasmvnc" {
-		t.Fatalf("Viewer = %q", manifest.Viewer)
-	}
-	if manifest.ContainerPort != 6901 || manifest.Memory != "4g" {
-		t.Fatalf("manifest resources = %#v", manifest)
-	}
-	if len(manifest.Mounts) != 6 {
-		t.Fatalf("len(Mounts) = %d", len(manifest.Mounts))
-	}
-	if !strings.Contains(manifest.Description, "desktop") {
-		t.Fatalf("Description = %q", manifest.Description)
-	}
-	if len(manifest.Tags) < 2 {
-		t.Fatalf("Tags = %#v", manifest.Tags)
-	}
-	if manifest.Media.Icon == "" ||
-		manifest.Media.Cover == "" ||
-		manifest.Media.Icon != "pantalk-ghost/icon.svg" ||
-		manifest.Media.Cover != "pantalk-ghost/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("Media = %#v", manifest.Media)
+	if string(bundle.Assets["ghost/icon.svg"]) != "<svg/>" {
+		t.Fatalf("assets = %#v", bundle.Assets)
 	}
 }
 
-func TestLoadBuzzbox(t *testing.T) {
-	manifest, err := Load("buzzbox")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if manifest.Name != "Buzzbox" ||
-		manifest.ID != buzzboxID ||
-		manifest.Slug != "buzzbox" ||
-		manifest.Image != "ghcr.io/pdparchitect/buzzbox:v0.7.0" {
-		t.Fatalf("manifest identity = %#v", manifest)
-	}
-	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
-		t.Fatalf("manifest desktop = %#v", manifest)
-	}
-	// The relay's backing services are the reason this entry mounts a state
-	// volume the other desktops have no equivalent of.
-	var hasServiceState bool
-	for _, mount := range manifest.Mounts {
-		if mount.Target == "/var/lib/buzzbox" {
-			hasServiceState = true
-		}
-	}
-	if len(manifest.Mounts) != 5 || !hasServiceState {
-		t.Fatalf("Mounts = %#v", manifest.Mounts)
-	}
-	if manifest.Media.Icon != "buzzbox/icon.png" ||
-		manifest.Media.Cover != "buzzbox/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("Media = %#v", manifest.Media)
+func TestLoadApplicationBundleRequiresImageSubject(t *testing.T) {
+	_, err := loadApplicationBundle(
+		testApplicationBundle(t, "ghost", testApplicationID),
+		"ghcr.io/example/ghost",
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "subject") {
+		t.Fatalf("loadApplicationBundle() error = %v, want subject error", err)
 	}
 }
 
-func TestLoadBuzznode(t *testing.T) {
-	manifest, err := Load("buzznode")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if manifest.Name != "Buzznode" ||
-		manifest.ID != buzznodeID ||
-		manifest.Slug != "buzznode" ||
-		manifest.Image != "ghcr.io/pdparchitect/buzznode:v0.5.0" {
-		t.Fatalf("manifest identity = %#v", manifest)
-	}
-	if manifest.Viewer != "kasmvnc" {
-		t.Fatalf("Viewer = %q", manifest.Viewer)
-	}
-	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
-		t.Fatalf("manifest desktop = %#v", manifest)
-	}
-	if len(manifest.Mounts) != 6 ||
-		manifest.Media.Icon != "buzznode/icon.png" ||
-		manifest.Media.Cover != "buzznode/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("manifest persistence/media = %#v", manifest)
+func TestLoadApplicationBundleRejectsMissingAsset(t *testing.T) {
+	data := testBundle(t, map[string]string{
+		"application.json": testApplicationJSON("ghost", testApplicationID),
+		"icon.svg":         "<svg/>",
+	})
+	_, err := loadApplicationBundle(
+		data,
+		"ghcr.io/example/ghost",
+		"sha256:"+strings.Repeat("a", 64),
+	)
+	if err == nil || !strings.Contains(err.Error(), "screenshot.png") {
+		t.Fatalf("loadApplicationBundle() error = %v, want asset error", err)
 	}
 }
 
-func TestLoadOpenClaw(t *testing.T) {
-	manifest, err := Load("openclaw")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+func TestLauncherProductApplicationBundles(t *testing.T) {
+	products := []struct {
+		slug    string
+		version string
+	}{
+		{slug: "codex-pets", version: "0.2.1"},
+		{slug: "hermes", version: "0.1.3"},
+		{slug: "openclaw", version: "0.1.1"},
 	}
-	if manifest.Name != "OpenClaw" ||
-		manifest.ID != openClawID ||
-		manifest.Slug != "openclaw" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:0.1.0-substrate.0.1.0" {
-		t.Fatalf("manifest identity = %#v", manifest)
-	}
-	if manifest.Viewer != "kasmvnc" {
-		t.Fatalf("Viewer = %q", manifest.Viewer)
-	}
-	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
-		t.Fatalf("manifest desktop = %#v", manifest)
-	}
-	if len(manifest.Mounts) != 2 ||
-		manifest.Media.Icon != "openclaw/icon.svg" ||
-		manifest.Media.Cover != "openclaw/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("manifest persistence/media = %#v", manifest)
-	}
-}
-
-func TestLoadHermes(t *testing.T) {
-	manifest, err := Load("hermes")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if manifest.Name != "Hermes" ||
-		manifest.ID != hermesID ||
-		manifest.Slug != "hermes" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-hermes-desktop:0.1.0-substrate.0.1.0" {
-		t.Fatalf("manifest identity = %#v", manifest)
-	}
-	if manifest.Viewer != "kasmvnc" {
-		t.Fatalf("Viewer = %q", manifest.Viewer)
-	}
-	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
-		t.Fatalf("manifest desktop = %#v", manifest)
-	}
-	if len(manifest.Mounts) != 2 ||
-		manifest.Media.Icon != "hermes/icon.png" ||
-		manifest.Media.Cover != "hermes/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("manifest persistence/media = %#v", manifest)
-	}
-}
-
-func TestLoadCodexPets(t *testing.T) {
-	manifest, err := Load("codex-pets")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if manifest.Name != "Codex Pets" ||
-		manifest.ID != codexPetsID ||
-		manifest.Slug != "codex-pets" ||
-		manifest.Image != "ghcr.io/pdparchitect/launcher-image-codex-pets-desktop:0.2.0-substrate.0.1.0" {
-		t.Fatalf("manifest identity = %#v", manifest)
-	}
-	if manifest.Viewer != "kasmvnc" {
-		t.Fatalf("Viewer = %q", manifest.Viewer)
-	}
-	if manifest.ContainerPort != 6901 ||
-		manifest.ResolutionEnvironment != "DESKTOP_RESOLUTION" {
-		t.Fatalf("manifest desktop = %#v", manifest)
-	}
-	if len(manifest.Mounts) != 2 ||
-		manifest.Media.Icon != "codex-pets/icon.svg" ||
-		manifest.Media.Cover != "codex-pets/screenshot.png" ||
-		len(manifest.Media.Screenshots) != 1 {
-		t.Fatalf("manifest persistence/media = %#v", manifest)
-	}
-}
-
-func TestAllCatalogueMediaAssetsAreEmbedded(t *testing.T) {
-	manifests, err := List()
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	assets := Assets()
-	for _, manifest := range manifests {
-		paths := []string{manifest.Media.Icon, manifest.Media.Cover}
-		for _, screenshot := range manifest.Media.Screenshots {
-			paths = append(paths, screenshot.Source)
-		}
-		for _, name := range paths {
-			file, openErr := assets.Open(name)
-			if openErr != nil {
-				t.Fatalf("open asset %q: %v", name, openErr)
+	for _, product := range products {
+		t.Run(product.slug, func(t *testing.T) {
+			directory := filepath.Join(
+				"..",
+				"..",
+				"images",
+				"products",
+				product.slug,
+				"desktop",
+				"launcher",
+			)
+			bundle, err := loadApplicationBundle(
+				directoryBundle(t, directory),
+				"ghcr.io/pdparchitect/launcher-image-"+product.slug+"-desktop",
+				"sha256:"+strings.Repeat("a", 64),
+			)
+			if err != nil {
+				t.Fatalf("loadApplicationBundle() error = %v", err)
 			}
-			header := make([]byte, 8)
-			count, readErr := io.ReadFull(file, header)
-			if readErr != nil && readErr != io.ErrUnexpectedEOF {
-				_ = file.Close()
-				t.Fatalf("read asset %q: %v", name, readErr)
+			if bundle.Manifest.Slug != product.slug ||
+				bundle.Version != product.version {
+				t.Fatalf("application bundle = %#v", bundle)
 			}
-			_ = file.Close()
-			switch path.Ext(name) {
-			case ".png":
-				if string(header[:count]) != "\x89PNG\r\n\x1a\n" {
-					t.Fatalf("asset %q is not a PNG", name)
-				}
-			case ".svg":
-				if !strings.Contains(string(header[:count]), "<svg") {
-					t.Fatalf("asset %q is not an SVG", name)
-				}
-			default:
-				t.Fatalf("asset %q has an unsupported test format", name)
-			}
-		}
+		})
 	}
 }
 
-func TestListContainsCatalogueEntries(t *testing.T) {
-	manifests, err := List()
+func TestManifestsFromBundlesRejectsIdentityCollision(t *testing.T) {
+	first, err := loadApplicationBundle(
+		testApplicationBundle(t, "first", testApplicationID),
+		"ghcr.io/example/first",
+		"sha256:"+strings.Repeat("a", 64),
+	)
 	if err != nil {
-		t.Fatalf("List() error = %v", err)
+		t.Fatalf("load first bundle: %v", err)
 	}
-	if len(manifests) != 6 ||
-		manifests[0].ID != buzzboxID ||
-		manifests[1].ID != buzznodeID ||
-		manifests[2].ID != codexPetsID ||
-		manifests[3].ID != hermesID ||
-		manifests[4].ID != openClawID ||
-		manifests[5].ID != pantalkGhostID {
-		t.Fatalf("List() = %#v", manifests)
+	second, err := loadApplicationBundle(
+		testApplicationBundle(t, "second", testApplicationID),
+		"ghcr.io/example/second",
+		"sha256:"+strings.Repeat("b", 64),
+	)
+	if err != nil {
+		t.Fatalf("load second bundle: %v", err)
+	}
+	_, _, err = manifestsFromBundles(map[string]applicationBundle{
+		"first":  first,
+		"second": second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "published by both") {
+		t.Fatalf("manifestsFromBundles() error = %v, want collision", err)
+	}
+}
+
+func TestParseFeedRejectsDuplicateApplication(t *testing.T) {
+	_, err := parseFeed([]byte(`{
+		"schemaVersion": 1,
+		"publisher": "Example",
+		"applications": ["example.test/app:stable", "example.test/app:stable"]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("parseFeed() error = %v, want duplicate error", err)
+	}
+}
+
+func TestPublisherFeedIsValid(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "publisher", "feed.json"))
+	if err != nil {
+		t.Fatalf("read publisher feed: %v", err)
+	}
+	feed, err := parseFeed(data)
+	if err != nil {
+		t.Fatalf("parseFeed() error = %v", err)
+	}
+	if feed.Publisher != "PDP Architect" || len(feed.Applications) != 6 {
+		t.Fatalf("publisher feed = %#v", feed)
+	}
+}
+
+func TestValidateRejectsFloatingLatestImage(t *testing.T) {
+	manifest := validManifest()
+	manifest.Image = "ghcr.io/example/ghost:latest"
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want immutable digest error")
 	}
 }
 
 func TestValidateRejectsUnsafeMountName(t *testing.T) {
-	manifest := Manifest{
-		ID:                    pantalkGhostID,
-		Slug:                  "unsafe",
-		Name:                  "Unsafe",
-		Publisher:             "Test",
-		Image:                 "example.invalid/test",
-		ContainerPort:         6901,
-		SharedMemory:          "1g",
-		ResolutionEnvironment: "GHOST_RESOLUTION",
-		Resolution:            "1920x1080",
-		Environment:           map[string]string{},
-		Mounts:                []Mount{{Name: "../outside", Target: "/workspace"}},
-	}
+	manifest := validManifest()
+	manifest.Mounts = []Mount{{Name: "../outside", Target: "/workspace"}}
 	if err := manifest.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want unsafe mount error")
 	}
 }
 
-func TestValidateRejectsUnsafeMediaPath(t *testing.T) {
-	manifest := Manifest{
-		ID:                    pantalkGhostID,
-		Slug:                  "unsafe",
-		Name:                  "Unsafe",
-		Publisher:             "Test",
-		Description:           "An unsafe test entry.",
+func validManifest() Manifest {
+	return Manifest{
+		ID:                    testApplicationID,
+		Slug:                  "ghost",
+		Name:                  "Ghost",
+		Publisher:             "Example",
+		Description:           "A test application.",
 		Tags:                  []string{"TEST"},
-		Image:                 "example.invalid/test",
-		ContainerPort:         6901,
-		SharedMemory:          "1g",
-		ResolutionEnvironment: "GHOST_RESOLUTION",
-		Resolution:            "1920x1080",
-		Environment:           map[string]string{},
-		Media: Media{
-			Icon:  "../outside.png",
-			Cover: "unsafe/cover.png",
-			Screenshots: []Screenshot{{
-				Source: "unsafe/screenshot.png",
-				Alt:    "Unsafe screenshot",
-			}},
-		},
-	}
-	if err := manifest.Validate(); err == nil {
-		t.Fatal("Validate() error = nil, want unsafe media error")
-	}
-}
-
-func TestValidateRejectsFloatingLatestImage(t *testing.T) {
-	manifest := Manifest{
-		ID:                    pantalkGhostID,
-		Slug:                  "floating",
-		Name:                  "Floating",
-		Publisher:             "Test",
-		Description:           "A floating image reference.",
-		Tags:                  []string{"TEST"},
-		Image:                 "example.invalid/floating:latest",
+		Media:                 Media{Icon: "icon.svg", Cover: "screenshot.png", Screenshots: []Screenshot{{Source: "screenshot.png", Alt: "Ghost screen"}}},
+		Image:                 "ghcr.io/example/ghost@sha256:" + strings.Repeat("a", 64),
 		Viewer:                "kasmvnc",
 		ContainerPort:         6901,
 		SharedMemory:          "1g",
 		ResolutionEnvironment: "DESKTOP_RESOLUTION",
 		Resolution:            "1920x1080",
 		Environment:           map[string]string{},
-		Media: Media{
-			Icon:  "floating/icon.png",
-			Cover: "floating/cover.png",
-			Screenshots: []Screenshot{{
-				Source: "floating/screenshot.png",
-				Alt:    "Floating screenshot",
-			}},
-		},
-	}
-	if err := manifest.Validate(); err == nil ||
-		!strings.Contains(err.Error(), "immutable") {
-		t.Fatalf("Validate() error = %v, want immutable image error", err)
+		Mounts:                []Mount{{Name: "workspace", Target: "/workspace"}},
 	}
 }
 
-func TestDecodeStrictJSONRejectsTrailingValue(t *testing.T) {
-	var metadata Metadata
-	if err := decodeStrictJSON(
-		[]byte(`{"schemaVersion":1,"version":"0.1.0"} {}`),
-		&metadata,
-	); err == nil {
-		t.Fatal("decodeStrictJSON() error = nil, want trailing value error")
+func testApplicationBundle(t *testing.T, slug string, id string) []byte {
+	t.Helper()
+	return testBundle(t, map[string]string{
+		"application.json": testApplicationJSON(slug, id),
+		"icon.svg":         "<svg/>",
+		"screenshot.png":   "\x89PNG\r\n\x1a\n",
+	})
+}
+
+func testApplicationJSON(slug string, id string) string {
+	return `{
+		"schemaVersion": 1,
+		"version": "1.2.3",
+		"id": "` + id + `",
+		"slug": "` + slug + `",
+		"name": "` + slug + `",
+		"publisher": "Example",
+		"description": "A test application.",
+		"tags": ["TEST"],
+		"media": {
+			"icon": "icon.svg",
+			"cover": "screenshot.png",
+			"screenshots": [{"source": "screenshot.png", "alt": "Screen"}]
+		},
+		"viewer": "kasmvnc",
+		"containerPort": 6901,
+		"sharedMemory": "1g",
+		"resolutionEnvironment": "DESKTOP_RESOLUTION",
+		"resolution": "1920x1080",
+		"environment": {},
+		"mounts": [{"name": "workspace", "target": "/workspace"}]
+	}`
+}
+
+func testBundle(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for name, content := range files {
+		target, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create bundle path %q: %v", name, err)
+		}
+		if _, err := io.WriteString(target, content); err != nil {
+			t.Fatalf("write bundle path %q: %v", name, err)
+		}
 	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close bundle: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func directoryBundle(t *testing.T, directory string) []byte {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read application directory: %v", err)
+	}
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if readErr != nil {
+			t.Fatalf("read application path %q: %v", entry.Name(), readErr)
+		}
+		target, createErr := writer.Create(entry.Name())
+		if createErr != nil {
+			t.Fatalf("create application path %q: %v", entry.Name(), createErr)
+		}
+		if _, writeErr := target.Write(data); writeErr != nil {
+			t.Fatalf("write application path %q: %v", entry.Name(), writeErr)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close application directory bundle: %v", err)
+	}
+	return buffer.Bytes()
 }

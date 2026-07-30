@@ -22,8 +22,8 @@ services, and virtual machines.
   and the CLI for automation or troubleshooting.
 - **Update awareness** - See when a newer stable Launcher release is available
   without interrupting your work.
-- **Resilient catalogue** - Browse cached applications even when the catalogue
-  service is unavailable.
+- **Resilient registry** - Browse cached applications even when one of their
+  publishers is temporarily unavailable.
 
 ## What you can do
 
@@ -65,7 +65,7 @@ includes SHA-256 checksums for its downloadable packages.
 
 - [Using Launcher](docs/using-launcher.md)
 - [Developing Launcher](docs/development.md)
-- [Application catalogue](docs/catalogue.md)
+- [Application registry](docs/application-registry.md)
 - [Container image sources](images/README.md)
 - [Release notes](CHANGELOG.md)
 - [Releasing Launcher](RELEASES.md)

@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 1,
+  "version": "0.1.1",
   "id": "864bcec3-4f2e-442a-a928-a6a1424a8afd",
   "slug": "openclaw",
   "name": "OpenClaw",
@@ -10,16 +12,15 @@
     "DESKTOP"
   ],
   "media": {
-    "icon": "openclaw/icon.svg",
-    "cover": "openclaw/screenshot.png",
+    "icon": "icon.svg",
+    "cover": "screenshot.png",
     "screenshots": [
       {
-        "source": "openclaw/screenshot.png",
+        "source": "screenshot.png",
         "alt": "OpenClaw running in its dark-red persistent desktop"
       }
     ]
   },
-  "image": "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:0.1.0-substrate.0.1.0",
   "viewer": "kasmvnc",
   "containerPort": 6901,
   "memory": "4g",

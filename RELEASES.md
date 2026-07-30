@@ -19,8 +19,9 @@ and publishes a GitHub Release:
 Existing tags and published releases are immutable. Do not create the version
 tag manually.
 
-Launcher binaries, the application catalogue, and container images have
-independent versions. This document covers Launcher binaries only.
+Launcher binaries and container image products have independent versions.
+Image-owned Launcher application metadata ships with the corresponding product
+release. This document covers Launcher binaries only.
 
 ## Published platforms
 

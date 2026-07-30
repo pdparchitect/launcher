@@ -278,7 +278,11 @@ func (app *App) serveUI(ctx context.Context, args []string) error {
 
 func (app *App) catalog(ctx context.Context, args []string) error {
 	flags := app.flags("catalog", "List available agent applications.")
-	refresh := flags.Bool("refresh", false, "check for a new catalogue release")
+	refresh := flags.Bool(
+		"refresh",
+		false,
+		"refresh publisher feeds and application channels",
+	)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -287,16 +291,16 @@ func (app *App) catalog(ctx context.Context, args []string) error {
 	}
 	if *refresh {
 		if app.refresh == nil {
-			return errors.New("catalogue refresh is not available")
+			return errors.New("application registry refresh is not available")
 		}
 		changed, err := app.refresh(ctx)
 		if err != nil {
 			return err
 		}
 		if changed {
-			fmt.Fprintln(app.stdout, "Catalogue refreshed.")
+			fmt.Fprintln(app.stdout, "Application registry refreshed.")
 		} else {
-			fmt.Fprintln(app.stdout, "Catalogue is up to date.")
+			fmt.Fprintln(app.stdout, "Application registry is up to date.")
 		}
 	}
 	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
@@ -313,7 +317,7 @@ func (app *App) create(ctx context.Context, args []string) error {
 	appID := flags.String(
 		"app",
 		"pantalk-ghost",
-		"catalogue application slug or ID",
+		"application slug or ID",
 	)
 	image := flags.String("image", "", "container image override")
 	port := flags.Int("port", 0, "local desktop port")

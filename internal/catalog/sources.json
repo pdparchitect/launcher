@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "feeds": [
+    "ghcr.io/pdparchitect/launcher-feed:stable"
+  ]
+}

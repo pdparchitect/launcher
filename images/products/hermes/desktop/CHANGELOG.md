@@ -8,6 +8,11 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.3]
+
+- Publish the Launcher application definition and artwork as an OCI artifact
+  attached to the final multi-architecture image digest.
+
 ## [0.1.2]
 
 - Separate the upstream Hermes Agent version from its Git release tag so image

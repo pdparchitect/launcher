@@ -4,6 +4,15 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-07-30
+
+### Changed
+
+- Replace the centrally versioned catalogue bundle with OCI publisher feeds
+  and independently cached, image-owned application artifacts.
+- Derive every published application image from its OCI subject digest so
+  Launcher metadata cannot drift from the final multi-architecture image.
+
 ## [0.3.1] - 2026-07-30
 
 ### Fixed

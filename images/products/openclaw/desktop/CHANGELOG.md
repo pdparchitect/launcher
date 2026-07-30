@@ -8,6 +8,11 @@ are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.1]
+
+- Publish the Launcher application definition and artwork as an OCI artifact
+  attached to the final multi-architecture image digest.
+
 ## [0.1.0]
 
 - OpenClaw in a browser-accessible desktop, installed from npm at a pinned

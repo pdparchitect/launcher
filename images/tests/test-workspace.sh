@@ -66,6 +66,31 @@ done
 
 for product_dir in "${product_dirs[@]}"; do
     assert_release_metadata "$product_dir" "Product $product_dir"
+
+    application="$product_dir/launcher/application.json"
+    if [ ! -f "$application" ]; then
+        echo "Product $product_dir has no Launcher application document." >&2
+        exit 1
+    fi
+    product_version="$(tr -d '[:space:]' < "$product_dir/VERSION")"
+    if [ "$(jq -er '.schemaVersion' "$application")" != 1 ] ||
+        [ "$(jq -er '.version' "$application")" != "$product_version" ]; then
+        echo "$application does not match product version $product_version." >&2
+        exit 1
+    fi
+    if jq -e 'has("image")' "$application" >/dev/null; then
+        echo "$application must derive its image from the OCI subject." >&2
+        exit 1
+    fi
+    while IFS= read -r asset; do
+        if [[ "$asset" = /* || "$asset" = *..* || ! -f "$product_dir/launcher/$asset" ]]; then
+            echo "$application references invalid media asset '$asset'." >&2
+            exit 1
+        fi
+    done < <(
+        jq -er '.media.icon, .media.cover, .media.screenshots[].source' \
+            "$application"
+    )
 done
 
 graph="$(docker buildx bake --print all 2>/dev/null)"
@@ -144,6 +169,9 @@ grep -Fq 'RELEASE_VERSION="${{ needs.verify.outputs.image_version }}"' \
     "$publish_workflow"
 grep -Fq 'bash bases/desktop/tests/smoke-test.sh "$image"' "$publish_workflow"
 grep -Fq 'tag_name: ${{ needs.verify.outputs.release_tag }}' "$publish_workflow"
+grep -Fq 'application/vnd.pdparchitect.launcher.application.v1' \
+    "$publish_workflow"
+grep -Fq '"launcher-stable"' "$publish_workflow"
 
 # Every product image must identify the upstream source it packages.
 for product_dir in "${product_dirs[@]}"; do
