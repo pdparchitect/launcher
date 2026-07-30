@@ -24,6 +24,7 @@ grep -Fq 'dev.pdparchitect.launcher.upstream.version="${HERMES_VERSION}"' \
 grep -Fq 'dev.pdparchitect.launcher.upstream.ref="${HERMES_SOURCE_TAG}"' \
     "$dockerfile"
 grep -Fq 'HERMES_HOME=/home/agent/.hermes' "$dockerfile"
+grep -Fq 'UV_LINK_MODE=copy' "$dockerfile"
 grep -Fq 'VOLUME ["/workspace", "/home/agent/.hermes"]' "$dockerfile"
 grep -Fq 'kasm-patch "Hermes Desktop"' "$dockerfile"
 
