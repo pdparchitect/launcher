@@ -1,4 +1,0 @@
-interface:
-  display_name: "Manage Launcher Images"
-  short_description: "Build and release Launcher container images"
-  default_prompt: "Use $manage-images to update and release a Launcher container image."
