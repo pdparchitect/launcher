@@ -132,6 +132,7 @@ internal/domain/           persisted instance model
 internal/httpapi/          loopback API and embedded Launcher interface
 internal/runtime/          Docker and Apple container adapters
 internal/store/            file-backed instance library
+internal/updatecheck/      cached stable Launcher release checks
 internal/webapp/           local server lifecycle and session setup
 ```
 
@@ -143,4 +144,4 @@ and requires a random per-process session token.
 
 - [Application catalogue](catalogue.md)
 - [Container image sources](../images/README.md)
-- [Releasing Launcher](releasing.md)
+- [Releasing Launcher](../RELEASES.md)

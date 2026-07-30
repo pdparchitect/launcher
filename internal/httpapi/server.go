@@ -21,6 +21,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/domain"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 	"github.com/pdparchitect/launcher/internal/store"
+	"github.com/pdparchitect/launcher/internal/updatecheck"
 )
 
 //go:embed web
@@ -55,6 +56,7 @@ type Server struct {
 	catalogAssets fs.FS
 	openPath      func(string) error
 	openViewer    func(ViewerTarget) error
+	updateStatus  func() updatecheck.Status
 }
 
 type Option func(*Server)
@@ -77,6 +79,14 @@ func WithCatalogAssets(assets fs.FS) Option {
 	return func(server *Server) {
 		if assets != nil {
 			server.catalogAssets = assets
+		}
+	}
+}
+
+func WithUpdateStatus(status func() updatecheck.Status) Option {
+	return func(server *Server) {
+		if status != nil {
+			server.updateStatus = status
 		}
 	}
 }
@@ -185,12 +195,16 @@ func New(service Service, token string, options ...Option) *Server {
 		index:         index,
 		logger:        log.New(io.Discard, "", 0),
 		catalogAssets: catalog.Assets(),
+		updateStatus: func() updatecheck.Status {
+			return updatecheck.Status{CurrentVersion: "dev"}
+		},
 	}
 	for _, option := range options {
 		option(server)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/doctor", server.doctor)
+	mux.HandleFunc("GET /api/launcher", server.launcher)
 	mux.HandleFunc("POST /api/runtime/start", server.startRuntime)
 	mux.HandleFunc("GET /api/catalog", server.catalog)
 	mux.HandleFunc("GET /api/instances", server.listInstances)
@@ -289,6 +303,13 @@ func (server *Server) indexPage(
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	_, _ = response.Write([]byte(page))
+}
+
+func (server *Server) launcher(
+	response http.ResponseWriter,
+	_ *http.Request,
+) {
+	writeJSON(response, http.StatusOK, server.updateStatus())
 }
 
 func (server *Server) doctor(

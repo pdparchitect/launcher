@@ -136,6 +136,12 @@ func run(
 			httpapi.WithCatalogAssets(runOptions.CatalogAssets),
 		)
 	}
+	if runOptions.UpdateStatus != nil {
+		serverOptions = append(
+			serverOptions,
+			httpapi.WithUpdateStatus(runOptions.UpdateStatus),
+		)
+	}
 	if runOptions.OpenPath != nil {
 		serverOptions = append(
 			serverOptions,

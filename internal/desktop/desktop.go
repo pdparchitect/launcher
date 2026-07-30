@@ -12,12 +12,14 @@ import (
 
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
+	"github.com/pdparchitect/launcher/internal/updatecheck"
 )
 
 type Options struct {
 	Stdout        io.Writer
 	OpenPath      func(string) error
 	CatalogAssets fs.FS
+	UpdateStatus  func() updatecheck.Status
 }
 
 func Run(

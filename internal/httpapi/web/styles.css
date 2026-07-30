@@ -280,6 +280,66 @@ mark {
   display: none;
 }
 
+.launcher-update-banner {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  margin: var(--content-top) 26px 0 calc(var(--sidebar-width) + 26px);
+  padding: 10px 14px;
+  border: 1px solid rgba(234, 255, 0, 0.52);
+  background: rgba(20, 24, 13, 0.96);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.3);
+}
+
+.launcher-update-banner__light {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(234, 255, 0, 0.7);
+}
+
+.launcher-update-banner__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.launcher-update-banner__copy small {
+  color: var(--muted);
+  font-family: var(--font-technical);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+
+.launcher-update-banner__copy strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-family: var(--font-interface);
+  font-size: 17px;
+}
+
+.launcher-update-banner__action {
+  min-height: 38px;
+  padding: 0 16px;
+}
+
+.launcher-update-banner__dismiss {
+  min-height: 38px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.launcher-update-banner__dismiss:hover {
+  color: var(--text);
+}
+
 /* Clears the fixed sidebar itself. max-width is gone so the box spans the
    window: the hero's negative margins cancel this padding exactly, which only
    reaches the window edge if nothing is centring the box. */
@@ -577,9 +637,13 @@ mark {
 
 .overview-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 14px;
   border: 1px solid var(--line);
+}
+
+.overview-stats > .overview-stat--update {
+  background: var(--accent-soft);
 }
 
 .overview-stats > div {
@@ -1175,11 +1239,7 @@ mark {
       rgba(8, 10, 7, 0.38) 72%,
       #080a07 100%
     ),
-    linear-gradient(
-      180deg,
-      rgba(205, 220, 45, 0.12),
-      rgba(8, 10, 7, 0.24)
-    ),
+    linear-gradient(180deg, rgba(205, 220, 45, 0.12), rgba(8, 10, 7, 0.24)),
     var(--marketplace-detail-art) center top / cover no-repeat;
   filter: saturate(0.78);
   opacity: 0.78;
@@ -2054,6 +2114,17 @@ mark {
     grid-template-columns: 1fr;
   }
 
+  .overview-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-stats > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .overview-stats > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
 }
 
 @media (max-width: 700px) {
@@ -2112,6 +2183,16 @@ mark {
     padding: 14px 14px 90px;
   }
 
+  .launcher-update-banner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    margin: 14px 14px 0;
+  }
+
+  .launcher-update-banner__dismiss {
+    grid-column: 2 / -1;
+    justify-self: end;
+  }
+
   .hero {
     min-height: 430px;
     align-items: end;
@@ -2138,6 +2219,10 @@ mark {
   .overview-stats > div {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .overview-stats > div:nth-child(2) {
+    border-right: 0;
   }
 
   .agent-card--row {
@@ -2170,10 +2255,19 @@ mark {
     flex-direction: column;
     padding: 26px;
   }
-
 }
 
 @media (max-width: 470px) {
+  .launcher-update-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .launcher-update-banner__action,
+  .launcher-update-banner__dismiss {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
   .hero__stat {
     display: none;
   }

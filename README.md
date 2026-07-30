@@ -20,6 +20,8 @@ services, and virtual machines.
   one place.
 - **Desktop and command line** - Use the graphical interface for everyday work
   and the CLI for automation or troubleshooting.
+- **Update awareness** - See when a newer stable Launcher release is available
+  without interrupting your work.
 - **Resilient catalogue** - Browse cached applications even when the catalogue
   service is unavailable.
 
@@ -65,7 +67,8 @@ includes SHA-256 checksums for its downloadable packages.
 - [Developing Launcher](docs/development.md)
 - [Application catalogue](docs/catalogue.md)
 - [Container image sources](images/README.md)
-- [Releasing Launcher](docs/releasing.md)
+- [Release notes](CHANGELOG.md)
+- [Releasing Launcher](RELEASES.md)
 
 Bug reports and ideas are welcome in
 [GitHub Issues](https://github.com/pdparchitect/launcher/issues).

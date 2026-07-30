@@ -138,3 +138,18 @@ container and complete data folder, so command-line deletion requires
 
 Launcher labels every container it creates and verifies that label before
 deletion. It will not delete a container owned by another application.
+
+## Launcher updates
+
+Launcher checks for a newer stable release in the background. A new version
+appears in a banner throughout the application and in the Home system
+overview. **View release** opens the matching GitHub release page so you can
+review its notes and download the package for your platform.
+
+The banner can be dismissed for that version. The Home overview continues to
+show that an update is available, and a later version displays a new banner.
+
+Checks are cached for 24 hours, use conditional requests, and never block
+startup. Development builds report their version as `dev` and do not check for
+updates. Launcher does not download or install application updates
+automatically.

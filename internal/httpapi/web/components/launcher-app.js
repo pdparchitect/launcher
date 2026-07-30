@@ -8,8 +8,8 @@ import {
 import './agent-actions-dialog.js'
 import './agent-card.js'
 import './deploy-dialog.js'
-import './marketplace-detail.js'
 import './marketplace-card.js'
+import './marketplace-detail.js'
 import './runtime-setup-dialog.js'
 
 const navigation = [
@@ -42,6 +42,24 @@ const screens = new Set([
   'activity',
   'settings',
 ])
+
+const dismissedUpdateKey = 'launcher-dismissed-update'
+
+function readDismissedUpdateVersion() {
+  try {
+    return globalThis.localStorage?.getItem(dismissedUpdateKey) || ''
+  } catch {
+    return ''
+  }
+}
+
+function saveDismissedUpdateVersion(version) {
+  try {
+    globalThis.localStorage?.setItem(dismissedUpdateKey, version)
+  } catch {
+    // A private browser context may make storage unavailable.
+  }
+}
 
 function statusFor(agent) {
   if (agent.state === 'running') {
@@ -113,6 +131,8 @@ export class LauncherApp extends HTMLElement {
     this.catalog = []
     this.doctorReport = null
     this.runtimeSetup = null
+    this.launcherStatus = null
+    this.dismissedUpdateVersion = readDismissedUpdateVersion()
     this.activity = []
     this.marketplaceEntryID = null
     this.query = ''
@@ -133,11 +153,17 @@ export class LauncherApp extends HTMLElement {
     this.bindEvents()
     this.setUpNativeSidebar()
     this.refresh()
+    this.refreshLauncherUpdate()
     this.refreshTimer = setInterval(() => this.refreshAgents(), 5000)
+    this.updateRefreshTimer = setInterval(
+      () => this.refreshLauncherUpdate(),
+      30000
+    )
   }
 
   disconnectedCallback() {
     clearInterval(this.refreshTimer)
+    clearInterval(this.updateRefreshTimer)
   }
 
   renderShell() {
@@ -154,6 +180,27 @@ export class LauncherApp extends HTMLElement {
         </aside>
         <main class="main-panel">
           <div class="native-window-drag-region" aria-hidden="true"></div>
+          <aside class="launcher-update-banner" data-launcher-update
+            aria-label="Launcher update" hidden>
+            <span class="launcher-update-banner__light"
+              aria-hidden="true"></span>
+            <span class="launcher-update-banner__copy">
+              <small>LAUNCHER UPDATE AVAILABLE</small>
+              <strong>
+                <span data-launcher-current-version></span>
+                <span aria-hidden="true">→</span>
+                <span data-launcher-latest-version></span>
+              </strong>
+            </span>
+            <button class="primary-button launcher-update-banner__action"
+              type="button" data-open-launcher-update>
+              VIEW RELEASE
+            </button>
+            <button class="text-button launcher-update-banner__dismiss"
+              type="button" data-dismiss-launcher-update>
+              REMIND ME LATER
+            </button>
+          </aside>
           <div class="content">
             <section class="screen" data-screen="home"></section>
             <section class="screen" data-screen="agents" hidden></section>
@@ -273,6 +320,18 @@ export class LauncherApp extends HTMLElement {
 
       this.openRuntimeSetup()
     })
+    this.querySelector('[data-open-launcher-update]').addEventListener(
+      'click',
+      () => this.openLauncherUpdate()
+    )
+    this.querySelector('[data-dismiss-launcher-update]').addEventListener(
+      'click',
+      () => {
+        this.dismissedUpdateVersion = this.launcherStatus?.latestVersion || ''
+        saveDismissedUpdateVersion(this.dismissedUpdateVersion)
+        this.renderUpdateBanner()
+      }
+    )
   }
 
   async refresh() {
@@ -316,6 +375,48 @@ export class LauncherApp extends HTMLElement {
       console.warn('Agent refresh failed:', error)
     } finally {
       this.agentRefreshPending = false
+    }
+  }
+
+  async refreshLauncherUpdate() {
+    try {
+      this.launcherStatus = await this.api.launcher()
+      this.renderUpdateBanner()
+
+      if (this.screen === 'home') {
+        this.renderHome()
+      }
+    } catch (error) {
+      console.warn('Launcher update check failed:', error)
+    }
+  }
+
+  renderUpdateBanner() {
+    const banner = this.querySelector('[data-launcher-update]')
+    const status = this.launcherStatus
+    const visible =
+      status?.updateAvailable &&
+      status.releaseUrl &&
+      status.latestVersion !== this.dismissedUpdateVersion
+
+    banner.hidden = !visible
+    if (!visible) {
+      return
+    }
+
+    banner.querySelector(
+      '[data-launcher-current-version]'
+    ).textContent = `v${status.currentVersion}`
+    banner.querySelector(
+      '[data-launcher-latest-version]'
+    ).textContent = `v${status.latestVersion}`
+  }
+
+  openLauncherUpdate() {
+    const releaseURL = this.launcherStatus?.releaseUrl
+
+    if (!releaseURL || !desktopWindow.openExternal(releaseURL)) {
+      this.showToast('Could not open the Launcher release page', true)
     }
   }
 
@@ -446,7 +547,10 @@ export class LauncherApp extends HTMLElement {
     shell.style.setProperty('--panel-inset', `${SIDEBAR_METRICS.inset}px`)
     shell.style.setProperty('--panel-width', `${SIDEBAR_METRICS.width}px`)
     shell.style.setProperty('--panel-radius', `${SIDEBAR_METRICS.radius}px`)
-    shell.style.setProperty('--panel-top-inset', `${SIDEBAR_METRICS.topInset}px`)
+    shell.style.setProperty(
+      '--panel-top-inset',
+      `${SIDEBAR_METRICS.topInset}px`
+    )
     shell.classList.add('has-native-sidebar')
     shell.classList.toggle('is-sidebar-preview', preview)
     document.documentElement.classList.toggle('is-swiftui-host', !preview)
@@ -683,6 +787,25 @@ export class LauncherApp extends HTMLElement {
     )
 
     const overview = screen.querySelector('[data-overview]')
+    const launcherVersion = this.launcherStatus?.currentVersion || '-'
+    const launcherVersionLabel =
+      launcherVersion === 'dev'
+        ? 'DEV'
+        : launcherVersion === '-'
+        ? '-'
+        : `V${launcherVersion}`
+    let launcherVersionDetail = 'UPDATE STATUS UNKNOWN'
+
+    if (launcherVersion === 'dev') {
+      launcherVersionDetail = 'DEVELOPMENT BUILD'
+    } else if (this.launcherStatus?.updateAvailable) {
+      launcherVersionDetail = `V${this.launcherStatus.latestVersion} AVAILABLE`
+    } else if (this.launcherStatus?.checking) {
+      launcherVersionDetail = 'CHECKING FOR UPDATES'
+    } else if (this.launcherStatus?.checkedAt) {
+      launcherVersionDetail = 'UP TO DATE'
+    }
+
     const overviewItems = [
       ['INSTALLED AGENTS', this.agents.length, 'MANAGED BY LAUNCHER'],
       ['RUNNING AGENTS', online, 'LOCAL CONTAINERS'],
@@ -691,11 +814,16 @@ export class LauncherApp extends HTMLElement {
         this.doctorReport?.runtime?.toUpperCase() || '-',
         this.doctorReport?.version || 'NOT DETECTED',
       ],
+      ['LAUNCHER', launcherVersionLabel, launcherVersionDetail],
     ]
 
     for (const [label, value, detail] of overviewItems) {
       const item = document.createElement('div')
 
+      item.classList.toggle(
+        'overview-stat--update',
+        label === 'LAUNCHER' && this.launcherStatus?.updateAvailable
+      )
       item.innerHTML = '<small></small><strong></strong><span></span>'
       item.querySelector('small').textContent = label
       item.querySelector('strong').textContent = value
@@ -928,9 +1056,7 @@ export class LauncherApp extends HTMLElement {
 
       card.data = {
         entry,
-        instances: this.agents.filter(
-          (agent) => agent.catalogId === entry.id
-        ),
+        instances: this.agents.filter((agent) => agent.catalogId === entry.id),
       }
       grid.append(card)
     }
@@ -966,9 +1092,7 @@ export class LauncherApp extends HTMLElement {
 
     detail.data = {
       entry,
-      instances: this.agents.filter(
-        (agent) => agent.catalogId === entry.id
-      ),
+      instances: this.agents.filter((agent) => agent.catalogId === entry.id),
     }
     screen.append(detail)
   }

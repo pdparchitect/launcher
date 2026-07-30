@@ -63,6 +63,10 @@ jobs:
             echo "VERSION is not semantic versioning: $version" >&2
             exit 1
           fi
+          if ! grep -Fq "## [$version]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section for $version." >&2
+            exit 1
+          fi
 
           tag="v${version}"
           if git show-ref --verify --quiet "refs/tags/${tag}"; then
@@ -404,6 +408,30 @@ jobs:
             > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Generate release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 {
+              found = 1
+              next
+            }
+            found && /^## \[/ {
+              exit
+            }
+            found {
+              print
+            }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md section for $VERSION is empty." >&2
+            exit 1
+          fi
+
       - name: Tag and publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -430,7 +458,7 @@ jobs:
             git push origin "refs/tags/${TAG}"
           fi
 
-          release_flags=(--generate-notes --verify-tag)
+          release_flags=(--notes-file release-notes.md --verify-tag)
           if [ "$PRERELEASE" = true ]; then
             release_flags+=(--prerelease)
           else

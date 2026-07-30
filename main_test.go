@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-func TestRunCatalogueRefreshLoopChecksImmediatelyAndRepeats(t *testing.T) {
+func TestRunRefreshLoopChecksImmediatelyAndRepeats(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var calls atomic.Int32
 
-	runCatalogueRefreshLoop(ctx, time.Millisecond, func(context.Context) {
+	runRefreshLoop(ctx, time.Millisecond, func(context.Context) {
 		if calls.Add(1) == 3 {
 			cancel()
 		}
