@@ -146,6 +146,7 @@ COPY kitty/theme.conf /etc/xdg/kitty/theme.conf
 COPY cortile/cortilectl /usr/local/bin/cortilectl
 COPY cortile/cortile-config.toml /home/agent/.config/cortile/config.toml
 COPY shell/chromium /usr/local/bin/chromium
+COPY shell/desktop-preview /usr/local/bin/desktop-preview
 COPY shell/desktop-welcome /usr/local/bin/desktop-welcome
 COPY shell/desktop-harness /usr/local/bin/desktop-harness
 COPY shell/desktop-panel-status /usr/local/bin/desktop-panel-status
@@ -161,6 +162,7 @@ RUN chmod 0755 \
         /usr/local/bin/cortilectl \
         /usr/local/bin/desktop-harness \
         /usr/local/bin/desktop-panel-status \
+        /usr/local/bin/desktop-preview \
         /usr/local/bin/desktop-welcome && \
     echo '[ -d /etc/bash.bashrc.d ] && for f in /etc/bash.bashrc.d/*.sh; do . "$f"; done' \
         >> /etc/bash.bashrc && \
@@ -208,10 +210,11 @@ LABEL org.opencontainers.image.title="Launcher Desktop Base" \
     org.opencontainers.image.description="Openbox and KasmVNC desktop substrate for Launcher products" \
     org.opencontainers.image.source="https://github.com/pdparchitect/launcher"
 
-EXPOSE 6901
+EXPOSE 6901 6902
 WORKDIR /workspace
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \
-    CMD curl -fsS http://127.0.0.1:6901/ >/dev/null || exit 1
+    CMD curl -fsS http://127.0.0.1:6901/ >/dev/null && \
+        curl -fsS http://127.0.0.1:6902/healthz >/dev/null || exit 1
 
 ENTRYPOINT ["/init"]

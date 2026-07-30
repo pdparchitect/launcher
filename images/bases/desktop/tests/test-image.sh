@@ -43,6 +43,7 @@ assert_installs cortile/cortile-config.toml /home/agent/.config/cortile/config.t
 assert_installs kasm/custom.css /usr/share/kasmvnc/www/assets/custom.css
 assert_installs kasm/favicon.svg /usr/share/kasmvnc/www/assets/favicon.svg
 assert_installs kasm/patch.sh /usr/local/bin/kasm-patch
+assert_installs shell/desktop-preview /usr/local/bin/desktop-preview
 assert_installs browser /opt/browser
 
 theme_name="$(

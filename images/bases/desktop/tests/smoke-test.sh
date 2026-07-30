@@ -9,11 +9,16 @@ set -euo pipefail
 
 image="${1:-pdparchitect/launcher-image-hermes-desktop:local}"
 port="${SMOKE_PORT:-16999}"
+preview_port="${SMOKE_PREVIEW_PORT:-17000}"
 container=""
+snapshot=""
 
 cleanup() {
     if [ -n "$container" ]; then
         docker stop "$container" >/dev/null 2>&1 || true
+    fi
+    if [ -n "$snapshot" ]; then
+        rm -f "$snapshot"
     fi
 }
 trap cleanup EXIT INT TERM
@@ -31,7 +36,10 @@ docker image inspect "$image" >/dev/null 2>&1 ||
     fail "image not built: $image"
 
 container="$(
-    docker run -d --rm --shm-size=1g -p "${port}:6901" "$image"
+    docker run -d --rm --shm-size=1g \
+        -p "${port}:6901" \
+        -p "${preview_port}:6902" \
+        "$image"
 )"
 
 # The desktop must serve KasmVNC.
@@ -114,6 +122,24 @@ in_container 'test -n "$(find /usr/share/launcher-desktop/gtk-overlay -name "*.p
 # process.
 in_container 'DISPLAY=:1 xprop -root _XROOTPMAP_ID 2>/dev/null | grep -q "pixmap id"' ||
     fail "no wallpaper was applied to the root window"
+
+# The preview endpoint must return a real capture of the running X display,
+# not merely report that its HTTP process is alive.
+snapshot="$(mktemp)"
+preview_ready=""
+for _ in $(seq 1 20); do
+    if curl -fsS "http://127.0.0.1:${preview_port}/preview.jpg" \
+        -o "$snapshot"; then
+        preview_ready=yes
+        break
+    fi
+    sleep 1
+done
+[ -n "$preview_ready" ] || fail "desktop preview never became available"
+magic="$(od -An -tx1 -N3 "$snapshot" | tr -d '[:space:]')"
+[ "$magic" = "ffd8ff" ] || fail "desktop preview is not a JPEG image"
+[ "$(wc -c < "$snapshot")" -gt 1024 ] ||
+    fail "desktop preview is unexpectedly small"
 
 # Whatever the product itself considers "up". Everything above proves a desktop
 # is running; only the product knows whether the product is. A product opts in

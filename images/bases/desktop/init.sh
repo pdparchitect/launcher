@@ -236,6 +236,16 @@ su -s /bin/bash -c '
 ' "$runtime_user"
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 
+# Keep the non-interactive preview independent from KasmVNC. It captures the
+# same X display on demand, but a failure here cannot interrupt the desktop
+# stream on port 6901.
+su -s /bin/bash -c "
+    export HOME='$HOME'
+    export DISPLAY=:1
+    exec /usr/local/bin/desktop-preview
+" "$runtime_user" \
+    >>/var/log/launcher-desktop/preview.log 2>&1 &
+
 su -s /bin/bash -c "
     export HOME='$HOME'
     export DISPLAY=:1

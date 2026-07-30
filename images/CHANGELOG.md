@@ -9,6 +9,12 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.2]
+
+- Add a lightweight desktop preview service on port 6902 that captures the
+  active X display as a short-lived JPEG at `/preview.jpg`, independently from
+  the interactive KasmVNC service.
+
 ## [0.1.1]
 
 - Let KasmVNC select its initial framebuffer and resize it to the connected

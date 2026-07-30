@@ -47,6 +47,7 @@ BAKE_CMD := $(BAKE) $(BUILDER_FLAG)
 TARGET ?= desktop
 RUN_IMAGE ?=
 RUN_PORT ?= 6901
+RUN_PREVIEW_PORT ?= 6902
 RUN_STATE ?= launcher-$(TARGET)
 
 .PHONY: help check smoke print builder core-ubuntu desktop hermes-desktop \
@@ -99,7 +100,7 @@ print:
 
 check:
 	bash tests/test-workspace.sh
-	@while IFS= read -r test_script; do \
+	@set -euo pipefail; while IFS= read -r test_script; do \
 		bash "$$test_script"; \
 	done < <(find core runtimes bases products -path '*/tests/test-image.sh' | sort)
 
@@ -128,8 +129,12 @@ run: $(TARGET)
 			mounts+=(-v "$$volume:$$path"); \
 		done; \
 	fi; \
-	echo "Serving $$image at http://localhost:$(RUN_PORT) (Ctrl-C to stop)"; \
-	$(DOCKER) run --rm -it --shm-size=1g -p $(RUN_PORT):6901 \
+	echo "Desktop: http://localhost:$(RUN_PORT)"; \
+	echo "Preview: http://localhost:$(RUN_PREVIEW_PORT)/preview.jpg"; \
+	echo "Press Ctrl-C to stop"; \
+	$(DOCKER) run --rm -it --shm-size=1g \
+		-p $(RUN_PORT):6901 \
+		-p $(RUN_PREVIEW_PORT):6902 \
 		"$${mounts[@]}" "$$image"
 
 # Prints what each target would publish as.
