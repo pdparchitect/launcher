@@ -80,6 +80,7 @@ type Manager struct {
 	refreshInterval time.Duration
 	now             func() time.Time
 	state           cacheState
+	checkedThisRun  bool
 	checking        bool
 }
 
@@ -132,9 +133,10 @@ func (manager *Manager) Refresh(
 
 	manager.mutex.RLock()
 	state := manager.state
+	checkedThisRun := manager.checkedThisRun
 	manager.mutex.RUnlock()
 	now := manager.now().UTC()
-	if !force && !state.CheckedAt.IsZero() &&
+	if !force && checkedThisRun && !state.CheckedAt.IsZero() &&
 		now.Sub(state.CheckedAt) < manager.refreshInterval {
 		return manager.updateAvailable(state.LatestVersion), nil
 	}
@@ -253,6 +255,7 @@ func (manager *Manager) commitState(state cacheState) error {
 	}
 	manager.mutex.Lock()
 	manager.state = state
+	manager.checkedThisRun = true
 	manager.mutex.Unlock()
 	return nil
 }

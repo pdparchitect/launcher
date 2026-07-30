@@ -4,6 +4,15 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-07-30
+
+### Fixed
+
+- Revalidate the cached Launcher update status once after every launch so
+  recently published releases appear without waiting up to 24 hours.
+- Keep the native macOS scrollbar sized to the current page when navigating
+  from a longer page without restoring whole-window rubber-banding.
+
 ## [0.4.1] - 2026-07-30
 
 ### Added
