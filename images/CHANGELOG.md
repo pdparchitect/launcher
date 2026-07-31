@@ -9,6 +9,12 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.6]
+
+- Copy the active display cookie to root's default Xauthority location before
+  launching Chromium in Apple fixed-mount sessions, so Chromium's renderer
+  subprocesses authenticate and paint the browser surface.
+
 ## [0.1.5]
 
 - Keep Chromium's software rasterizer available when the container has no GPU,

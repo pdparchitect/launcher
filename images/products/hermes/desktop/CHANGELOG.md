@@ -8,6 +8,12 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.10]
+
+- Update to Launcher desktop substrate 0.1.6 so root-launched Chromium
+  processes authenticate to the X display and paint their browser surfaces in
+  Apple fixed-mount sessions.
+
 ## [0.1.9]
 
 - Update to Launcher desktop substrate 0.1.5 so Chromium retains software

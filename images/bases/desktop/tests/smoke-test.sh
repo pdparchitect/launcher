@@ -124,37 +124,61 @@ done
 [ -n "$x_access" ] || fail "the agent account cannot authenticate to the X display"
 
 # A successful xprop only proves that the cookie works for a small X11 client.
-# Launch the real headed browser as the agent account, then capture a known
-# rendered frame. This covers the Apple fixed-mount arrangement where Xvnc and
-# Openbox run as root but product browser requests still run unprivileged.
-browser_profile=/tmp/launcher-browser-smoke
-browser_log=/tmp/launcher-browser-smoke.log
-browser_title=LauncherBrowserSmoke
-browser_url='data:text/html,%3Ctitle%3ELauncherBrowserSmoke%3C/title%3E%3Cbody%20style=margin:0%3Bbackground:%2300ff00%3E'
-in_container "rm -rf '$browser_profile' '$browser_log' /tmp/launcher-browser-smoke.ppm; sudo -u agent env HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
+# Launch the real headed browser and capture a known rendered frame. Normal
+# sessions launch it as agent. Fixed-mount sessions also exercise root, which
+# is the account Openbox uses in the Apple Linux VM.
+smoke_browser() {
+    local browser_user="$1"
+    local browser_label="$2"
+    local browser_profile="/tmp/launcher-browser-smoke-${browser_label}"
+    local browser_log="/tmp/launcher-browser-smoke-${browser_label}.log"
+    local browser_frame="/tmp/launcher-browser-smoke-${browser_label}.ppm"
+    local browser_title="LauncherBrowserSmoke${browser_label}"
+    local browser_url="data:text/html,%3Ctitle%3E${browser_title}%3C/title%3E%3Cbody%20style=margin:0%3Bbackground:%2300ff00%3E"
+    local launch_prefix="env"
 
-browser_ready=""
-for _ in $(seq 1 30); do
-    if in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' >/dev/null 2>&1"; then
-        browser_ready=yes
-        break
+    if [ "$browser_user" = agent ]; then
+        launch_prefix="sudo -u agent env"
     fi
-    sleep 1
-done
-[ -n "$browser_ready" ] || fail "Chromium did not create a visible software-rendered window"
 
-if in_container "ps -eo args | grep '[l]auncher-browser-smoke' | grep -Fq -- '--disable-software-rasterizer'"; then
-    fail "Chromium disabled its software rasterizer without a GPU"
+    in_container "rm -rf '$browser_profile' '$browser_log' '$browser_frame'; $launch_prefix HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
+
+    local browser_ready=""
+    for _ in $(seq 1 30); do
+        if in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' >/dev/null 2>&1"; then
+            browser_ready=yes
+            break
+        fi
+        sleep 1
+    done
+    [ -n "$browser_ready" ] ||
+        fail "Chromium did not create a visible ${browser_user} software-rendered window"
+
+    if in_container "ps -eo args | grep '[l]auncher-browser-smoke-${browser_label}' | grep -Fq -- '--disable-software-rasterizer'"; then
+        fail "Chromium disabled its software rasterizer without a GPU"
+    fi
+
+    local browser_window
+    browser_window="$(
+        in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' | head -1"
+    )"
+    in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool windowactivate --sync '$browser_window'; env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority scrot --focused '$browser_frame'"
+    browser_snapshot="$(mktemp)"
+    docker cp "$container:$browser_frame" "$browser_snapshot" >/dev/null
+    python3 "$script_dir/assert-browser-frame.py" "$browser_snapshot" ||
+        fail "Chromium created a ${browser_user} window but did not paint its software-rendered page"
+    rm -f "$browser_snapshot"
+    browser_snapshot=""
+}
+
+if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
+    smoke_browser root Root
+    in_container 'test "$(stat -c "%a:%U:%G" /root/.Xauthority)" = 600:root:root' ||
+        fail "Chromium did not install root's default Xauthority securely"
+    in_container 'cmp -s /run/launcher-desktop/Xauthority /root/.Xauthority' ||
+        fail "root's default Xauthority does not contain the active display cookie"
 fi
-
-browser_window="$(
-    in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' | head -1"
-)"
-in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool windowactivate --sync '$browser_window'; sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority scrot --focused /tmp/launcher-browser-smoke.ppm"
-browser_snapshot="$(mktemp)"
-docker cp "$container:/tmp/launcher-browser-smoke.ppm" "$browser_snapshot" >/dev/null
-python3 "$script_dir/assert-browser-frame.py" "$browser_snapshot" ||
-    fail "Chromium created a window but did not paint its software-rendered page"
+smoke_browser agent Agent
 
 # The desktop substrate has to actually be configured, not merely installed.
 # Openbox, tint2, and cortile all start happily with stock defaults, so a
