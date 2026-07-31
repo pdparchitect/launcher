@@ -8,6 +8,17 @@ are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.6]
+
+- Update the shared Launcher desktop base to `0.1.5`, keeping Chromium usable
+  through software rendering when the Apple Linux VM has no GPU render node.
+
+## [0.1.5]
+
+- Update the shared Launcher desktop base to `0.1.4`, allowing unprivileged
+  OpenClaw tools to authenticate to the display when Apple fixed-ownership
+  mounts require the desktop session itself to run as root.
+
 ## [0.1.4]
 
 - Expose the shared desktop screenshot endpoint as the Launcher `preview`

@@ -52,9 +52,17 @@ fi
 runtime_group="$runtime_user"
 runtime_uid="$(id -u "$runtime_user")"
 export XDG_RUNTIME_DIR="/run/user/$runtime_uid"
-mkdir -p "$XDG_RUNTIME_DIR"
+mkdir -p "$XDG_RUNTIME_DIR" "$(dirname "$XAUTHORITY")"
 chmod 0700 "$XDG_RUNTIME_DIR"
 chmod 1777 /tmp/.X11-unix
+
+# Keep X11 authentication out of the session user's home. In Apple
+# fixed-mount mode KasmVNC runs as root while products can still deliberately
+# run as `agent`; a stable runtime path lets the base grant that account access
+# without changing ownership anywhere in the persistent home or workspace.
+touch "$XAUTHORITY"
+chown "$runtime_user:$runtime_group" "$XAUTHORITY"
+chmod 0600 "$XAUTHORITY"
 
 if [ "$fixed_mounts" = false ]; then
     chown "$runtime_user:$runtime_group" \
@@ -277,6 +285,16 @@ for attempt in $(seq 1 40); do
     fi
     sleep 1
 done
+
+# xauth replaces the authority file when KasmVNC creates its cookie, so a file
+# prepared for `agent` before startup becomes root-owned again in fixed-mount
+# mode. Root can continue to read an agent-owned 0600 file; hand it back only
+# after the server has finished writing the cookie.
+if [ "$runtime_user" = root ]; then
+    chown agent:agent "$XAUTHORITY"
+    chmod 0600 "$XAUTHORITY"
+    echo "[desktop] granted the agent account access to the X display"
+fi
 
 while curl -fsS http://127.0.0.1:6901/ >/dev/null 2>&1; do
     sleep 5

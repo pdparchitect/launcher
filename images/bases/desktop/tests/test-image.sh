@@ -15,6 +15,12 @@ grep -Fq 'apt-get install -y --no-install-recommends chromium' "$dockerfile"
 grep -Fq 'ENTRYPOINT ["/init"]' "$dockerfile"
 grep -Fq 'DESKTOP_PERSISTENT_PATHS' "$project/init.sh"
 grep -Fq 'fixed-ownership mounts detected' "$project/init.sh"
+grep -Fq 'XAUTHORITY=/run/launcher-desktop/Xauthority' "$dockerfile"
+grep -Fq 'chown agent:agent "$XAUTHORITY"' "$project/init.sh"
+if grep -Fq -- '--disable-software-rasterizer' "$project/shell/chromium"; then
+    echo "The Chromium wrapper disables its no-GPU software fallback." >&2
+    exit 1
+fi
 awk '
     /if \[ "\$fixed_mounts" = false \]; then/ { guarded = 1 }
     guarded && /chown "\$runtime_user:\$runtime_group"/ { found = 1 }

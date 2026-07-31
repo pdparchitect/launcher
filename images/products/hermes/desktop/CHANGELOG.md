@@ -8,6 +8,17 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.9]
+
+- Update to Launcher desktop substrate 0.1.5 so Chromium retains software
+  rendering when the VM has no GPU.
+
+## [0.1.8]
+
+- Update to Launcher desktop substrate 0.1.4 so unprivileged agent tools can
+  authenticate to the X display when fixed Apple mounts require a root desktop
+  session.
+
 ## [0.1.7]
 
 - Expose the shared desktop screenshot endpoint as the Launcher `preview`

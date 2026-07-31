@@ -9,6 +9,17 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.5]
+
+- Keep Chromium's software rasterizer available when the container has no GPU,
+  so its windows remain usable in the Apple Linux VM.
+
+## [0.1.4]
+
+- Let unprivileged product processes authenticate to the KasmVNC display when
+  Apple fixed-ownership mounts require the desktop session itself to run as
+  root.
+
 ## [0.1.3]
 
 - Preserve host-managed ownership after detecting fixed-ownership mounts, so
