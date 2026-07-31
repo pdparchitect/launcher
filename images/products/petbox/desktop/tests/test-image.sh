@@ -20,6 +20,8 @@ grep -Fq 'VOLUME ["/workspace", "/home/agent/.codex"]' "$dockerfile"
 
 test -f "$overlay/etc/desktop/session.d/10-pets"
 test -f "$overlay/etc/desktop/session.d/05-pet-wallpaper"
+grep -Fxq 'petbox-banner' "$overlay/usr/local/bin/codex-setup"
+grep -Fxq 'petbox-banner' "$overlay/usr/local/bin/pen-greeting"
 if [ -d "$overlay/etc/desktop/startup.d" ]; then
     echo "Petbox installs an X-dependent program under startup.d." >&2
     exit 1

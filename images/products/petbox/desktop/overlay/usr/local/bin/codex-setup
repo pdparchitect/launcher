@@ -13,9 +13,6 @@ set -euo pipefail
 
 export CODEX_HOME="${CODEX_HOME:-/home/agent/.codex}"
 
-accent='\033[38;5;222m'
-reset='\033[0m'
-
 green() { printf '\033[38;5;79m%s\033[0m\n' "$1"; }
 dim() { printf '\033[2m%s\033[0m\n' "$1"; }
 
@@ -29,15 +26,7 @@ if [ -s "$CODEX_HOME/auth.json" ]; then
     exit 0
 fi
 
-printf "${accent}"
-cat <<'BANNER'
-  ██████  ██████  ████    ██████  ██  ██          ██████  ██████  ██████  ██████
-  ██      ██  ██  ██  ██  ██      ██  ██          ██  ██  ██        ██    ██
-  ██      ██  ██  ██  ██  ████      ██            ██████  ████      ██    ██████
-  ██      ██  ██  ██  ██  ██      ██  ██          ██      ██        ██        ██
-  ██████  ██████  ████    ██████  ██  ██          ██      ██████    ██    ██████
-BANNER
-printf "${reset}\n"
+petbox-banner
 
 dim "  Every pet on this desktop thinks with Codex, so the pen stays asleep"
 dim "  until Codex can sign in."

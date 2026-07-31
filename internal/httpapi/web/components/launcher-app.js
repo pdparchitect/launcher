@@ -1556,7 +1556,7 @@ export class LauncherApp extends HTMLElement {
 
       dialog.setProgress({
         stage: 'ready',
-        message: `${agent.name} is ready`,
+        message: `${agent.name} is installed and running. Open it now.`,
       })
       this.recordActivity(
         'install',
@@ -1565,7 +1565,7 @@ export class LauncherApp extends HTMLElement {
         `${entry.name} installed and started`
       )
       await this.refreshAgents()
-      setTimeout(() => dialog.close(), 500)
+      dialog.complete(agent)
       this.showToast(`${agent.name} is ready`)
     } catch (error) {
       dialog.showError(error.message)

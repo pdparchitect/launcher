@@ -8,6 +8,22 @@ services, and virtual machines.
 
 > Launcher is experimental and evolving quickly.
 
+<table>
+  <tr>
+    <td><img width="1808" height="1264" alt="Xnapper-2026-07-31-01 55 00" src="https://github.com/user-attachments/assets/1633f11c-ae15-4a9c-b9a5-530b3743ba21" /></td>
+    <td><img width="1808" height="1264" alt="Xnapper-2026-07-31-01 51 13" src="https://github.com/user-attachments/assets/49c8bbc6-d26d-4c54-a131-cfba5d1e42cc" /></td>
+    <td><img width="1808" height="1264" alt="Xnapper-2026-07-31-01 51 22" src="https://github.com/user-attachments/assets/c5273bec-a575-46da-b599-d72a17dceab1" /></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td><img width="1432" height="952" alt="Xnapper-2026-07-31-01 52 09" src="https://github.com/user-attachments/assets/4ad9fda5-5515-417f-a564-5af5dc5c9f47" /></td>
+    <td><img width="1432" height="952" alt="Xnapper-2026-07-31-01 52 41" src="https://github.com/user-attachments/assets/4bbb25a2-0a47-4341-8068-6b2f28ebd689" /></td>
+    <td><img width="1432" height="952" alt="Xnapper-2026-07-31-01 51 48" src="https://github.com/user-attachments/assets/4e70e53a-c90e-4437-967e-61458db34fe9" /></td>
+  </tr>
+</table>
+
 ## Why Launcher
 
 - **Local control** - Run agents on your own computer without a hosted control

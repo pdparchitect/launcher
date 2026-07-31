@@ -4,6 +4,13 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.8] - 2026-07-31
+
+### Changed
+
+- Keep the deployment dialog open after a successful installation and make
+  opening the newly started agent its focused primary action.
+
 ## [0.4.7] - 2026-07-30
 
 ### Added
