@@ -159,6 +159,7 @@ COPY kitty/theme.conf /etc/xdg/kitty/theme.conf
 COPY cortile/cortilectl /usr/local/bin/cortilectl
 COPY cortile/cortile-config.toml /home/agent/.config/cortile/config.toml
 COPY shell/chromium /usr/local/bin/chromium
+COPY shell/notify-send /usr/local/bin/notify-send
 COPY --from=desktop-bridge-build /out/desktop-bridge /usr/local/bin/desktop-bridge
 COPY shell/desktop-welcome /usr/local/bin/desktop-welcome
 COPY shell/desktop-harness /usr/local/bin/desktop-harness
@@ -176,7 +177,8 @@ RUN chmod 0755 \
         /usr/local/bin/desktop-bridge \
         /usr/local/bin/desktop-harness \
         /usr/local/bin/desktop-panel-status \
-        /usr/local/bin/desktop-welcome && \
+        /usr/local/bin/desktop-welcome \
+        /usr/local/bin/notify-send && \
     echo '[ -d /etc/bash.bashrc.d ] && for f in /etc/bash.bashrc.d/*.sh; do . "$f"; done' \
         >> /etc/bash.bashrc && \
     mkdir -p /usr/share/xsessions && \

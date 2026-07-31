@@ -118,29 +118,36 @@ curl -fsS "http://127.0.0.1:${preview_port}/healthz" |
         .components.notifications == "ready"
     ' >/dev/null || fail "the desktop bridge health response is invalid"
 
-# Command-line agents use the standard freedesktop client. Read the bridge's
-# inherited bus address as the same account because /proc hides another user's
-# environment in some container runtimes.
-bridge_user="$(
-    in_container 'ps -o user= -p "$(pgrep -xo desktop-bridge)"' | xargs
-)"
-docker exec --user "$bridge_user" "$container" bash -c '
-    bridge_pid="$(pgrep -xo desktop-bridge)"
-    bus_address="$(
-        tr "\0" "\n" < "/proc/${bridge_pid}/environ" |
-            sed -n "s/^DBUS_SESSION_BUS_ADDRESS=//p"
-    )"
-    test -n "$bus_address"
-    DBUS_SESSION_BUS_ADDRESS="$bus_address" \
-        notify-send --app-name=LauncherSmoke "Bridge notification" "Delivered"
-' || fail "notify-send could not reach the desktop bridge"
+# Real command-line callers do not know the private address created by
+# dbus-run-session. Exercise both ways agents enter these images: a root
+# container shell, and a privilege-dropped product process with a deliberately
+# stripped environment. Neither may autolaunch a second, disconnected bus.
+bus_daemons_before="$(in_container 'pgrep -cx dbus-daemon')"
+docker exec "$container" env -u DBUS_SESSION_BUS_ADDRESS \
+    notify-send --app-name=LauncherSmokeRoot \
+    "Root bridge notification" "Delivered" ||
+    fail "root notify-send could not reach the desktop bridge"
+docker exec --user agent "$container" env -u DBUS_SESSION_BUS_ADDRESS \
+    HOME=/home/agent PATH=/usr/local/bin:/usr/bin:/bin \
+    notify-send --app-name=LauncherSmokeAgent \
+    "Agent bridge notification" "Delivered" ||
+    fail "privilege-dropped notify-send could not reach the desktop bridge"
+bus_daemons_after="$(in_container 'pgrep -cx dbus-daemon')"
+[ "$bus_daemons_after" = "$bus_daemons_before" ] ||
+    fail "notify-send autolaunched a disconnected D-Bus session"
 curl -fsS "http://127.0.0.1:${preview_port}/notifications" |
     jq -e '
         .nextCursor != "" and
         any(
             .notifications[];
-            .app == "LauncherSmoke" and
-            .title == "Bridge notification" and
+            .app == "LauncherSmokeRoot" and
+            .title == "Root bridge notification" and
+            .body == "Delivered"
+        ) and
+        any(
+            .notifications[];
+            .app == "LauncherSmokeAgent" and
+            .title == "Agent bridge notification" and
             .body == "Delivered"
         )
     ' >/dev/null || fail "the desktop bridge did not expose the notification"

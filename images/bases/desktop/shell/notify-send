@@ -1,0 +1,32 @@
+#!/bin/bash
+# Route the standard notification CLI to the desktop's real D-Bus session.
+#
+# Container exec shells and product privilege-drop wrappers do not inherit the
+# environment created by dbus-run-session. Without this adapter libnotify
+# autolaunches an isolated bus where the desktop bridge is not registered.
+
+set -euo pipefail
+
+address_file=/run/launcher-desktop/dbus-session-address
+bus_address=""
+for _ in $(seq 1 20); do
+    if [ -r "$address_file" ]; then
+        bus_address="$(head -n 1 "$address_file")"
+    fi
+    [ -n "$bus_address" ] && break
+    sleep 0.1
+done
+
+if [ -z "$bus_address" ]; then
+    echo "notify-send: desktop D-Bus session is not ready" >&2
+    exit 1
+fi
+
+export DBUS_SESSION_BUS_ADDRESS="$bus_address"
+bus_user="$(stat -c %U "$address_file")"
+if [ "$(id -un)" != "$bus_user" ]; then
+    exec sudo -u "$bus_user" \
+        env DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        /usr/bin/notify-send "$@"
+fi
+exec /usr/bin/notify-send "$@"

@@ -16,6 +16,8 @@ grep -Fq 'ENTRYPOINT ["/init"]' "$dockerfile"
 grep -Fq 'exec dbus-run-session -- openbox-session' "$project/init.sh"
 grep -Fq 'desktop-bridge >>/var/log/launcher-desktop/bridge.log' \
     "$project/openbox/autostart"
+grep -Fq 'DBUS_SESSION_BUS_ADDRESS" > /run/launcher-desktop/dbus-session-address' \
+    "$project/openbox/autostart"
 grep -Fq 'DESKTOP_PERSISTENT_PATHS' "$project/init.sh"
 grep -Fq 'fixed-ownership mounts detected' "$project/init.sh"
 grep -Fq 'XAUTHORITY=/run/launcher-desktop/Xauthority' "$dockerfile"
@@ -64,6 +66,7 @@ assert_installs openbox/autostart /etc/xdg/openbox/autostart
 assert_installs openbox/theme /usr/share/themes/Desktop/openbox-3
 assert_installs gtk/Desktop /usr/share/themes/Desktop
 assert_installs tint2/tint2rc /etc/xdg/tint2/tint2rc
+assert_installs shell/notify-send /usr/local/bin/notify-send
 assert_installs cortile/cortilectl /usr/local/bin/cortilectl
 assert_installs cortile/cortile-config.toml /home/agent/.config/cortile/config.toml
 assert_installs kasm/custom.css /usr/share/kasmvnc/www/assets/custom.css

@@ -9,6 +9,14 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.8]
+
+- Route `notify-send` from container-exec shells and privilege-dropped agent
+  processes to the desktop's actual D-Bus session instead of allowing an
+  isolated session bus to be autolaunched.
+- Exercise notifications as plain root and agent callers in the live desktop
+  smoke test, without injecting the bridge process's environment.
+
 ## [0.1.7]
 
 - Replace the Python preview daemon with a small Go desktop bridge that shares
