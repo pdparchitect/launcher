@@ -28,6 +28,9 @@ services, and virtual machines.
 
 - **Local control** - Run agents on your own computer without a hosted control
   plane.
+- **Secure by design** - Keep each agent isolated in its own local container,
+  expose its interfaces only on localhost, and launch images resolved to
+  immutable OCI digests.
 - **A familiar experience** - Discover, install, launch, stop, and update
   agents from one desktop application.
 - **Less infrastructure work** - Launcher handles the local container runtime
@@ -43,7 +46,7 @@ services, and virtual machines.
 
 ## What you can do
 
-Launcher provides a marketplace of packaged AI applications and a private
+Launcher provides a catalogue of packaged AI applications and a private
 library of the agents installed on your computer. From the same interface, you
 can:
 
@@ -73,9 +76,6 @@ runtime is missing, the application guides you to the official installer.
 2. Extract the archive and open Launcher.
 3. Follow the runtime setup if prompted.
 4. Browse the Marketplace and deploy an agent.
-
-The macOS release is Developer ID signed and notarized by Apple. Every release
-includes SHA-256 checksums for its downloadable packages.
 
 ## Documentation
 

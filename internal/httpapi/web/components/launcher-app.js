@@ -155,9 +155,10 @@ export class LauncherApp extends HTMLElement {
     this.query = ''
     this.filter = 'all'
     this.page = 1
-    this.agentRefreshPending = false
+    this.agentRefreshPromise = null
     this.deletedAgentIDs = new Set()
     this.startWatches = new Map()
+    this.pendingAgentStates = new Map()
   }
 
   connectedCallback() {
@@ -381,10 +382,7 @@ export class LauncherApp extends HTMLElement {
       this.doctorReport = doctor.ready ? doctor.report : null
       this.runtimeSetup = doctor.ready ? null : doctor.setup
       this.catalog = catalog.catalog || []
-      this.applyAgentSnapshot(
-        instances.instances || [],
-        instances.issues || []
-      )
+      this.applyAgentSnapshot(instances.instances || [], instances.issues || [])
       this.catalogLoading = false
       this.render()
 
@@ -401,12 +399,24 @@ export class LauncherApp extends HTMLElement {
   }
 
   async refreshAgents() {
-    if (this.agentRefreshPending) {
-      return
+    if (this.agentRefreshPromise) {
+      return this.agentRefreshPromise
     }
 
-    this.agentRefreshPending = true
+    const refresh = this.performAgentRefresh()
 
+    this.agentRefreshPromise = refresh
+
+    try {
+      await refresh
+    } finally {
+      if (this.agentRefreshPromise === refresh) {
+        this.agentRefreshPromise = null
+      }
+    }
+  }
+
+  async performAgentRefresh() {
     try {
       const result = await this.api.instances()
 
@@ -415,8 +425,6 @@ export class LauncherApp extends HTMLElement {
       this.renderScreen()
     } catch (error) {
       console.warn('Agent refresh failed:', error)
-    } finally {
-      this.agentRefreshPending = false
     }
   }
 
@@ -429,9 +437,25 @@ export class LauncherApp extends HTMLElement {
       }
     }
 
-    this.agents = instances.filter(
-      (agent) => !this.deletedAgentIDs.has(agent.id)
-    )
+    this.agents = instances
+      .filter((agent) => !this.deletedAgentIDs.has(agent.id))
+      .map((agent) => {
+        const pending = this.pendingAgentStates.get(agent.id)
+
+        if (pending?.confirmed && agent.state === pending.state) {
+          this.pendingAgentStates.delete(agent.id)
+
+          return agent
+        }
+
+        return pending
+          ? {
+              ...agent,
+              state: pending.state,
+              pendingAction: pending.action,
+            }
+          : agent
+      })
     this.agentIssues = issues
     this.renderAgentIssues()
   }
@@ -1400,24 +1424,19 @@ export class LauncherApp extends HTMLElement {
   }
 
   async toggleAgent(agent) {
+    if (agent.pendingAction) {
+      return
+    }
+
     const shouldStop = agent.state === 'running'
 
+    if (shouldStop) {
+      await this.stopAgent(agent)
+
+      return
+    }
+
     try {
-      if (shouldStop) {
-        this.startWatches.delete(agent.id)
-        await this.api.stop(agent.id)
-        await this.refreshAgents()
-        this.recordActivity(
-          'stop',
-          `Stopped ${agent.name}`,
-          agent.name,
-          'Agent stopped successfully'
-        )
-        this.showToast(`${agent.name} stopped`)
-
-        return
-      }
-
       await this.api.start(agent.id)
 
       const now = Date.now()
@@ -1432,6 +1451,74 @@ export class LauncherApp extends HTMLElement {
       await this.refreshAgents()
     } catch (error) {
       this.showToast(error.message, true)
+    }
+  }
+
+  async stopAgent(agent) {
+    const previousState = agent.state
+
+    this.startWatches.delete(agent.id)
+    this.pendingAgentStates.set(agent.id, {
+      action: 'stop',
+      state: 'stopped',
+    })
+    this.agents = this.agents.map((current) =>
+      current.id === agent.id
+        ? {
+            ...current,
+            state: 'stopped',
+            pendingAction: 'stop',
+          }
+        : current
+    )
+    this.renderScreen()
+
+    try {
+      await this.api.stop(agent.id)
+
+      const pending = this.pendingAgentStates.get(agent.id)
+
+      if (pending) {
+        pending.confirmed = true
+      }
+
+      await this.refreshAgents()
+
+      if (this.pendingAgentStates.has(agent.id)) {
+        await this.refreshAgents()
+      }
+
+      this.pendingAgentStates.delete(agent.id)
+      this.agents = this.agents.map((current) =>
+        current.id === agent.id
+          ? {
+              ...current,
+              state: 'stopped',
+              pendingAction: undefined,
+            }
+          : current
+      )
+      this.renderScreen()
+      this.recordActivity(
+        'stop',
+        `Stopped ${agent.name}`,
+        agent.name,
+        'Agent stopped successfully'
+      )
+      this.showToast(`${agent.name} stopped`)
+    } catch (error) {
+      this.pendingAgentStates.delete(agent.id)
+      this.agents = this.agents.map((current) =>
+        current.id === agent.id
+          ? {
+              ...current,
+              state: previousState,
+              pendingAction: undefined,
+            }
+          : current
+      )
+      this.renderScreen()
+      this.showToast(`Could not stop ${agent.name}: ${error.message}`, true)
     }
   }
 
@@ -1679,6 +1766,7 @@ export class LauncherApp extends HTMLElement {
       this.deletedAgentIDs.add(agent.id)
       this.agents = this.agents.filter((candidate) => candidate.id !== agent.id)
       this.startWatches.delete(agent.id)
+      this.pendingAgentStates.delete(agent.id)
       this.recordActivity(
         'delete',
         `Deleted ${agent.name}`,

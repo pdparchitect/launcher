@@ -2,7 +2,8 @@ function assetURL(source) {
   return source ? `/catalog-assets/${source}` : ''
 }
 
-const PREVIEW_REFRESH_MS = 15_000
+const PREVIEW_REFRESH_MS = 60_000
+const previewCache = new Map()
 
 function livePreviewURL(agent, now = Date.now()) {
   const preview = agent.state === 'running' && agent.interfaces?.preview
@@ -19,7 +20,7 @@ function livePreviewURL(agent, now = Date.now()) {
     }
 
     // Agent state is already refreshed every five seconds. A time bucket lets
-    // those renders update the thumbnail every 15 seconds without adding a
+    // those renders request a new thumbnail once a minute without adding a
     // second timer or forcing a new capture on every state poll.
     url.searchParams.set(
       'launcherPreview',
@@ -30,6 +31,71 @@ function livePreviewURL(agent, now = Date.now()) {
   } catch {
     return ''
   }
+}
+
+function preloadPreview(agentID, source) {
+  let state = previewCache.get(agentID)
+
+  if (!state) {
+    state = {
+      currentURL: '',
+      pendingURL: '',
+      pending: null,
+    }
+    previewCache.set(agentID, state)
+  }
+
+  if (state.currentURL === source) {
+    return Promise.resolve(source)
+  }
+
+  if (state.pendingURL === source && state.pending) {
+    return state.pending
+  }
+
+  const image = new Image()
+  const loaded = new Promise((resolve, reject) => {
+    image.addEventListener(
+      'load',
+      () => {
+        const decoded =
+          typeof image.decode === 'function'
+            ? image.decode()
+            : Promise.resolve()
+
+        decoded.then(resolve, reject)
+      },
+      { once: true }
+    )
+    image.addEventListener(
+      'error',
+      () => reject(new Error('Agent preview could not be loaded')),
+      { once: true }
+    )
+  })
+
+  state.pendingURL = source
+  state.pending = loaded
+    .then(() => {
+      if (state.pendingURL === source) {
+        state.currentURL = source
+        state.pendingURL = ''
+        state.pending = null
+      }
+
+      return source
+    })
+    .catch((error) => {
+      if (state.pendingURL === source) {
+        state.pendingURL = ''
+        state.pending = null
+      }
+
+      throw error
+    })
+  image.src = source
+
+  return state.pending
 }
 
 function backgroundImages(...sources) {
@@ -193,22 +259,47 @@ export class AgentCard extends HTMLElement {
     )}")`
 
     const preview = this.querySelector('[data-preview]')
-    const livePreview = livePreviewURL(agent)
+    const requestedPreview = livePreviewURL(agent)
+    const cachedPreview = requestedPreview
+      ? previewCache.get(agent.id)?.currentURL || ''
+      : ''
 
-    // Multiple CSS backgrounds provide a zero-delay fallback: if the live
-    // endpoint cannot load, the packaged catalogue screenshot underneath it
-    // remains visible.
-    preview.style.backgroundImage = backgroundImages(
-      livePreview,
-      screenshotURL
-    )
-    preview.dataset.live = livePreview ? 'true' : 'false'
-    preview.setAttribute(
-      'aria-label',
-      livePreview
+    this.showPreview(
+      preview,
+      cachedPreview,
+      screenshotURL,
+      cachedPreview
         ? `Live preview of ${agent.name}`
         : screenshot?.alt || entry?.name || agent.name
     )
+
+    if (requestedPreview && requestedPreview !== cachedPreview) {
+      const agentID = agent.id
+
+      preloadPreview(agentID, requestedPreview)
+        .then((loadedPreview) => {
+          if (
+            !this.isConnected ||
+            this.value?.agent.id !== agentID ||
+            this.value.agent.state !== 'running' ||
+            livePreviewURL(this.value.agent) !== loadedPreview ||
+            this.querySelector('[data-preview]') !== preview
+          ) {
+            return
+          }
+
+          this.showPreview(
+            preview,
+            loadedPreview,
+            screenshotURL,
+            `Live preview of ${agent.name}`
+          )
+        })
+        .catch(() => {
+          // Keep the last successfully decoded preview, or the catalogue
+          // screenshot when no live preview has loaded yet.
+        })
+    }
 
     const tagList = this.querySelector('[data-tags]')
 
@@ -220,6 +311,15 @@ export class AgentCard extends HTMLElement {
     }
 
     const controls = this.querySelector('[data-controls]')
+    const toggle = this.controlButton(
+      running ? '❚❚' : '▶',
+      agent.pendingAction === 'stop' ? 'Stopping agent' : 'Toggle agent',
+      () => {
+        emit(this, 'toggle-agent', agent)
+      }
+    )
+
+    toggle.disabled = Boolean(agent.pendingAction)
 
     if (agent.updateAvailable) {
       controls.append(
@@ -228,10 +328,9 @@ export class AgentCard extends HTMLElement {
         })
       )
     }
+
     controls.append(
-      this.controlButton(running ? '❚❚' : '▶', 'Toggle agent', () => {
-        emit(this, 'toggle-agent', agent)
-      }),
+      toggle,
       this.controlButton('↗', 'Open desktop', () => {
         emit(this, 'open-agent', agent)
       }),
@@ -265,6 +364,12 @@ export class AgentCard extends HTMLElement {
     button.addEventListener('click', onClick)
 
     return button
+  }
+
+  showPreview(element, liveURL, fallbackURL, label) {
+    element.style.backgroundImage = backgroundImages(liveURL, fallbackURL)
+    element.dataset.live = liveURL ? 'true' : 'false'
+    element.setAttribute('aria-label', label)
   }
 
   setBar(selector, value) {

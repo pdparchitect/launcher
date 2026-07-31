@@ -4,6 +4,16 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.9] - 2026-07-31
+
+### Changed
+
+- Make stopping an agent feel immediate by optimistically showing it offline,
+  shielding that state from stale status polls, and restoring its running state
+  when the stop request fails.
+- Refresh live agent previews once per minute and keep the previous screenshot
+  visible until its replacement has fully loaded and decoded.
+
 ## [0.4.8] - 2026-07-31
 
 ### Changed
