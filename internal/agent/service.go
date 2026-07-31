@@ -28,6 +28,9 @@ const (
 type Runtime interface {
 	Doctor(context.Context) (string, error)
 	Pull(context.Context, string, string) error
+	EnsureNetwork(context.Context, string) error
+	DeleteNetwork(context.Context, string) error
+	NetworkAttached(context.Context, string, string) (bool, error)
 	Create(context.Context, launchruntime.CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
@@ -287,9 +290,15 @@ func (service *Service) Create(
 		return domain.Instance{}, err
 	}
 	created := false
+	networkPrepared := false
 	runtimeCreateAttempted := false
 	defer func() {
 		if !created {
+			if networkPrepared {
+				_ = service.runtime.DeleteNetwork(
+					context.WithoutCancel(ctx), instance.ID,
+				)
+			}
 			if runtimeCreateAttempted {
 				if dataRuntime, ok := service.runtime.(mountDataRuntime); ok {
 					_ = dataRuntime.DeleteMountData(
@@ -318,10 +327,15 @@ func (service *Service) Create(
 		return domain.Instance{}, err
 	}
 	options.report(CreateStageCreating, "Creating agent container")
+	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
+	}
+	networkPrepared = true
 	runtimeCreateAttempted = true
 	if err := service.runtime.Create(ctx, launchruntime.CreateRequest{
 		InstanceID: instance.ID, ContainerName: instance.ContainerName,
-		Image: instance.Image, Ports: runtimePorts(instance, manifest),
+		Network: launchruntime.ManagedNetworkName(instance.ID),
+		Image:   instance.Image, Ports: runtimePorts(instance, manifest),
 		Platform: service.options.Platform,
 		Paths:    paths.Mounts, Manifest: manifest,
 	}); err != nil {
@@ -461,8 +475,78 @@ func (service *Service) Start(
 	if err != nil {
 		return domain.Instance{}, err
 	}
+	isolated, err := service.runtime.NetworkAttached(
+		ctx,
+		instance.ContainerName,
+		instance.ID,
+	)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("inspect agent network: %w", err)
+	}
+	if !isolated {
+		return service.migrateNetworkAndStart(ctx, instance)
+	}
 	if err := service.runtime.Start(ctx, instance.ContainerName); err != nil {
 		return domain.Instance{}, err
+	}
+	instance.DesiredState = domain.DesiredRunning
+	return instance, service.store.Save(instance)
+}
+
+func (service *Service) migrateNetworkAndStart(
+	ctx context.Context,
+	instance domain.Instance,
+) (domain.Instance, error) {
+	manifest, exists := service.manifest(instance.CatalogID)
+	if !exists {
+		return domain.Instance{}, fmt.Errorf(
+			"catalogue entry %q is not built in",
+			instance.CatalogID,
+		)
+	}
+	status, err := service.runtime.Status(ctx, instance.ContainerName)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("inspect agent before network migration: %w", err)
+	}
+	wasRunning := status == launchruntime.StatusRunning ||
+		status == launchruntime.StatusRestarting ||
+		status == launchruntime.StatusPaused
+	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
+	}
+	if err := service.runtime.Stop(ctx, instance.ContainerName); err != nil {
+		return domain.Instance{}, fmt.Errorf("stop agent for network migration: %w", err)
+	}
+	if err := service.runtime.Remove(
+		ctx,
+		instance.ContainerName,
+		instance.ID,
+	); err != nil {
+		return domain.Instance{}, fmt.Errorf("replace agent network: %w", err)
+	}
+	paths := service.store.Paths(instance.ID, manifest)
+	if err := service.createRuntimeContainer(ctx, instance, manifest, paths); err != nil {
+		restoreErr := service.createRuntimeContainer(ctx, instance, manifest, paths)
+		if restoreErr == nil && wasRunning {
+			restoreErr = service.runtime.Start(ctx, instance.ContainerName)
+		}
+		if restoreErr != nil {
+			return domain.Instance{}, fmt.Errorf(
+				"migrate agent network: %w; restore container: %v",
+				err,
+				restoreErr,
+			)
+		}
+		return domain.Instance{}, fmt.Errorf(
+			"migrate agent network: %w; previous container restored",
+			err,
+		)
+	}
+	if err := service.runtime.Start(ctx, instance.ContainerName); err != nil {
+		return domain.Instance{}, fmt.Errorf(
+			"start agent after network migration: %w",
+			err,
+		)
 	}
 	instance.DesiredState = domain.DesiredRunning
 	return instance, service.store.Save(instance)
@@ -542,6 +626,9 @@ func (service *Service) UpdateWithProgress(
 	}
 	if err := pull(ctx, targetImage, service.options.Platform); err != nil {
 		return domain.Instance{}, fmt.Errorf("pull agent update: %w", err)
+	}
+	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
 	}
 	if status == launchruntime.StatusRunning ||
 		status == launchruntime.StatusRestarting ||
@@ -628,7 +715,8 @@ func (service *Service) createRuntimeContainer(
 ) error {
 	return service.runtime.Create(ctx, launchruntime.CreateRequest{
 		InstanceID: instance.ID, ContainerName: instance.ContainerName,
-		Image: instance.Image, Ports: runtimePorts(instance, manifest),
+		Network: launchruntime.ManagedNetworkName(instance.ID),
+		Image:   instance.Image, Ports: runtimePorts(instance, manifest),
 		Platform: service.options.Platform,
 		Paths:    paths.Mounts, Manifest: manifest,
 	})
@@ -779,6 +867,9 @@ func (service *Service) Delete(ctx context.Context, reference string) error {
 	if err := service.runtime.Remove(
 		ctx, instance.ContainerName, instance.ID,
 	); err != nil {
+		return err
+	}
+	if err := service.runtime.DeleteNetwork(ctx, instance.ID); err != nil {
 		return err
 	}
 	if manifest, exists := service.manifest(instance.CatalogID); exists {

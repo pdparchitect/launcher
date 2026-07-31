@@ -26,6 +26,7 @@ func TestDockerCreateBuildsConstrainedCommand(t *testing.T) {
 		"--name", "launcher-ghost-aaaaaaaaaaaa",
 		"--platform", "linux/amd64",
 		"--label", managedLabel + "=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--network", ManagedNetworkName("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		"--shm-size", "1g",
 		"--publish", "127.0.0.1:16902:6901",
 		"--env", "PANTALK_AUTOSTART=true",
@@ -48,6 +49,7 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 		"--name", "launcher-ghost-aaaaaaaaaaaa",
 		"--platform", "linux/arm64",
 		"--label", managedLabel + "=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--network", ManagedNetworkName("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		"--memory", "4g",
 		"--shm-size", "1g",
 		"--publish", "127.0.0.1:16902:6901",
@@ -57,6 +59,129 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.runArgs, want) {
 		t.Fatalf("Create() args = %#v\nwant %#v", runner.runArgs, want)
+	}
+}
+
+func TestDockerEnsureNetworkCreatesOwnedNetwork(t *testing.T) {
+	runner := &fakeRunner{
+		captureResult: Result{Stderr: []byte("network not found")},
+		captureErr:    errExit,
+	}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	if err := docker.EnsureNetwork(t.Context(), instanceID); err != nil {
+		t.Fatalf("EnsureNetwork() error = %v", err)
+	}
+	want := []string{
+		"network", "create",
+		"--label", managedLabel + "=" + instanceID,
+		ManagedNetworkName(instanceID),
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("EnsureNetwork() args = %#v, want %#v", runner.runArgs, want)
+	}
+}
+
+func TestAppleEnsureNetworkCreatesOwnedNetwork(t *testing.T) {
+	runner := &fakeRunner{
+		captureResult: Result{Stderr: []byte("network not found")},
+		captureErr:    errExit,
+	}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	if err := apple.EnsureNetwork(t.Context(), instanceID); err != nil {
+		t.Fatalf("EnsureNetwork() error = %v", err)
+	}
+	want := []string{
+		"network", "create",
+		"--label", managedLabel + "=" + instanceID,
+		ManagedNetworkName(instanceID),
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("EnsureNetwork() args = %#v, want %#v", runner.runArgs, want)
+	}
+}
+
+func TestDockerEnsureNetworkReusesOnlyOwnedNetwork(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(instanceID + "\n")}}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+
+	if err := docker.EnsureNetwork(t.Context(), instanceID); err != nil {
+		t.Fatalf("EnsureNetwork() error = %v", err)
+	}
+	if runner.runCalled {
+		t.Fatal("EnsureNetwork() created an existing owned network")
+	}
+
+	runner.captureResult.Stdout = []byte("someone-else\n")
+	if err := docker.EnsureNetwork(t.Context(), instanceID); err == nil ||
+		!strings.Contains(err.Error(), "refusing to use network") {
+		t.Fatalf("EnsureNetwork() error = %v, want ownership error", err)
+	}
+}
+
+func TestAppleDeleteNetworkRemovesOnlyOwnedNetwork(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	name := ManagedNetworkName(instanceID)
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
+  {
+    "id": "` + name + `",
+    "configuration": {
+      "labels": {"` + managedLabel + `": "` + instanceID + `"}
+    }
+  }
+]`)}}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	if err := apple.DeleteNetwork(t.Context(), instanceID); err != nil {
+		t.Fatalf("DeleteNetwork() error = %v", err)
+	}
+	want := []string{"network", "delete", name}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("DeleteNetwork() args = %#v, want %#v", runner.runArgs, want)
+	}
+}
+
+func TestDockerNetworkAttachedFindsManagedNetwork(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	name := ManagedNetworkName(instanceID)
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(
+		`{"bridge":{},"` + name + `":{}}`,
+	)}}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+
+	attached, err := docker.NetworkAttached(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		instanceID,
+	)
+	if err != nil || !attached {
+		t.Fatalf("NetworkAttached() = %t, %v", attached, err)
+	}
+}
+
+func TestAppleNetworkAttachedFindsManagedNetwork(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	name := ManagedNetworkName(instanceID)
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
+  {
+    "networks": [{"network": "` + name + `"}],
+    "configuration": {"labels": {}},
+    "status": {"state": "stopped"}
+  }
+]`)}}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	attached, err := apple.NetworkAttached(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		instanceID,
+	)
+	if err != nil || !attached {
+		t.Fatalf("NetworkAttached() = %t, %v", attached, err)
 	}
 }
 
@@ -79,6 +204,7 @@ func TestAppleCreateUsesNativeVolumeForVolumeStorage(t *testing.T) {
 		"--name", "launcher-ghost-aaaaaaaaaaaa",
 		"--platform", "linux/arm64",
 		"--label", managedLabel + "=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--network", ManagedNetworkName("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		"--memory", "4g",
 		"--shm-size", "1g",
 		"--publish", "127.0.0.1:16902:6901",
@@ -554,6 +680,7 @@ func testCreateRequest(platform string) CreateRequest {
 	return CreateRequest{
 		InstanceID:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ContainerName: "launcher-ghost-aaaaaaaaaaaa",
+		Network:       ManagedNetworkName("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		Image:         "pantalk/ghost:test",
 		Ports:         map[int]int{6901: 16902},
 		Platform:      platform,

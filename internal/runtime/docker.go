@@ -82,6 +82,137 @@ func (docker *Docker) PullWithProgress(
 	return nil
 }
 
+func (docker *Docker) EnsureNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	name := ManagedNetworkName(instanceID)
+	owner, exists, err := docker.networkOwner(ctx, name)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if owner != instanceID {
+			return fmt.Errorf(
+				"refusing to use network %q: managed by %q, expected %q",
+				name,
+				owner,
+				instanceID,
+			)
+		}
+		return nil
+	}
+	if err := docker.runner.Run(
+		ctx,
+		docker.command,
+		[]string{
+			"network", "create",
+			"--label", managedLabel + "=" + instanceID,
+			name,
+		},
+		nil,
+		io.Discard,
+		docker.stderr,
+	); err != nil {
+		return fmt.Errorf("create agent network %q: %w", name, err)
+	}
+	return nil
+}
+
+func (docker *Docker) DeleteNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	name := ManagedNetworkName(instanceID)
+	owner, exists, err := docker.networkOwner(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if owner != instanceID {
+		return fmt.Errorf(
+			"refusing to remove network %q: managed by %q, expected %q",
+			name,
+			owner,
+			instanceID,
+		)
+	}
+	if err := docker.runner.Run(
+		ctx,
+		docker.command,
+		[]string{"network", "rm", name},
+		nil,
+		io.Discard,
+		docker.stderr,
+	); err != nil {
+		return fmt.Errorf("remove agent network %q: %w", name, err)
+	}
+	return nil
+}
+
+func (docker *Docker) NetworkAttached(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (bool, error) {
+	result, err := docker.runner.Capture(
+		ctx,
+		docker.command,
+		"container",
+		"inspect",
+		"--format",
+		"{{json .NetworkSettings.Networks}}",
+		containerName,
+	)
+	if err != nil {
+		return false, commandError(
+			"inspect container networks for "+containerName,
+			result,
+			err,
+		)
+	}
+	var networks map[string]json.RawMessage
+	if err := json.Unmarshal(result.Stdout, &networks); err != nil {
+		return false, fmt.Errorf(
+			"decode container networks for %q: %w",
+			containerName,
+			err,
+		)
+	}
+	_, exists := networks[ManagedNetworkName(instanceID)]
+	return exists, nil
+}
+
+func (docker *Docker) networkOwner(
+	ctx context.Context,
+	name string,
+) (string, bool, error) {
+	result, err := docker.runner.Capture(
+		ctx,
+		docker.command,
+		"network",
+		"inspect",
+		"--format",
+		"{{ index .Labels \""+managedLabel+"\" }}",
+		name,
+	)
+	if err != nil {
+		if missingDockerNetwork(result) {
+			return "", false, nil
+		}
+		return "", false, commandError("inspect agent network "+name, result, err)
+	}
+	return strings.TrimSpace(string(result.Stdout)), true, nil
+}
+
+func missingDockerNetwork(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "no such network") ||
+		strings.Contains(message, "not found")
+}
+
 func (docker *Docker) Create(ctx context.Context, request CreateRequest) error {
 	args, err := createArguments(request, false)
 	if err != nil {
@@ -370,6 +501,10 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 		args = append(args, "--platform", request.Platform)
 	}
 	args = append(args, "--label", managedLabel+"="+request.InstanceID)
+	if strings.TrimSpace(request.Network) == "" {
+		return nil, errors.New("agent network is required")
+	}
+	args = append(args, "--network", request.Network)
 	if apple && request.Manifest.Memory != "" {
 		args = append(args, "--memory", request.Manifest.Memory)
 	}
