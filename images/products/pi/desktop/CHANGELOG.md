@@ -4,6 +4,17 @@ Pi Desktop versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.1.2]
+
+- Update to Launcher desktop substrate 0.1.5 so Chromium retains software
+  rendering when the VM has no GPU.
+
+## [0.1.1]
+
+- Update to Launcher desktop substrate 0.1.4 so unprivileged agent tools can
+  authenticate to the X display when fixed Apple mounts require a root desktop
+  session.
+
 ## [0.1.0]
 
 - Pin Pi 0.83.0 and its `fd` file-discovery dependency, then open its terminal

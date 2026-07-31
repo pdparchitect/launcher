@@ -202,8 +202,10 @@ RUN chown -R agent:agent /home/agent /workspace /var/log/launcher-desktop
 
 ENV HOME=/home/agent \
     BROWSER=chromium \
+    DISPLAY=:1 \
     GTK_THEME=Desktop \
     G_RESOURCE_OVERLAYS=/org/gtk/libgtk=/usr/share/launcher-desktop/gtk-overlay \
+    XAUTHORITY=/run/launcher-desktop/Xauthority \
     DESKTOP_TITLE="Agent Desktop"
 
 LABEL org.opencontainers.image.title="Launcher Desktop Base" \

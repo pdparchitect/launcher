@@ -10,8 +10,11 @@ set -euo pipefail
 image="${1:-pdparchitect/launcher-image-hermes-desktop:local}"
 port="${SMOKE_PORT:-16999}"
 preview_port="${SMOKE_PREVIEW_PORT:-17000}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 container=""
 snapshot=""
+browser_snapshot=""
+fixed_mount_dir=""
 
 cleanup() {
     if [ -n "$container" ]; then
@@ -19,6 +22,12 @@ cleanup() {
     fi
     if [ -n "$snapshot" ]; then
         rm -f "$snapshot"
+    fi
+    if [ -n "$browser_snapshot" ]; then
+        rm -f "$browser_snapshot"
+    fi
+    if [ -n "$fixed_mount_dir" ]; then
+        rmdir "$fixed_mount_dir" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT INT TERM
@@ -35,10 +44,17 @@ fail() {
 docker image inspect "$image" >/dev/null 2>&1 ||
     fail "image not built: $image"
 
+docker_mount_args=()
+if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
+    fixed_mount_dir="$(mktemp -d)"
+    docker_mount_args+=(--volume "$fixed_mount_dir:/workspace:ro")
+fi
+
 container="$(
     docker run -d --rm --shm-size=1g \
         -p "${port}:6901" \
         -p "${preview_port}:6902" \
+        "${docker_mount_args[@]}" \
         "$image"
 )"
 
@@ -57,6 +73,13 @@ for _ in $(seq 1 90); do
 done
 [ -n "$ready" ] || fail "KasmVNC never became ready on port ${port}"
 
+if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
+    docker logs "$container" 2>&1 |
+        grep -F 'fixed-ownership mounts detected; using the VM root account' \
+            >/dev/null ||
+        fail "the read-only workspace did not exercise fixed-mount mode"
+fi
+
 in_container() {
     docker exec "$container" bash -c "$1"
 }
@@ -64,10 +87,12 @@ in_container() {
 # The session user must own its home. A root-owned directory here means a
 # build step ran as root with HOME=/home/agent, which silently breaks every
 # application that caches under it.
-strays="$(
-    in_container 'find /home/agent -maxdepth 1 -mindepth 1 ! -user agent -printf "%f\n" 2>/dev/null || true'
-)"
-[ -z "$strays" ] || fail "not owned by the session user in /home/agent: $strays"
+if [ "${SMOKE_FIXED_MOUNTS:-false}" != "true" ]; then
+    strays="$(
+        in_container 'find /home/agent -maxdepth 1 -mindepth 1 ! -user agent -printf "%f\n" 2>/dev/null || true'
+    )"
+    [ -z "$strays" ] || fail "not owned by the session user in /home/agent: $strays"
+fi
 
 # Openbox runs the autostart program, which brings up the panel and the
 # welcome terminal. Give the session a moment to settle.
@@ -83,6 +108,53 @@ done
 
 in_container 'pgrep -x openbox >/dev/null' || fail "openbox is not running"
 in_container 'pgrep -x tint2 >/dev/null' || fail "the panel is not running"
+
+# Products can deliberately run as the unprivileged agent even when an Apple
+# fixed-ownership mount makes the desktop session itself run as root. The base
+# must grant that account access to the display instead of making every product
+# understand how KasmVNC created its Xauthority cookie.
+x_access=""
+for _ in $(seq 1 20); do
+    if in_container 'sudo -u agent env HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xprop -root >/dev/null 2>&1'; then
+        x_access=yes
+        break
+    fi
+    sleep 1
+done
+[ -n "$x_access" ] || fail "the agent account cannot authenticate to the X display"
+
+# A successful xprop only proves that the cookie works for a small X11 client.
+# Launch the real headed browser as the agent account, then capture a known
+# rendered frame. This covers the Apple fixed-mount arrangement where Xvnc and
+# Openbox run as root but product browser requests still run unprivileged.
+browser_profile=/tmp/launcher-browser-smoke
+browser_log=/tmp/launcher-browser-smoke.log
+browser_title=LauncherBrowserSmoke
+browser_url='data:text/html,%3Ctitle%3ELauncherBrowserSmoke%3C/title%3E%3Cbody%20style=margin:0%3Bbackground:%2300ff00%3E'
+in_container "rm -rf '$browser_profile' '$browser_log' /tmp/launcher-browser-smoke.ppm; sudo -u agent env HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
+
+browser_ready=""
+for _ in $(seq 1 30); do
+    if in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' >/dev/null 2>&1"; then
+        browser_ready=yes
+        break
+    fi
+    sleep 1
+done
+[ -n "$browser_ready" ] || fail "Chromium did not create a visible software-rendered window"
+
+if in_container "ps -eo args | grep '[l]auncher-browser-smoke' | grep -Fq -- '--disable-software-rasterizer'"; then
+    fail "Chromium disabled its software rasterizer without a GPU"
+fi
+
+browser_window="$(
+    in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' | head -1"
+)"
+in_container "sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool windowactivate --sync '$browser_window'; sudo -u agent env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority scrot --focused /tmp/launcher-browser-smoke.ppm"
+browser_snapshot="$(mktemp)"
+docker cp "$container:/tmp/launcher-browser-smoke.ppm" "$browser_snapshot" >/dev/null
+python3 "$script_dir/assert-browser-frame.py" "$browser_snapshot" ||
+    fail "Chromium created a window but did not paint its software-rendered page"
 
 # The desktop substrate has to actually be configured, not merely installed.
 # Openbox, tint2, and cortile all start happily with stock defaults, so a

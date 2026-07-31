@@ -4,6 +4,17 @@ Petbox source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.3.4]
+
+- Update to Launcher desktop substrate 0.1.5 so Chromium retains software
+  rendering when the VM has no GPU.
+
+## [0.3.3]
+
+- Update to Launcher desktop substrate 0.1.4 so unprivileged agent tools can
+  authenticate to the X display when fixed Apple mounts require a root desktop
+  session.
+
 ## [0.3.2]
 
 - Replace the remaining Codex Pets terminal artwork with a shared Petbox
