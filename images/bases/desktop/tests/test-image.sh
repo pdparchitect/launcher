@@ -15,6 +15,12 @@ grep -Fq 'apt-get install -y --no-install-recommends chromium' "$dockerfile"
 grep -Fq 'ENTRYPOINT ["/init"]' "$dockerfile"
 grep -Fq 'DESKTOP_PERSISTENT_PATHS' "$project/init.sh"
 grep -Fq 'fixed-ownership mounts detected' "$project/init.sh"
+awk '
+    /if \[ "\$fixed_mounts" = false \]; then/ { guarded = 1 }
+    guarded && /chown "\$runtime_user:\$runtime_group"/ { found = 1 }
+    guarded && /^fi$/ { exit found ? 0 : 1 }
+    END { if (!guarded || !found) exit 1 }
+' "$project/init.sh"
 grep -Fq '/etc/desktop/session.d' "$project/openbox/autostart"
 grep -Fq '/etc/desktop/session.d' "$dockerfile"
 grep -Fq 'chown -R "$runtime_user:$runtime_group" \' "$project/init.sh"

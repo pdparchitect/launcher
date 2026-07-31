@@ -9,6 +9,12 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.3]
+
+- Preserve host-managed ownership after detecting fixed-ownership mounts, so
+  products can persist XDG configuration and data directories under Apple
+  `container` without aborting desktop startup on a rejected `chown`.
+
 ## [0.1.2]
 
 - Add a lightweight desktop preview service on port 6902 that captures the

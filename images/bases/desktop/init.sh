@@ -56,17 +56,19 @@ mkdir -p "$XDG_RUNTIME_DIR"
 chmod 0700 "$XDG_RUNTIME_DIR"
 chmod 1777 /tmp/.X11-unix
 
-chown "$runtime_user:$runtime_group" \
-    "$HOME" \
-    "$HOME/.config" \
-    "$HOME/.local" \
-    "$HOME/.local/share" \
-    "$HOME/.local/share/applications" \
-    "$HOME/.vnc" \
-    "$ranger_data_dir" \
-    "$ranger_bookmarks" \
-    "$XDG_RUNTIME_DIR" \
-    /var/log/launcher-desktop
+if [ "$fixed_mounts" = false ]; then
+    chown "$runtime_user:$runtime_group" \
+        "$HOME" \
+        "$HOME/.config" \
+        "$HOME/.local" \
+        "$HOME/.local/share" \
+        "$HOME/.local/share/applications" \
+        "$HOME/.vnc" \
+        "$ranger_data_dir" \
+        "$ranger_bookmarks" \
+        "$XDG_RUNTIME_DIR" \
+        /var/log/launcher-desktop
+fi
 
 # Named-volume ownership only needs normalizing once. Recursing through the
 # workspace and runtime state on every boot becomes minutes of startup latency
