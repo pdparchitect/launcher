@@ -24,6 +24,9 @@ type Apple struct {
 }
 
 type appleContainer struct {
+	Networks []struct {
+		Network string `json:"network"`
+	} `json:"networks"`
 	Configuration struct {
 		Labels map[string]string `json:"labels"`
 	} `json:"configuration"`
@@ -31,6 +34,13 @@ type appleContainer struct {
 		State     string    `json:"state"`
 		StartedAt time.Time `json:"startedAt"`
 	} `json:"status"`
+}
+
+type appleNetwork struct {
+	ID            string `json:"id"`
+	Configuration struct {
+		Labels map[string]string `json:"labels"`
+	} `json:"configuration"`
 }
 
 type appleStats struct {
@@ -131,6 +141,132 @@ func (apple *Apple) PullWithProgress(
 		return fmt.Errorf("pull image %q: %w", image, err)
 	}
 	return nil
+}
+
+func (apple *Apple) EnsureNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	name := ManagedNetworkName(instanceID)
+	owner, exists, err := apple.networkOwner(ctx, name)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if owner != instanceID {
+			return fmt.Errorf(
+				"refusing to use network %q: managed by %q, expected %q",
+				name,
+				owner,
+				instanceID,
+			)
+		}
+		return nil
+	}
+	if err := apple.runner.Run(
+		ctx,
+		apple.command,
+		[]string{
+			"network", "create",
+			"--label", managedLabel + "=" + instanceID,
+			name,
+		},
+		nil,
+		io.Discard,
+		apple.stderr,
+	); err != nil {
+		return fmt.Errorf("create agent network %q: %w", name, err)
+	}
+	return nil
+}
+
+func (apple *Apple) DeleteNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	name := ManagedNetworkName(instanceID)
+	owner, exists, err := apple.networkOwner(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if owner != instanceID {
+		return fmt.Errorf(
+			"refusing to remove network %q: managed by %q, expected %q",
+			name,
+			owner,
+			instanceID,
+		)
+	}
+	if err := apple.runner.Run(
+		ctx,
+		apple.command,
+		[]string{"network", "delete", name},
+		nil,
+		io.Discard,
+		apple.stderr,
+	); err != nil {
+		return fmt.Errorf("remove agent network %q: %w", name, err)
+	}
+	return nil
+}
+
+func (apple *Apple) NetworkAttached(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (bool, error) {
+	container, err := apple.inspect(ctx, containerName)
+	if err != nil {
+		return false, err
+	}
+	wanted := ManagedNetworkName(instanceID)
+	for _, network := range container.Networks {
+		if network.Network == wanted {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (apple *Apple) networkOwner(
+	ctx context.Context,
+	name string,
+) (string, bool, error) {
+	result, err := apple.runner.Capture(
+		ctx,
+		apple.command,
+		"network",
+		"inspect",
+		name,
+	)
+	if err != nil {
+		if missingAppleNetwork(result) {
+			return "", false, nil
+		}
+		return "", false, commandError("inspect agent network "+name, result, err)
+	}
+	var networks []appleNetwork
+	if err := json.Unmarshal(result.Stdout, &networks); err != nil {
+		return "", false, fmt.Errorf("decode agent network %q: %w", name, err)
+	}
+	if len(networks) != 1 || networks[0].ID != name {
+		return "", false, fmt.Errorf(
+			"inspect agent network %q returned %d unexpected records",
+			name,
+			len(networks),
+		)
+	}
+	return networks[0].Configuration.Labels[managedLabel], true, nil
+}
+
+func missingAppleNetwork(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "network not found") ||
+		strings.Contains(message, "not found") ||
+		strings.Contains(message, "does not exist")
 }
 
 func (apple *Apple) Create(ctx context.Context, request CreateRequest) error {

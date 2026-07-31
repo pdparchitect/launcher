@@ -39,8 +39,13 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 		t.Fatalf("instance = %#v", instance)
 	}
 	if !containerRuntime.pullCalled || !containerRuntime.createCalled ||
-		!containerRuntime.startCalled {
+		!containerRuntime.startCalled || !containerRuntime.ensureNetworkCalled ||
+		containerRuntime.ensureNetworkID != instance.ID {
 		t.Fatalf("runtime calls = %#v", containerRuntime)
+	}
+	if containerRuntime.createRequest.Network !=
+		launchruntime.ManagedNetworkName(instance.ID) {
+		t.Fatalf("runtime network = %q", containerRuntime.createRequest.Network)
 	}
 	if containerRuntime.pullPlatform != "linux/amd64" {
 		t.Fatalf("pull platform = %q, want linux/amd64", containerRuntime.pullPlatform)
@@ -58,8 +63,41 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 		containerRuntime.deleteMountDataID != instance.ID {
 		t.Fatalf("runtime mount-data deletion = %#v", containerRuntime)
 	}
+	if !containerRuntime.deleteNetworkCalled ||
+		containerRuntime.deleteNetworkID != instance.ID {
+		t.Fatalf("runtime network deletion = %#v", containerRuntime)
+	}
 	if _, err := service.store.Get(instance.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted instance error = %v", err)
+	}
+}
+
+func TestStartMigratesLegacyContainerToManagedNetwork(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.networkAttachedKnown = true
+	containerRuntime.networkAttached = false
+
+	started, err := service.Start(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	wantCalls := []string{
+		"inspect-network", "ensure-network", "stop", "remove", "create", "start",
+	}
+	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
+		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
+	}
+	if started.DesiredState != domain.DesiredRunning ||
+		containerRuntime.createRequest.Network !=
+			launchruntime.ManagedNetworkName(instance.ID) {
+		t.Fatalf("migrated instance = %#v, runtime = %#v", started, containerRuntime)
 	}
 }
 
@@ -77,6 +115,9 @@ func TestCreateRollsBackWhenRuntimeCreateFails(t *testing.T) {
 	}
 	if !containerRuntime.deleteMountDataCalled {
 		t.Fatal("runtime mount data was not cleaned up after create failure")
+	}
+	if !containerRuntime.deleteNetworkCalled {
+		t.Fatal("runtime network was not cleaned up after create failure")
 	}
 }
 
@@ -319,7 +360,9 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	wantCalls := []string{"pull", "stop", "remove", "create", "start"}
+	wantCalls := []string{
+		"pull", "ensure-network", "stop", "remove", "create", "start",
+	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
 	}
@@ -363,7 +406,7 @@ func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	wantCalls := []string{"pull", "remove", "create"}
+	wantCalls := []string{"pull", "ensure-network", "remove", "create"}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
 	}
@@ -474,7 +517,7 @@ func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"pull", "stop", "remove", "create", "create", "start",
+		"pull", "ensure-network", "stop", "remove", "create", "create", "start",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
@@ -709,6 +752,12 @@ type fakeRuntime struct {
 	startCalled           bool
 	stopCalled            bool
 	removeCalled          bool
+	ensureNetworkCalled   bool
+	deleteNetworkCalled   bool
+	ensureNetworkID       string
+	deleteNetworkID       string
+	networkAttached       bool
+	networkAttachedKnown  bool
 	deleteMountDataCalled bool
 	deleteMountDataID     string
 	createRequest         launchruntime.CreateRequest
@@ -754,6 +803,35 @@ func (runtime *fakeRuntime) PullWithProgress(
 		progress(message)
 	}
 	return nil
+}
+func (runtime *fakeRuntime) EnsureNetwork(
+	_ context.Context,
+	instanceID string,
+) error {
+	runtime.ensureNetworkCalled = true
+	runtime.ensureNetworkID = instanceID
+	runtime.calls = append(runtime.calls, "ensure-network")
+	return nil
+}
+func (runtime *fakeRuntime) DeleteNetwork(
+	_ context.Context,
+	instanceID string,
+) error {
+	runtime.deleteNetworkCalled = true
+	runtime.deleteNetworkID = instanceID
+	runtime.calls = append(runtime.calls, "delete-network")
+	return nil
+}
+func (runtime *fakeRuntime) NetworkAttached(
+	_ context.Context,
+	_ string,
+	_ string,
+) (bool, error) {
+	runtime.calls = append(runtime.calls, "inspect-network")
+	if !runtime.networkAttachedKnown {
+		return true, nil
+	}
+	return runtime.networkAttached, nil
 }
 func (runtime *fakeRuntime) Create(
 	_ context.Context,
@@ -841,6 +919,10 @@ func (runtime *fakeRuntime) resetCalls() {
 	runtime.startCalled = false
 	runtime.stopCalled = false
 	runtime.removeCalled = false
+	runtime.ensureNetworkCalled = false
+	runtime.deleteNetworkCalled = false
+	runtime.ensureNetworkID = ""
+	runtime.deleteNetworkID = ""
 	runtime.pullImage = ""
 	runtime.pullPlatform = ""
 	runtime.createRequests = nil

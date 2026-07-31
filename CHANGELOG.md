@@ -4,6 +4,15 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.12] - 2026-07-31
+
+### Fixed
+
+- Isolate every agent on its own runtime network so containers cannot reach
+  another agent's unauthenticated services. Existing agents migrate from the
+  shared default network the next time they start, and their managed network
+  is removed when they are deleted.
+
 ## [0.4.11] - 2026-07-31
 
 ### Fixed

@@ -25,6 +25,7 @@ const (
 type CreateRequest struct {
 	InstanceID    string
 	ContainerName string
+	Network       string
 	Image         string
 	Ports         map[int]int
 	Platform      string
@@ -45,6 +46,9 @@ type Metrics struct {
 type Lifecycle interface {
 	Doctor(context.Context) (string, error)
 	Pull(context.Context, string, string) error
+	EnsureNetwork(context.Context, string) error
+	DeleteNetwork(context.Context, string) error
+	NetworkAttached(context.Context, string, string) (bool, error)
 	Create(context.Context, CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
@@ -53,6 +57,10 @@ type Lifecycle interface {
 	Stats(context.Context, string) (Metrics, error)
 	RecentLogs(context.Context, string, int) (string, error)
 	Logs(context.Context, string, bool) error
+}
+
+func ManagedNetworkName(instanceID string) string {
+	return "launcher-agent-" + instanceID
 }
 
 type Result struct {

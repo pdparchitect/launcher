@@ -235,6 +235,37 @@ func (missing *Missing) PullWithProgress(
 	}
 	return resolved.Pull(ctx, image, platform)
 }
+func (missing *Missing) EnsureNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.EnsureNetwork(ctx, instanceID)
+}
+func (missing *Missing) DeleteNetwork(
+	ctx context.Context,
+	instanceID string,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.DeleteNetwork(ctx, instanceID)
+}
+func (missing *Missing) NetworkAttached(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (bool, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return false, err
+	}
+	return resolved.NetworkAttached(ctx, containerName, instanceID)
+}
 func (missing *Missing) Create(ctx context.Context, request CreateRequest) error {
 	resolved, err := missing.resolve()
 	if err != nil {
