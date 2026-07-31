@@ -33,7 +33,7 @@ grep -Fq 'background            #1B1913' \
 grep -Fq 'cursor_text_color     #1B1913' \
     "$overlay/etc/xdg/kitty/theme.conf"
 grep -Fiq '#EDECEC' "$overlay/etc/xdg/kitty/theme.conf"
-grep -Fiq '#14120B' "$overlay/usr/share/backgrounds/desktop-wallpaper.svg"
+grep -Fiq '#14120B' "$overlay/usr/share/backgrounds/desktop-wallpaper.jpg"
 grep -Fiq '#14120B' "$project/launcher/icon.svg"
 grep -Fiq '#14120B' "$overlay/opt/browser/index.html"
 grep -Fiq '#EDECEC' "$overlay/opt/browser/index.html"
