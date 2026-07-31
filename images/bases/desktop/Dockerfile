@@ -16,8 +16,9 @@ WORKDIR /src
 COPY bridge/go.mod bridge/go.sum ./
 RUN go mod download
 COPY bridge/ ./
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags='-s -w' -o /out/desktop-bridge .
+RUN go test ./... && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+        go build -trimpath -ldflags='-s -w' -o /out/desktop-bridge .
 
 FROM ${NODE_IMAGE}
 

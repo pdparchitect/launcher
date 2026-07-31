@@ -71,9 +71,8 @@ assert_installs kasm/favicon.svg /usr/share/kasmvnc/www/assets/favicon.svg
 assert_installs kasm/patch.sh /usr/local/bin/kasm-patch
 grep -Fq 'COPY --from=desktop-bridge-build /out/desktop-bridge /usr/local/bin/desktop-bridge' \
     "$dockerfile"
+grep -Fq 'RUN go test ./... && \' "$dockerfile"
 assert_installs browser /opt/browser
-
-(cd "$project/bridge" && go test ./...)
 
 theme_name="$(
     sed -n 's|.*<name>\(.*\)</name>.*|\1|p' "$project/openbox/rc.xml" | head -1
