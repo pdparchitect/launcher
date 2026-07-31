@@ -37,8 +37,9 @@ so it can be skipped or swapped. Versions match the Pantalk Ghost toolchain.
 - Chrome on AMD64 and Chromium on ARM64, with a GTK system theme and a
   symbolic resource overlay generated from the Openbox glyph masks, so the
   browser's native menus and window controls match the desktop
-- an on-demand JPEG preview of the active X display, served independently from
-  KasmVNC on port 6902
+- a Go desktop bridge on port 6902 with health, notification, and on-demand
+  JPEG preview endpoints; it owns the standard freedesktop notification
+  service so desktop applications and `notify-send` reach Launcher
 - a non-root `agent` user, `/workspace`, entrypoint and health check
 - fixed-ownership mount handling for Apple `container`
 
@@ -159,7 +160,8 @@ Then open <http://localhost:6901> for the interactive desktop or
 <http://localhost:6902/preview.jpg> for the current non-interactive snapshot.
 No login is required; the desktop entrypoint starts KasmVNC with basic auth
 disabled. The preview is captured on demand and cached inside the container for
-two seconds.
+two seconds. The same bridge exposes `/healthz` and a cursor-based
+`/notifications` feed.
 
 `run` depends on the target it serves, so it always builds first and can never
 put a stale image on screen.

@@ -3,6 +3,8 @@
 !init.sh
 !browser
 !browser/**
+!bridge
+!bridge/**
 !cortile
 !cortile/**
 !gtk

@@ -13,6 +13,9 @@ bash tools/check-project-programs.sh "$project"
 grep -Fq 'kasmvncserver_noble_${KASMVNC_VERSION}_${arch}.deb' "$dockerfile"
 grep -Fq 'apt-get install -y --no-install-recommends chromium' "$dockerfile"
 grep -Fq 'ENTRYPOINT ["/init"]' "$dockerfile"
+grep -Fq 'exec dbus-run-session -- openbox-session' "$project/init.sh"
+grep -Fq 'desktop-bridge >>/var/log/launcher-desktop/bridge.log' \
+    "$project/openbox/autostart"
 grep -Fq 'DESKTOP_PERSISTENT_PATHS' "$project/init.sh"
 grep -Fq 'fixed-ownership mounts detected' "$project/init.sh"
 grep -Fq 'XAUTHORITY=/run/launcher-desktop/Xauthority' "$dockerfile"
@@ -66,8 +69,11 @@ assert_installs cortile/cortile-config.toml /home/agent/.config/cortile/config.t
 assert_installs kasm/custom.css /usr/share/kasmvnc/www/assets/custom.css
 assert_installs kasm/favicon.svg /usr/share/kasmvnc/www/assets/favicon.svg
 assert_installs kasm/patch.sh /usr/local/bin/kasm-patch
-assert_installs shell/desktop-preview /usr/local/bin/desktop-preview
+grep -Fq 'COPY --from=desktop-bridge-build /out/desktop-bridge /usr/local/bin/desktop-bridge' \
+    "$dockerfile"
 assert_installs browser /opt/browser
+
+(cd "$project/bridge" && go test ./...)
 
 theme_name="$(
     sed -n 's|.*<name>\(.*\)</name>.*|\1|p' "$project/openbox/rc.xml" | head -1

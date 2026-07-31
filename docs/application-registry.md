@@ -107,10 +107,13 @@ Media paths are relative to the owning `launcher/` directory.
 `interfaces` maps application-defined interface IDs to the HTTP contracts
 exposed by the container. IDs such as `desktop`, `agent`, or `filesystem` are
 stable names within one application. `kind` selects the Launcher integration;
-the initial kinds are `web`, `kasmweb`, `acp`, and `mcp`. Several interfaces
-may use the same kind, port, or both. Launcher publishes each distinct
-container port once and resolves every interface to its own local URL using
-the declared path.
+the built-in kinds are `web`, `kasmweb`, `preview`, `notifications`, `health`,
+`acp`, and `mcp`. Launcher consumes `notifications` as a cursor-based native
+notification feed; `preview` provides live application artwork, while
+`health` exposes structured component readiness. Several interfaces may use
+the same kind, port, or both. Launcher publishes each distinct container port
+once and resolves every interface to its own local URL using the declared
+path.
 
 Mounts use host-backed agent storage by default so their contents remain
 available through Launcher's files view. A service which needs

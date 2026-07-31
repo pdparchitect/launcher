@@ -108,6 +108,42 @@ done
 
 in_container 'pgrep -x openbox >/dev/null' || fail "openbox is not running"
 in_container 'pgrep -x tint2 >/dev/null' || fail "the panel is not running"
+in_container 'pgrep -x desktop-bridge >/dev/null' ||
+    fail "the desktop bridge is not running"
+
+curl -fsS "http://127.0.0.1:${preview_port}/healthz" |
+    jq -e '
+        .status == "ready" and
+        .components.bridge == "ready" and
+        .components.notifications == "ready"
+    ' >/dev/null || fail "the desktop bridge health response is invalid"
+
+# Command-line agents use the standard freedesktop client. Read the bridge's
+# inherited bus address as the same account because /proc hides another user's
+# environment in some container runtimes.
+bridge_user="$(
+    in_container 'ps -o user= -p "$(pgrep -xo desktop-bridge)"' | xargs
+)"
+docker exec --user "$bridge_user" "$container" bash -c '
+    bridge_pid="$(pgrep -xo desktop-bridge)"
+    bus_address="$(
+        tr "\0" "\n" < "/proc/${bridge_pid}/environ" |
+            sed -n "s/^DBUS_SESSION_BUS_ADDRESS=//p"
+    )"
+    test -n "$bus_address"
+    DBUS_SESSION_BUS_ADDRESS="$bus_address" \
+        notify-send --app-name=LauncherSmoke "Bridge notification" "Delivered"
+' || fail "notify-send could not reach the desktop bridge"
+curl -fsS "http://127.0.0.1:${preview_port}/notifications" |
+    jq -e '
+        .nextCursor != "" and
+        any(
+            .notifications[];
+            .app == "LauncherSmoke" and
+            .title == "Bridge notification" and
+            .body == "Delivered"
+        )
+    ' >/dev/null || fail "the desktop bridge did not expose the notification"
 
 # Products can deliberately run as the unprivileged agent even when an Apple
 # fixed-ownership mount makes the desktop session itself run as root. The base

@@ -81,6 +81,12 @@ for product_dir in "${product_dirs[@]}"; do
         exit 1
     fi
     if ! jq -e '
+        .interfaces.health.kind == "health" and
+        .interfaces.health.port == 6902 and
+        .interfaces.health.path == "/healthz" and
+        .interfaces.notifications.kind == "notifications" and
+        .interfaces.notifications.port == 6902 and
+        .interfaces.notifications.path == "/notifications" and
         .interfaces.preview.kind == "preview" and
         .interfaces.preview.port == 6902 and
         .interfaces.preview.path == "/preview.jpg"

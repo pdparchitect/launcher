@@ -8,6 +8,11 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.11]
+
+- Update to Launcher desktop substrate 0.1.7 and declare its shared health and
+  native-notification bridge interfaces.
+
 ## [0.1.10]
 
 - Update to Launcher desktop substrate 0.1.6 so root-launched Chromium

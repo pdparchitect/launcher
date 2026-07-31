@@ -4,6 +4,14 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.13] - 2026-07-31
+
+### Added
+
+- Poll each running agent's declared `notifications` interface and forward its
+  cursor-based events to native desktop notifications without replaying noisy
+  failures.
+
 ## [0.4.12] - 2026-07-31
 
 ### Fixed

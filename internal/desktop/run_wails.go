@@ -125,6 +125,8 @@ func run(
 
 	finished := make(chan struct{})
 	defer close(finished)
+	notificationContext, stopNotifications := context.WithCancel(ctx)
+	defer stopNotifications()
 
 	serverOptions := []httpapi.Option{
 		httpapi.WithLogger(runOptions.Stdout),
@@ -179,6 +181,12 @@ func run(
 		},
 		OnStartup: func(wailsContext context.Context) {
 			nativehost.Install()
+			go runNativeNotifications(
+				notificationContext,
+				wailsContext,
+				service,
+				runOptions.Stdout,
+			)
 			go func() {
 				select {
 				case <-ctx.Done():
