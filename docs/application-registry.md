@@ -112,6 +112,14 @@ may use the same kind, port, or both. Launcher publishes each distinct
 container port once and resolves every interface to its own local URL using
 the declared path.
 
+Mounts use host-backed agent storage by default so their contents remain
+available through Launcher's files view. A service which needs
+runtime-managed storage, such as PostgreSQL, may add `"storage": "volume"` to
+its mount. Docker supplies a named Docker volume and Apple `container`
+supplies a native volume; both retain Linux ownership metadata. Use volume
+storage only for application-private state rather than user-facing workspaces.
+`"storage": "host"` is the explicit form of the default.
+
 ## Publish an application update
 
 Application metadata ships with its image release:

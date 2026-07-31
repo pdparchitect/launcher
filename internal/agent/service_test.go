@@ -54,21 +54,29 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 	if err := service.Delete(t.Context(), "Ada"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
+	if !containerRuntime.deleteMountDataCalled ||
+		containerRuntime.deleteMountDataID != instance.ID {
+		t.Fatalf("runtime mount-data deletion = %#v", containerRuntime)
+	}
 	if _, err := service.store.Get(instance.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted instance error = %v", err)
 	}
 }
 
 func TestCreateRollsBackWhenRuntimeCreateFails(t *testing.T) {
-	service := newTestService(t, &fakeRuntime{
+	containerRuntime := &fakeRuntime{
 		createErr: errors.New("create failed"),
-	})
+	}
+	service := newTestService(t, containerRuntime)
 	if _, err := service.Create(t.Context(), CreateOptions{Name: "Ada"}); err == nil {
 		t.Fatal("Create() error = nil")
 	}
 	instances, err := service.store.List()
 	if err != nil || len(instances) != 0 {
 		t.Fatalf("instances after rollback = %#v, %v", instances, err)
+	}
+	if !containerRuntime.deleteMountDataCalled {
+		t.Fatal("runtime mount data was not cleaned up after create failure")
 	}
 }
 
@@ -695,27 +703,29 @@ func (allocator *sequencePortAllocator) Allocate(
 }
 
 type fakeRuntime struct {
-	status         launchruntime.Status
-	pullCalled     bool
-	createCalled   bool
-	startCalled    bool
-	stopCalled     bool
-	removeCalled   bool
-	createRequest  launchruntime.CreateRequest
-	createRequests []launchruntime.CreateRequest
-	createErr      error
-	createErrors   []error
-	metrics        launchruntime.Metrics
-	statsErr       error
-	recentLogs     string
-	recentLogName  string
-	recentLogLines int
-	statusFunc     func(context.Context, string) (launchruntime.Status, error)
-	statsFunc      func(context.Context, string) (launchruntime.Metrics, error)
-	pullProgress   []string
-	pullImage      string
-	pullPlatform   string
-	calls          []string
+	status                launchruntime.Status
+	pullCalled            bool
+	createCalled          bool
+	startCalled           bool
+	stopCalled            bool
+	removeCalled          bool
+	deleteMountDataCalled bool
+	deleteMountDataID     string
+	createRequest         launchruntime.CreateRequest
+	createRequests        []launchruntime.CreateRequest
+	createErr             error
+	createErrors          []error
+	metrics               launchruntime.Metrics
+	statsErr              error
+	recentLogs            string
+	recentLogName         string
+	recentLogLines        int
+	statusFunc            func(context.Context, string) (launchruntime.Status, error)
+	statsFunc             func(context.Context, string) (launchruntime.Metrics, error)
+	pullProgress          []string
+	pullImage             string
+	pullPlatform          string
+	calls                 []string
 }
 
 func (*fakeRuntime) Doctor(context.Context) (string, error) { return "test", nil }
@@ -776,6 +786,15 @@ func (runtime *fakeRuntime) Remove(context.Context, string, string) error {
 	runtime.removeCalled = true
 	runtime.status = launchruntime.StatusMissing
 	runtime.calls = append(runtime.calls, "remove")
+	return nil
+}
+func (runtime *fakeRuntime) DeleteMountData(
+	_ context.Context,
+	instanceID string,
+	_ catalog.Manifest,
+) error {
+	runtime.deleteMountDataCalled = true
+	runtime.deleteMountDataID = instanceID
 	return nil
 }
 func (runtime *fakeRuntime) Status(

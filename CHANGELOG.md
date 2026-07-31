@@ -4,6 +4,25 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.10] - 2026-07-31
+
+### Added
+
+- Add a native macOS Help-menu action for reporting bugs and requesting
+  improvements through GitHub Issues.
+- Let application mounts select `host` or `volume` storage. Docker and Apple
+  `container` supply persistent runtime-managed volumes while continuing to
+  expose ordinary workspaces and configuration as host bind mounts. This lets
+  services such as PostgreSQL retain Linux ownership semantics on macOS.
+
+### Fixed
+
+- Place the native macOS update action in its own section at the top of the
+  application menu instead of between the standard Hide commands.
+- Delete runtime-native application volumes with their owning agent and clean
+  them up when initial container creation fails, while preserving them across
+  image updates.
+
 ## [0.4.9] - 2026-07-31
 
 ### Changed

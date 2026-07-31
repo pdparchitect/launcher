@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pdparchitect/launcher/internal/catalog"
 )
 
 type Apple struct {
@@ -189,6 +191,36 @@ func (apple *Apple) Remove(
 		return fmt.Errorf("remove container %q: %w", name, err)
 	}
 	return nil
+}
+
+// DeleteMountData removes runtime-native volumes after the owning agent is
+// deleted. Container replacement during an image update intentionally does
+// not call this method, so the same deterministic volume is reattached.
+func (apple *Apple) DeleteMountData(
+	ctx context.Context,
+	instanceID string,
+	manifest catalog.Manifest,
+) error {
+	for _, mount := range manifest.Mounts {
+		if mount.Storage != catalog.MountStorageVolume {
+			continue
+		}
+		name := managedVolumeName(instanceID, mount.Name)
+		result, err := apple.runner.Capture(
+			ctx, apple.command, "volume", "delete", name,
+		)
+		if err != nil && !missingAppleVolume(result) {
+			return commandError("delete Apple container volume "+name, result, err)
+		}
+	}
+	return nil
+}
+
+func missingAppleVolume(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "not found") ||
+		strings.Contains(message, "no such volume") ||
+		strings.Contains(message, "does not exist")
 }
 
 func (apple *Apple) Status(ctx context.Context, name string) (Status, error) {

@@ -46,6 +46,27 @@ func TestCreateListAndDeleteInstance(t *testing.T) {
 	}
 }
 
+func TestCreateDoesNotCreateHostPathForRuntimeVolume(t *testing.T) {
+	dataStore := New(t.TempDir())
+	manifest := testManifest()
+	manifest.Mounts = append(manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+	instance := testInstance("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ada")
+
+	paths, err := dataStore.Create(instance, manifest)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, exists := paths.Mounts["private/services"]; exists {
+		t.Fatalf("Paths().Mounts contains runtime volume: %#v", paths.Mounts)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Root, "private/services")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime volume host path exists: %v", err)
+	}
+}
+
 func TestCreateRejectsDuplicateName(t *testing.T) {
 	dataStore := New(t.TempDir())
 	if _, err := dataStore.Create(

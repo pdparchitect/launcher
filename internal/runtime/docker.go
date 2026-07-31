@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pdparchitect/launcher/internal/catalog"
 )
 
 const managedLabel = "dev.pdparchitect.launcher.instance"
@@ -145,6 +148,34 @@ func (docker *Docker) Remove(
 		return fmt.Errorf("remove container %q: %w", name, err)
 	}
 	return nil
+}
+
+// DeleteMountData removes Docker-managed volumes after their owning agent is
+// deleted. Image updates only replace the container and retain these volumes.
+func (docker *Docker) DeleteMountData(
+	ctx context.Context,
+	instanceID string,
+	manifest catalog.Manifest,
+) error {
+	for _, mount := range manifest.Mounts {
+		if mount.Storage != catalog.MountStorageVolume {
+			continue
+		}
+		name := managedVolumeName(instanceID, mount.Name)
+		result, err := docker.runner.Capture(
+			ctx, docker.command, "volume", "rm", name,
+		)
+		if err != nil && !missingDockerVolume(result) {
+			return commandError("delete Docker volume "+name, result, err)
+		}
+	}
+	return nil
+}
+
+func missingDockerVolume(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "no such volume") ||
+		strings.Contains(message, "not found")
 }
 
 func (docker *Docker) Status(ctx context.Context, name string) (Status, error) {
@@ -373,13 +404,24 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 		args = append(args, "--env", key+"="+environment[key])
 	}
 	for _, mount := range request.Manifest.Mounts {
-		source, exists := request.Paths[mount.Name]
-		if !exists {
-			return nil, fmt.Errorf("mount path %q is missing", mount.Name)
+		var source string
+		if mount.Storage == catalog.MountStorageVolume {
+			source = managedVolumeName(request.InstanceID, mount.Name)
+		} else {
+			var exists bool
+			source, exists = request.Paths[mount.Name]
+			if !exists {
+				return nil, fmt.Errorf("mount path %q is missing", mount.Name)
+			}
 		}
 		args = append(args, "--volume", source+":"+mount.Target)
 	}
 	return append(args, request.Image), nil
+}
+
+func managedVolumeName(instanceID string, mountName string) string {
+	digest := sha256.Sum256([]byte(mountName))
+	return fmt.Sprintf("launcher-%s-%x", instanceID, digest[:6])
 }
 
 func commandError(action string, result Result, err error) error {
