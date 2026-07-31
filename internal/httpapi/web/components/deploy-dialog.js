@@ -15,8 +15,8 @@ export class DeployDialog extends HTMLElement {
         <form method="dialog" class="dialog-panel" data-form>
           <header class="dialog-heading">
             <div>
-              <small class="eyebrow">NEW LOCAL AGENT</small>
-              <h2>DEPLOY AGENT</h2>
+              <small class="eyebrow" data-eyebrow>NEW LOCAL AGENT</small>
+              <h2 data-title>DEPLOY AGENT</h2>
             </div>
             <button class="icon-button" data-close type="button"
               aria-label="Close deployment dialog">×</button>
@@ -30,7 +30,7 @@ export class DeployDialog extends HTMLElement {
             </span>
           </div>
           <p class="dialog-copy" data-description></p>
-          <label class="field">
+          <label class="field" data-name-field>
             <span>AGENT NAME</span>
             <input name="agentName" data-agent-name maxlength="64"
               autocomplete="off" required>
@@ -66,7 +66,25 @@ export class DeployDialog extends HTMLElement {
     this.form.addEventListener('submit', (event) => {
       event.preventDefault()
 
-      if (!this.entry || this.busy || !this.form.reportValidity()) {
+      if (this.busy || !this.form.reportValidity()) {
+        return
+      }
+
+      if (this.completedAgent) {
+        const agent = this.completedAgent
+
+        this.close()
+        this.dispatchEvent(
+          new CustomEvent('open-agent', {
+            bubbles: true,
+            detail: { agent },
+          })
+        )
+
+        return
+      }
+
+      if (!this.entry) {
         return
       }
 
@@ -100,8 +118,12 @@ export class DeployDialog extends HTMLElement {
 
   open(entry) {
     this.entry = entry
+    this.completedAgent = null
     this.setBusy(false)
     this.showError('')
+    this.querySelector('[data-eyebrow]').textContent = 'NEW LOCAL AGENT'
+    this.querySelector('[data-title]').textContent = 'DEPLOY AGENT'
+    this.querySelector('[data-name-field]').hidden = false
     this.querySelector('[data-progress]').hidden = true
     this.logLines = []
     this.lastLogLine = ''
@@ -145,7 +167,24 @@ export class DeployDialog extends HTMLElement {
     this.querySelector('[data-agent-name]').disabled = busy
     this.querySelector('[data-submit]').textContent = busy
       ? 'INSTALLING…'
+      : this.completedAgent
+      ? 'OPEN AGENT'
       : 'INSTALL & START'
+    this.querySelector('[data-cancel]').textContent = this.completedAgent
+      ? 'NOT NOW'
+      : 'CANCEL'
+  }
+
+  complete(agent) {
+    this.completedAgent = agent
+    this.setBusy(false)
+    this.querySelector('[data-eyebrow]').textContent = 'INSTALLATION COMPLETE'
+    this.querySelector('[data-title]').textContent = 'AGENT READY'
+    this.querySelector('[data-name-field]').hidden = true
+
+    requestAnimationFrame(() => {
+      this.querySelector('[data-submit]').focus()
+    })
   }
 
   setProgress(update) {

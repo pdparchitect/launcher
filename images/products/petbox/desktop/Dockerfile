@@ -55,6 +55,7 @@ RUN chmod 0755 \
         /usr/local/bin/desktop-selftest \
         /usr/local/bin/desktop-welcome \
         /usr/local/bin/pen-greeting \
+        /usr/local/bin/petbox-banner \
         /usr/local/bin/pet-habitat \
         /usr/local/bin/pet-run \
         /usr/local/bin/pet-sprite \

@@ -6,22 +6,11 @@
 
 set -euo pipefail
 
-accent='\033[38;5;222m'
 mint='\033[38;5;79m'
 dim='\033[2m'
 reset='\033[0m'
 
-# Block letters rather than figlet: every glyph is two cells wide, so the
-# banner is on the same pixel grid as the pets and the wallpaper.
-printf "${accent}"
-cat <<'BANNER'
-  ██████  ██████  ████    ██████  ██  ██          ██████  ██████  ██████  ██████
-  ██      ██  ██  ██  ██  ██      ██  ██          ██  ██  ██        ██    ██
-  ██      ██  ██  ██  ██  ████      ██            ██████  ████      ██    ██████
-  ██      ██  ██  ██  ██  ██      ██  ██          ██      ██        ██        ██
-  ██████  ██████  ████    ██████  ██  ██          ██      ██████    ██    ██████
-BANNER
-printf "${reset}\n"
+petbox-banner
 
 printf "${dim}  Every pet is a directory in /workspace/pets. AGENTS.md says who it\n"
 printf "  is, Codex does the thinking, and the sprite is how it says hello.${reset}\n\n"

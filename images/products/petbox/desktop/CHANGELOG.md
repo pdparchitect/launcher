@@ -4,6 +4,12 @@ Petbox source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.3.2]
+
+- Replace the remaining Codex Pets terminal artwork with a shared Petbox
+  banner used by both the sign-in and welcome flows.
+- Refresh the Launcher screenshot with the current Petbox branding.
+
 ## [0.3.1]
 
 - Expose the shared desktop screenshot endpoint as the Launcher `preview`

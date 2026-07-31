@@ -1,0 +1,17 @@
+#!/bin/bash
+# petbox-banner - shared product banner for Petbox terminal flows.
+
+set -euo pipefail
+
+accent='\033[38;5;222m'
+reset='\033[0m'
+
+printf "${accent}"
+cat <<'BANNER'
+  ██████  ██████  ██████  ████    ██████  ██  ██
+  ██  ██  ██        ██    ██  ██  ██  ██  ██  ██
+  ██████  ████      ██    ████    ██  ██    ██
+  ██      ██        ██    ██  ██  ██  ██  ██  ██
+  ██      ██████    ██    ████    ██████  ██  ██
+BANNER
+printf "${reset}\n"
