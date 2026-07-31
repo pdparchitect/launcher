@@ -28,6 +28,12 @@ MIMEAPPS
 fi
 export BROWSER=chromium
 
+# The bridge owns the standard desktop notification service and exposes
+# notifications, health, and preview capture to Launcher over one HTTP port.
+# Starting it here gives it the same dbus-run-session address as every desktop
+# application while keeping it independent from the KasmVNC process.
+desktop-bridge >>/var/log/launcher-desktop/bridge.log 2>&1 &
+
 # Make kitty open detected URLs with a simple click and delegate to xdg-open.
 #
 # @note The rendering block matters more than it looks. Kitty is an OpenGL

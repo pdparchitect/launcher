@@ -9,6 +9,15 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.7]
+
+- Replace the Python preview daemon with a small Go desktop bridge that shares
+  the graphical D-Bus session, owns `org.freedesktop.Notifications`, and
+  exposes bounded in-memory notifications, health, and preview capture over
+  port 6902.
+- Install `notify-send` for command-line agents and start the entire Openbox
+  session under one explicit D-Bus session.
+
 ## [0.1.6]
 
 - Copy the active display cookie to root's default Xauthority location before
