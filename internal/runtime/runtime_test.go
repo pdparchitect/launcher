@@ -60,6 +60,113 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 	}
 }
 
+func TestAppleCreateUsesNativeVolumeForVolumeStorage(t *testing.T) {
+	runner := &fakeRunner{}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+	request := testCreateRequest("linux/arm64")
+	request.Manifest.Mounts = append(request.Manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+	request.Paths["private/services"] = "/data/agents/a/private/services"
+
+	if err := apple.Create(t.Context(), request); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	wantVolume := managedVolumeName(request.InstanceID, "private/services")
+	want := []string{
+		"create",
+		"--name", "launcher-ghost-aaaaaaaaaaaa",
+		"--platform", "linux/arm64",
+		"--label", managedLabel + "=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--memory", "4g",
+		"--shm-size", "1g",
+		"--publish", "127.0.0.1:16902:6901",
+		"--env", "PANTALK_AUTOSTART=true",
+		"--volume", "/data/agents/a/workspace:/workspace",
+		"--volume", wantVolume + ":/var/lib/services",
+		"pantalk/ghost:test",
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("Create() args = %#v\nwant %#v", runner.runArgs, want)
+	}
+}
+
+func TestDockerCreateUsesNamedVolumeForVolumeStorage(t *testing.T) {
+	runner := &fakeRunner{}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+	request := testCreateRequest("linux/amd64")
+	request.Manifest.Mounts = append(request.Manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+	request.Paths["private/services"] = "/data/agents/a/private/services"
+
+	if err := docker.Create(t.Context(), request); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	wantMount := managedVolumeName(
+		request.InstanceID, "private/services",
+	) + ":/var/lib/services"
+	if !containsString(runner.runArgs, wantMount) {
+		t.Fatalf("Create() args = %#v, missing %q", runner.runArgs, wantMount)
+	}
+}
+
+func TestAppleDeleteMountDataRemovesRuntimeVolumes(t *testing.T) {
+	runner := &fakeRunner{}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+	manifest := testCreateRequest("linux/arm64").Manifest
+	manifest.Mounts = append(manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+
+	err := apple.DeleteMountData(
+		t.Context(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", manifest,
+	)
+	if err != nil {
+		t.Fatalf("DeleteMountData() error = %v", err)
+	}
+	want := []string{
+		"volume", "delete",
+		managedVolumeName(
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "private/services",
+		),
+	}
+	if len(runner.captureArgs) != 1 ||
+		!reflect.DeepEqual(runner.captureArgs[0], want) {
+		t.Fatalf("DeleteMountData() args = %#v, want %#v", runner.captureArgs, want)
+	}
+}
+
+func TestDockerDeleteMountDataRemovesRuntimeVolumes(t *testing.T) {
+	runner := &fakeRunner{}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+	manifest := testCreateRequest("linux/amd64").Manifest
+	manifest.Mounts = append(manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+
+	err := docker.DeleteMountData(
+		t.Context(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", manifest,
+	)
+	if err != nil {
+		t.Fatalf("DeleteMountData() error = %v", err)
+	}
+	want := []string{
+		"volume", "rm",
+		managedVolumeName(
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "private/services",
+		),
+	}
+	if len(runner.captureArgs) != 1 ||
+		!reflect.DeepEqual(runner.captureArgs[0], want) {
+		t.Fatalf("DeleteMountData() args = %#v, want %#v", runner.captureArgs, want)
+	}
+}
+
 func TestDockerPullStreamsCommandOutput(t *testing.T) {
 	runner := &fakeRunner{
 		runStdout: "first layer complete\nsecond layer downloading\r",

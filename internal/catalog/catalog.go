@@ -80,9 +80,15 @@ type Screenshot struct {
 }
 
 type Mount struct {
-	Name   string `json:"name"`
-	Target string `json:"target"`
+	Name    string `json:"name"`
+	Target  string `json:"target"`
+	Storage string `json:"storage,omitempty"`
 }
+
+const (
+	MountStorageHost   = "host"
+	MountStorageVolume = "volume"
+)
 
 type Interface struct {
 	Kind string `json:"kind"`
@@ -418,6 +424,16 @@ func (manifest Manifest) Validate() error {
 		}
 		if !path.IsAbs(mount.Target) || path.Clean(mount.Target) == "/" {
 			return fmt.Errorf("mount target %q must be an absolute path", mount.Target)
+		}
+		if mount.Storage != "" &&
+			mount.Storage != MountStorageHost &&
+			mount.Storage != MountStorageVolume {
+			return fmt.Errorf(
+				"mount storage %q must be %q or %q when specified",
+				mount.Storage,
+				MountStorageHost,
+				MountStorageVolume,
+			)
 		}
 		if _, exists := seen[mount.Name]; exists {
 			return fmt.Errorf("mount name %q is duplicated", mount.Name)

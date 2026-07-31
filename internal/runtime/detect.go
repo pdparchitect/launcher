@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/pdparchitect/launcher/internal/catalog"
 )
 
 type Kind string
@@ -264,6 +266,22 @@ func (missing *Missing) Remove(
 		return err
 	}
 	return resolved.Remove(ctx, name, instanceID)
+}
+func (missing *Missing) DeleteMountData(
+	ctx context.Context,
+	instanceID string,
+	manifest catalog.Manifest,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	if dataRuntime, ok := resolved.(interface {
+		DeleteMountData(context.Context, string, catalog.Manifest) error
+	}); ok {
+		return dataRuntime.DeleteMountData(ctx, instanceID, manifest)
+	}
+	return nil
 }
 func (missing *Missing) Status(ctx context.Context, name string) (Status, error) {
 	resolved, err := missing.resolve()

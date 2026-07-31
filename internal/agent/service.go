@@ -42,6 +42,10 @@ type pullProgressRuntime interface {
 	PullWithProgress(context.Context, string, string, func(string)) error
 }
 
+type mountDataRuntime interface {
+	DeleteMountData(context.Context, string, catalog.Manifest) error
+}
+
 type PortAllocator interface {
 	Allocate(int, map[int]struct{}) (int, error)
 }
@@ -283,8 +287,16 @@ func (service *Service) Create(
 		return domain.Instance{}, err
 	}
 	created := false
+	runtimeCreateAttempted := false
 	defer func() {
 		if !created {
+			if runtimeCreateAttempted {
+				if dataRuntime, ok := service.runtime.(mountDataRuntime); ok {
+					_ = dataRuntime.DeleteMountData(
+						context.WithoutCancel(ctx), instance.ID, manifest,
+					)
+				}
+			}
 			_ = service.store.Delete(instance.ID)
 		}
 	}()
@@ -306,6 +318,7 @@ func (service *Service) Create(
 		return domain.Instance{}, err
 	}
 	options.report(CreateStageCreating, "Creating agent container")
+	runtimeCreateAttempted = true
 	if err := service.runtime.Create(ctx, launchruntime.CreateRequest{
 		InstanceID: instance.ID, ContainerName: instance.ContainerName,
 		Image: instance.Image, Ports: runtimePorts(instance, manifest),
@@ -767,6 +780,15 @@ func (service *Service) Delete(ctx context.Context, reference string) error {
 		ctx, instance.ContainerName, instance.ID,
 	); err != nil {
 		return err
+	}
+	if manifest, exists := service.manifest(instance.CatalogID); exists {
+		if dataRuntime, ok := service.runtime.(mountDataRuntime); ok {
+			if err := dataRuntime.DeleteMountData(
+				ctx, instance.ID, manifest,
+			); err != nil {
+				return err
+			}
+		}
 	}
 	return service.store.Delete(instance.ID)
 }

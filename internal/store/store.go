@@ -183,6 +183,9 @@ func (dataStore *Store) Paths(id string, manifest catalog.Manifest) Paths {
 	root := dataStore.instanceRoot(id)
 	mounts := make(map[string]string, len(manifest.Mounts))
 	for _, mount := range manifest.Mounts {
+		if mount.Storage == catalog.MountStorageVolume {
+			continue
+		}
 		mounts[mount.Name] = filepath.Join(root, filepath.FromSlash(mount.Name))
 	}
 	return Paths{Root: root, Mounts: mounts}

@@ -51,12 +51,10 @@ private final class LauncherUpdateMenu: NSObject {
             return
         }
 
-        // The standard About item is first; update checks conventionally sit
-        // immediately below it and above the app-menu separator.
-        applicationMenu.insertItem(
-            item,
-            at: min(1, applicationMenu.items.count)
-        )
+        // Wails builds this menu from the standard Hide/Show/Quit commands.
+        // Keep update checks in a separate section above that group.
+        applicationMenu.insertItem(item, at: 0)
+        applicationMenu.insertItem(.separator(), at: 1)
     }
 
     func update(from status: [String: Any]) {
@@ -113,6 +111,48 @@ private final class LauncherUpdateMenu: NSObject {
 }
 
 @MainActor
+private final class LauncherHelpMenu: NSObject {
+    private static let identifier = NSUserInterfaceItemIdentifier(
+        "dev.pdparchitect.launcher.report-an-issue"
+    )
+    private static let issuesURL = URL(
+        string: "https://github.com/pdparchitect/launcher/issues/new"
+    )!
+
+    private let item = NSMenuItem(
+        title: "Report an Issue…",
+        action: nil,
+        keyEquivalent: ""
+    )
+
+    override init() {
+        super.init()
+
+        item.identifier = Self.identifier
+        item.target = self
+        item.action = #selector(activate)
+    }
+
+    func install() {
+        guard
+            let helpMenu = NSApplication.shared.helpMenu,
+            !helpMenu.items.contains(
+                where: { $0.identifier == Self.identifier }
+            )
+        else {
+            return
+        }
+
+        helpMenu.addItem(item)
+    }
+
+    @objc
+    private func activate() {
+        NSWorkspace.shared.open(Self.issuesURL)
+    }
+}
+
+@MainActor
 @Observable
 private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     var items: [SidebarItem] = [
@@ -133,6 +173,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
 
     let webView: WKWebView
     private let updateMenu: LauncherUpdateMenu
+    private let helpMenu = LauncherHelpMenu()
     private var mouseDownEvent: NSEvent?
     private var insets = PageInsets()
 
@@ -142,8 +183,9 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
         super.init()
     }
 
-    func installApplicationMenu() {
+    func installApplicationMenus() {
         updateMenu.install()
+        helpMenu.install()
     }
 
     func select(_ identifier: String?) {
@@ -654,7 +696,7 @@ private final class NativeShell {
             NSApplication.shared.delegate = reopenDelegate
         }
 
-        model?.installApplicationMenu()
+        model?.installApplicationMenus()
 
         /*
          OnStartup normally installs the handler before the document loads.

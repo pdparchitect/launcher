@@ -138,6 +138,15 @@ func TestValidateRejectsUnsafeMountName(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownMountStorage(t *testing.T) {
+	manifest := validManifest()
+	manifest.Mounts[0].Storage = "filesystem"
+	if err := manifest.Validate(); err == nil ||
+		!strings.Contains(err.Error(), "mount storage") {
+		t.Fatalf("Validate() error = %v, want mount storage error", err)
+	}
+}
+
 func validManifest() Manifest {
 	return Manifest{
 		ID:          testApplicationID,
