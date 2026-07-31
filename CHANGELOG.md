@@ -4,6 +4,13 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.11] - 2026-07-31
+
+### Fixed
+
+- Create the native macOS Help menu when Wails does not provide one so the
+  GitHub issue-reporting action is visible.
+
 ## [0.4.10] - 2026-07-31
 
 ### Added

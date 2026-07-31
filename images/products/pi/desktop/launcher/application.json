@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "id": "86b7c264-985d-4c42-b3dc-edfb9ded80b8",
+  "slug": "pi",
+  "name": "Pi",
+  "publisher": "Earendil Works",
+  "description": "A persistent browser desktop for Pi, the minimal coding agent, with its terminal interface, providers, extensions, skills, and workspace.",
+  "tags": [
+    "DEVELOPMENT",
+    "ASSISTANT",
+    "TERMINAL"
+  ],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "desktop.jpg",
+    "screenshots": [
+      {
+        "source": "desktop.jpg",
+        "alt": "Pi awaiting provider login in its persistent browser desktop"
+      },
+      {
+        "source": "browser.jpg",
+        "alt": "Pi's documentation landing page in the matching browser theme"
+      },
+      {
+        "source": "screenshot.png",
+        "alt": "Pi showing a tree-structured coding session in its terminal interface"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    },
+    "preview": {
+      "kind": "preview",
+      "port": 6902,
+      "path": "/preview.jpg"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/pi",
+      "target": "/home/agent/.pi"
+    }
+  ]
+}
