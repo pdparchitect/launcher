@@ -1,0 +1,8 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G opens another OpenCode session.
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-OpenCode}" \
+    -e bash -lc 'cd /workspace && exec opencode'

@@ -5,15 +5,15 @@ This document describes how to version and publish Launcher binaries.
 ## Overview
 
 Releases are driven by the root **`VERSION` file**. Bumping it on `main`
-starts the automated pipeline that validates Launcher, builds both platform
-packages, signs and notarizes the macOS application, creates the matching tag,
+starts the automated pipeline that validates Launcher, builds every platform
+package, signs and notarizes the macOS application, creates the matching tag,
 and publishes a GitHub Release:
 
 1. Update `VERSION` with a semantic version without a `v` prefix.
 2. Add the matching version section to `CHANGELOG.md`.
 3. Merge both changes to `main`.
 4. The **Release Launcher** workflow validates the commit and release metadata.
-5. After both packages pass validation, the workflow creates the annotated
+5. After all packages pass validation, the workflow creates the annotated
    `v<version>` tag and publishes the packages, checksums, and changelog notes.
 
 Existing tags and published releases are immutable. Do not create the version
@@ -28,6 +28,7 @@ release. This document covers Launcher binaries only.
 | OS    | Architecture | Package |
 | ----- | ------------ | ------- |
 | Linux | x86-64       | `.tar.gz` |
+| Linux | arm64        | `.tar.gz` |
 | macOS | arm64        | `.zip` |
 
 The macOS package is signed with a Developer ID Application identity,
@@ -231,7 +232,7 @@ job.
 
 ## Release guarantees
 
-No version tag or GitHub Release is created until both platform packages have
+No version tag or GitHub Release is created until all platform packages have
 been built and the macOS application has passed:
 
 - Developer ID signature validation

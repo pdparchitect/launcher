@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "id": "74bb8926-441f-49e3-80b6-13981d46227e",
+  "slug": "cursor-agent",
+  "name": "Cursor Agent",
+  "publisher": "Anysphere",
+  "description": "A persistent browser terminal for Cursor Agent, with interactive coding, rules, skills, MCP tools, resumable sessions, and workspace access—without the Cursor editor.",
+  "tags": [
+    "DEVELOPMENT",
+    "ASSISTANT",
+    "TERMINAL"
+  ],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "screenshot.jpg",
+    "screenshots": [
+      {
+        "source": "screenshot.jpg",
+        "alt": "Cursor Agent running in its persistent, branded browser terminal"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    },
+    "health": {
+      "kind": "health",
+      "port": 6902,
+      "path": "/healthz"
+    },
+    "notifications": {
+      "kind": "notifications",
+      "port": 6902,
+      "path": "/notifications"
+    },
+    "preview": {
+      "kind": "preview",
+      "port": 6902,
+      "path": "/preview.jpg"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/cursor-agent",
+      "target": "/home/agent/.cursor"
+    }
+  ]
+}

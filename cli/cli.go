@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/pdparchitect/launcher/internal/agent"
 	"github.com/pdparchitect/launcher/internal/domain"
@@ -24,6 +25,7 @@ type Service interface {
 	Start(context.Context, string) (domain.Instance, error)
 	Stop(context.Context, string) (domain.Instance, error)
 	Delete(context.Context, string) error
+	CleanupImages(context.Context, time.Duration) (agent.ImageCleanupReport, error)
 	Logs(context.Context, string, bool) error
 }
 
@@ -136,6 +138,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		err = app.logs(ctx, args[1:])
 	case "delete", "rm":
 		err = app.delete(ctx, args[1:])
+	case "cleanup":
+		err = app.cleanup(ctx, args[1:])
 	default:
 		err = fmt.Errorf("unknown command %q; run \"launcher help\"", args[0])
 	}
@@ -492,6 +496,26 @@ func (app *App) delete(ctx context.Context, args []string) error {
 	return nil
 }
 
+func (app *App) cleanup(ctx context.Context, args []string) error {
+	flags := app.flags("cleanup", "Remove old images previously pulled by Launcher.")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("cleanup does not accept arguments")
+	}
+	report, err := app.service.CleanupImages(ctx, agent.DefaultImageRetention)
+	fmt.Fprintf(
+		app.stdout,
+		"Removed %d unused image(s); %d protected, %d deferred, %d tracked.\n",
+		report.Removed,
+		report.Protected,
+		report.Deferred,
+		report.Tracked,
+	)
+	return err
+}
+
 type runtimeInstaller interface {
 	error
 	RuntimeName() string
@@ -555,6 +579,7 @@ Commands:
   open NAME           Open its desktop or dashboard
   logs NAME           Show its logs
   delete --force NAME Permanently delete an agent
+  cleanup             Remove old Launcher images
   doctor              Check the local runtime
   version             Print the version
 

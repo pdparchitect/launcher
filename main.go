@@ -173,6 +173,18 @@ func main() {
 			_, _ = updates.Refresh(refreshCtx, false)
 		},
 	)
+	go runRefreshLoop(
+		ctx,
+		agent.DefaultImageCleanupInterval,
+		func(ctx context.Context) {
+			cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			_, _ = service.CleanupImages(
+				cleanupCtx,
+				agent.DefaultImageRetention,
+			)
+		},
+	)
 	code := app.Run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)

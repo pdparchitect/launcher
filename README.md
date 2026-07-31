@@ -43,6 +43,8 @@ services, and virtual machines.
   without interrupting your work.
 - **Resilient registry** - Browse cached applications even when one of their
   publishers is temporarily unavailable.
+- **Safe storage cleanup** - Reclaim old Launcher image data without pruning
+  unrelated runtime images or application volumes.
 
 ## What you can do
 
@@ -55,6 +57,7 @@ can:
 - Start, stop, update, rename, and delete agents
 - Open an agent's local interface
 - Inspect logs and runtime health
+- Clean up old local images previously pulled by Launcher
 
 Each application controls its own experience and capabilities. Launcher
 provides the consistent local installation and management layer around it.
@@ -64,7 +67,7 @@ provides the consistent local installation and management layer around it.
 Published releases currently support:
 
 - Apple silicon Macs running macOS 26
-- Linux x86-64 systems
+- Linux x86-64 and ARM64 systems
 
 Launcher uses Apple `container` on macOS and Docker on Linux. If the required
 runtime is missing, the application guides you to the official installer.

@@ -82,6 +82,63 @@ func (docker *Docker) PullWithProgress(
 	return nil
 }
 
+func (docker *Docker) ResolveImage(
+	ctx context.Context,
+	reference string,
+) (LocalImage, error) {
+	if strings.TrimSpace(reference) == "" {
+		return LocalImage{}, errors.New("image reference is required")
+	}
+	result, err := docker.runner.Capture(
+		ctx,
+		docker.command,
+		"image",
+		"inspect",
+		"--format",
+		"{{.Id}}",
+		reference,
+	)
+	if err != nil {
+		return LocalImage{}, commandError(
+			"inspect image "+reference,
+			result,
+			err,
+		)
+	}
+	id := strings.TrimSpace(string(result.Stdout))
+	if id == "" {
+		return LocalImage{}, fmt.Errorf("inspect image %q returned an empty ID", reference)
+	}
+	return LocalImage{ID: id}, nil
+}
+
+func (docker *Docker) DeleteImage(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("image ID is required")
+	}
+	result, err := docker.runner.Capture(
+		ctx,
+		docker.command,
+		"image",
+		"rm",
+		id,
+	)
+	if err != nil {
+		if missingDockerImage(result) {
+			return nil
+		}
+		return commandError("delete image "+id, result, err)
+	}
+	return nil
+}
+
+func missingDockerImage(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "no such image") ||
+		strings.Contains(message, "not found")
+}
+
 func (docker *Docker) EnsureNetwork(
 	ctx context.Context,
 	instanceID string,

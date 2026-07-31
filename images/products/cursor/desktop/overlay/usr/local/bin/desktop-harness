@@ -1,0 +1,8 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G opens another Cursor Agent session.
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Cursor Agent}" \
+    -e bash -lc 'cd /workspace && exec cursor-agent'

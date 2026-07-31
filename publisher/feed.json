@@ -5,8 +5,10 @@
     "ghcr.io/pantalk/ghost:launcher-stable",
     "ghcr.io/pdparchitect/buzzbox:launcher-stable",
     "ghcr.io/pdparchitect/buzznode:launcher-stable",
+    "ghcr.io/pdparchitect/launcher-image-cursor-desktop:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-petbox-desktop:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-hermes-desktop:launcher-stable",
+    "ghcr.io/pdparchitect/launcher-image-opencode-desktop:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-pi-desktop:launcher-stable"
   ]

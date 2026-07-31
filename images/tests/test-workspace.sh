@@ -241,7 +241,10 @@ assert_linked() {
 
 assert_linked node core-ubuntu runtimes/node/Dockerfile CORE_IMAGE
 assert_linked desktop node bases/desktop/Dockerfile NODE_IMAGE
+assert_linked cursor-desktop desktop products/cursor/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked hermes-desktop desktop products/hermes/desktop/Dockerfile DESKTOP_IMAGE
+assert_linked opencode-desktop desktop \
+    products/opencode/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked openclaw-desktop desktop \
     products/openclaw/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked petbox-desktop desktop \

@@ -7,7 +7,9 @@ inheritance chain is:
 core/ubuntu
   -> runtimes/node
        -> bases/desktop
+            -> products/cursor/desktop
             -> products/hermes/desktop
+            -> products/opencode/desktop
             -> products/openclaw/desktop
             -> products/petbox/desktop
 ```
@@ -47,6 +49,16 @@ so it can be skipped or swapped. Versions match the Pantalk Ghost toolchain.
 Hermes Agent installation. Hermes state persists in `/home/agent/.hermes`;
 the first desktop session opens `hermes setup`, and later sessions open the
 Hermes TUI.
+
+`products/cursor/desktop` installs only the pinned, checksummed Cursor Agent
+CLI packages for AMD64 and ARM64. It opens `cursor-agent` in a persistent
+terminal and keeps its state in `/home/agent/.cursor`; it does not install the
+Cursor editor.
+
+`products/opencode/desktop` installs a pinned OpenCode CLI from its official
+npm package. It opens the TUI in a persistent terminal and consolidates its
+XDG data below `/home/agent/.opencode`; it does not install OpenCode's separate
+desktop application.
 
 `products/openclaw/desktop` inherits the desktop base and adds a pinned
 OpenClaw installed from npm. OpenClaw's own interface is the Gateway Control
@@ -141,7 +153,9 @@ The output images are:
 pdparchitect/launcher-image-core-ubuntu:local
 pdparchitect/launcher-image-runtime-node:local
 pdparchitect/launcher-image-base-desktop:local
+pdparchitect/launcher-image-cursor-desktop:local
 pdparchitect/launcher-image-hermes-desktop:local
+pdparchitect/launcher-image-opencode-desktop:local
 pdparchitect/launcher-image-openclaw-desktop:local
 pdparchitect/launcher-image-petbox-desktop:local
 ```
@@ -176,7 +190,9 @@ new product is runnable without editing the Makefile.
 
 ```sh
 make run                             # the desktop base
+make run TARGET=cursor-desktop       # Cursor Agent CLI only
 make run TARGET=hermes-desktop       # the Hermes product image
+make run TARGET=opencode-desktop     # the OpenCode terminal harness
 make run TARGET=openclaw-desktop     # the OpenClaw product image
 make run TARGET=petbox-desktop       # the Petbox product image
 make run RUN_PORT=7000               # serve on a different port

@@ -95,10 +95,24 @@ jobs:
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
   linux:
+    name: Linux ${{ matrix.package_arch }}
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
 
-    runs-on: ubuntu-24.04
+    # Wails links GTK and WebKitGTK through cgo, so each architecture builds
+    # against native system libraries on its matching runner.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_arch: x86_64
+            executable_pattern: 'ELF 64-bit.*x86-64'
+            runner: ubuntu-24.04
+          - package_arch: arm64
+            executable_pattern: 'ELF 64-bit.*ARM aarch64'
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
 
     steps:
@@ -122,20 +136,23 @@ jobs:
             libwebkit2gtk-4.1-dev
 
       - name: Build Linux desktop application
-        run: make build-desktop
+        run: make build-linux
 
       - name: Verify and package Linux application
         env:
+          EXECUTABLE_PATTERN: ${{ matrix.executable_pattern }}
+          PACKAGE_ARCH: ${{ matrix.package_arch }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
 
           test -x dist/launcher-desktop
           file dist/launcher-desktop
-          file dist/launcher-desktop | grep --quiet 'ELF 64-bit.*x86-64'
+          file dist/launcher-desktop |
+            grep --quiet --extended-regexp "$EXECUTABLE_PATTERN"
 
           package_dir="dist/Agent Launcher"
-          archive="dist/Agent-Launcher-${VERSION}-Linux-x86_64.tar.gz"
+          archive="dist/Agent-Launcher-${VERSION}-Linux-${PACKAGE_ARCH}.tar.gz"
           mkdir -p "$package_dir"
           cp dist/launcher-desktop "$package_dir/launcher"
           cp README.md "$package_dir/README.md"
@@ -144,8 +161,8 @@ jobs:
       - name: Upload Linux release asset
         uses: actions/upload-artifact@v6
         with:
-          name: launcher-linux
-          path: dist/Agent-Launcher-*-Linux-x86_64.tar.gz
+          name: launcher-linux-${{ matrix.package_arch }}
+          path: dist/Agent-Launcher-*-Linux-${{ matrix.package_arch }}.tar.gz
           if-no-files-found: error
           retention-days: 7
 
@@ -404,6 +421,7 @@ jobs:
           cd dist
           sha256sum \
             Agent-Launcher-*-Linux-x86_64.tar.gz \
+            Agent-Launcher-*-Linux-arm64.tar.gz \
             Agent-Launcher-*-macOS-arm64.zip \
             > SHA256SUMS
           cat SHA256SUMS
@@ -467,6 +485,7 @@ jobs:
 
           gh release create "$TAG" \
             dist/Agent-Launcher-*-Linux-x86_64.tar.gz \
+            dist/Agent-Launcher-*-Linux-arm64.tar.gz \
             dist/Agent-Launcher-*-macOS-arm64.zip \
             dist/SHA256SUMS \
             --title "Launcher ${VERSION}" \

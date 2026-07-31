@@ -15,6 +15,7 @@ import (
 
 	"github.com/pdparchitect/launcher/internal/catalog"
 	"github.com/pdparchitect/launcher/internal/domain"
+	"github.com/pdparchitect/launcher/internal/imagecache"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 	"github.com/pdparchitect/launcher/internal/store"
 )
@@ -28,6 +29,8 @@ const (
 type Runtime interface {
 	Doctor(context.Context) (string, error)
 	Pull(context.Context, string, string) error
+	ResolveImage(context.Context, string) (launchruntime.LocalImage, error)
+	DeleteImage(context.Context, string) error
 	EnsureNetwork(context.Context, string) error
 	DeleteNetwork(context.Context, string) error
 	NetworkAttached(context.Context, string, string) (bool, error)
@@ -62,6 +65,7 @@ type Options struct {
 	RuntimePath         string
 	DefaultCatalogID    string
 	RuntimeProbeTimeout time.Duration
+	ImageCache          *imagecache.Store
 }
 
 type CreateOptions struct {
@@ -143,6 +147,8 @@ type Service struct {
 	manifests    map[string]catalog.Manifest
 	slugs        map[string]string
 	options      Options
+	imageCache   *imagecache.Store
+	cleanupMutex sync.Mutex
 }
 
 func New(
@@ -172,9 +178,12 @@ func New(
 	if options.DefaultCatalogID == "" {
 		options.DefaultCatalogID = defaultCatalogID
 	}
+	if options.ImageCache == nil {
+		options.ImageCache = imagecache.New(dataStore.Root())
+	}
 	service := &Service{
 		store: dataStore, runtime: containerRuntime,
-		options: options,
+		options: options, imageCache: options.ImageCache,
 	}
 	service.ReplaceCatalog(manifests)
 	return service
@@ -324,6 +333,9 @@ func (service *Service) Create(
 		}
 	}
 	if err := pull(ctx, image, service.options.Platform); err != nil {
+		return domain.Instance{}, err
+	}
+	if err := service.trackImage(ctx, image); err != nil {
 		return domain.Instance{}, err
 	}
 	options.report(CreateStageCreating, "Creating agent container")
@@ -603,6 +615,9 @@ func (service *Service) UpdateWithProgress(
 		report(UpdateStageReady, "Agent is already up to date")
 		return instance, nil
 	}
+	// Agents installed before image tracking have no ledger entry. Recording
+	// the current image here lets the reconciler remove it after this update.
+	_ = service.trackImage(ctx, instance.Image)
 	status, err := service.runtime.Status(ctx, instance.ContainerName)
 	if err != nil {
 		return domain.Instance{}, fmt.Errorf("inspect agent before update: %w", err)
@@ -626,6 +641,9 @@ func (service *Service) UpdateWithProgress(
 	}
 	if err := pull(ctx, targetImage, service.options.Platform); err != nil {
 		return domain.Instance{}, fmt.Errorf("pull agent update: %w", err)
+	}
+	if err := service.trackImage(ctx, targetImage); err != nil {
+		return domain.Instance{}, err
 	}
 	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
 		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
@@ -864,6 +882,9 @@ func (service *Service) Delete(ctx context.Context, reference string) error {
 	if err != nil {
 		return err
 	}
+	// Deletion must not depend on the optional cleanup ledger, but recording the
+	// image first makes pre-ledger installations eligible for later cleanup.
+	_ = service.trackImage(ctx, instance.Image)
 	if err := service.runtime.Remove(
 		ctx, instance.ContainerName, instance.ID,
 	); err != nil {

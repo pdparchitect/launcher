@@ -1,0 +1,31 @@
+#!/bin/bash
+# desktop-selftest - product assertions run by the shared live smoke test.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "cursor agent selftest"
+
+check "Cursor Agent runs" cursor-agent --version
+check "the agent alias runs" agent --version
+check "the state directory is writable" test -w "$HOME/.cursor"
+check "the workspace is writable" test -w /workspace
+
+if [ "$failures" -gt 0 ]; then
+    echo "cursor agent selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "cursor agent selftest: Cursor Agent is ready"

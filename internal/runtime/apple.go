@@ -60,6 +60,10 @@ type appleVersion struct {
 	Version string `json:"version"`
 }
 
+type appleImage struct {
+	ID string `json:"id"`
+}
+
 func NewApple(
 	command string,
 	runner Runner,
@@ -141,6 +145,69 @@ func (apple *Apple) PullWithProgress(
 		return fmt.Errorf("pull image %q: %w", image, err)
 	}
 	return nil
+}
+
+func (apple *Apple) ResolveImage(
+	ctx context.Context,
+	reference string,
+) (LocalImage, error) {
+	if strings.TrimSpace(reference) == "" {
+		return LocalImage{}, errors.New("image reference is required")
+	}
+	result, err := apple.runner.Capture(
+		ctx,
+		apple.command,
+		"image",
+		"inspect",
+		reference,
+	)
+	if err != nil {
+		return LocalImage{}, commandError(
+			"inspect image "+reference,
+			result,
+			err,
+		)
+	}
+	var images []appleImage
+	if err := json.Unmarshal(result.Stdout, &images); err != nil {
+		return LocalImage{}, fmt.Errorf("decode Apple container image inspection: %w", err)
+	}
+	if len(images) != 1 || strings.TrimSpace(images[0].ID) == "" {
+		return LocalImage{}, fmt.Errorf(
+			"inspect image %q returned %d invalid records",
+			reference,
+			len(images),
+		)
+	}
+	return LocalImage{ID: strings.TrimSpace(images[0].ID)}, nil
+}
+
+func (apple *Apple) DeleteImage(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("image ID is required")
+	}
+	result, err := apple.runner.Capture(
+		ctx,
+		apple.command,
+		"image",
+		"delete",
+		id,
+	)
+	if err != nil {
+		if missingAppleImage(result) {
+			return nil
+		}
+		return commandError("delete image "+id, result, err)
+	}
+	return nil
+}
+
+func missingAppleImage(result Result) bool {
+	message := strings.ToLower(string(result.Stdout) + string(result.Stderr))
+	return strings.Contains(message, "image not found") ||
+		strings.Contains(message, "not found") ||
+		strings.Contains(message, "does not exist")
 }
 
 func (apple *Apple) EnsureNetwork(

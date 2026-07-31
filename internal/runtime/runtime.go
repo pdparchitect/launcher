@@ -43,9 +43,15 @@ type Metrics struct {
 	StartedAt        time.Time
 }
 
+type LocalImage struct {
+	ID string
+}
+
 type Lifecycle interface {
 	Doctor(context.Context) (string, error)
 	Pull(context.Context, string, string) error
+	ResolveImage(context.Context, string) (LocalImage, error)
+	DeleteImage(context.Context, string) error
 	EnsureNetwork(context.Context, string) error
 	DeleteNetwork(context.Context, string) error
 	NetworkAttached(context.Context, string, string) (bool, error)

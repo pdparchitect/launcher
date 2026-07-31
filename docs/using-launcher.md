@@ -9,7 +9,7 @@ service and the same agent library.
 Published releases currently support:
 
 - Apple silicon Macs running macOS 26, using Apple `container`
-- Linux x86-64 systems, using Docker
+- Linux x86-64 and ARM64 systems, using Docker
 
 Launcher selects the runtime for the platform automatically. Intel Macs are not
 supported because Apple `container` requires Apple silicon.
@@ -30,7 +30,9 @@ Run a command from the macOS bundle with:
 "Launcher.app/Contents/MacOS/launcher" doctor
 ```
 
-On Linux, extract the `Linux-x86_64.tar.gz` archive and run `launcher`:
+On Linux, extract the archive matching your architecture and run `launcher`.
+Use `Linux-x86_64.tar.gz` on AMD64 systems or `Linux-arm64.tar.gz` on ARM64
+systems. For example:
 
 ```bash
 tar -xzf Agent-Launcher-*-Linux-x86_64.tar.gz
@@ -87,6 +89,7 @@ launcher stop NAME
 launcher open NAME
 launcher logs [--follow] NAME
 launcher delete --force NAME
+launcher cleanup
 launcher doctor
 ```
 
@@ -138,6 +141,12 @@ container and complete data folder, so command-line deletion requires
 
 Launcher labels every container it creates and verifies that label before
 deletion. It will not delete a container owned by another application.
+
+Launcher also records the exact runtime image IDs it pulls. Once per day, it
+removes tracked images that no installed agent references and that have been
+unused for at least seven days. It never runs a global runtime prune, so images
+from other applications and all runtime volumes are left untouched. Run
+`launcher cleanup` to apply the same safe cleanup policy manually.
 
 ## Launcher updates
 

@@ -1,0 +1,22 @@
+#!/bin/bash
+# Keep all OpenCode-owned XDG state on the product's private persistent mount.
+
+set -euo pipefail
+
+export XDG_DATA_HOME="$HOME/.opencode/data"
+export XDG_CONFIG_HOME="$HOME/.opencode/config"
+export XDG_CACHE_HOME="$HOME/.opencode/cache"
+export XDG_STATE_HOME="$HOME/.opencode/state"
+
+# Keep the Launcher-owned theme current on existing persistent volumes. Seed
+# its selection only when the user has not already chosen their own TUI theme.
+install -D -m 0644 \
+    /usr/share/opencode/themes/launcher.json \
+    "$XDG_CONFIG_HOME/opencode/themes/launcher.json"
+if [ ! -e "$XDG_CONFIG_HOME/opencode/tui.json" ]; then
+    install -D -m 0644 \
+        /usr/share/opencode/tui.json \
+        "$XDG_CONFIG_HOME/opencode/tui.json"
+fi
+
+exec /usr/bin/opencode "$@"
