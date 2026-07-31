@@ -177,10 +177,27 @@ jq -e '
 release_workflow="../.github/workflows/images-release.yaml"
 publish_workflow="../.github/workflows/images-publish.yaml"
 grep -Fq 'getReleaseByTag' "$release_workflow"
+grep -Fq 'commit: sha' "$release_workflow"
+if grep -Fq 'createRef' "$release_workflow"; then
+    echo "Release orchestration creates permanent tags before publishing." >&2
+    exit 1
+fi
 grep -Fq 'RELEASE_VERSION="${{ needs.verify.outputs.image_version }}"' \
     "$publish_workflow"
 grep -Fq 'bash bases/desktop/tests/smoke-test.sh "$image"' "$publish_workflow"
 grep -Fq 'tag_name: ${{ needs.verify.outputs.release_tag }}' "$publish_workflow"
+grep -Fq 'target_commitish: ${{ inputs.commit }}' "$publish_workflow"
+if [ "$(grep -Fc 'ref: ${{ inputs.commit }}' "$publish_workflow")" -ne 3 ]; then
+    echo "Publish jobs do not all check out the tested commit." >&2
+    exit 1
+fi
+validate_line="$(grep -n -m1 'Validate sources and the build graph' \
+    "$publish_workflow" | cut -d: -f1)"
+cleanup_line="$(grep -n -m1 'Free disk space' "$publish_workflow" | cut -d: -f1)"
+if [ "$validate_line" -ge "$cleanup_line" ]; then
+    echo "Publish validation runs after hosted toolchain cleanup." >&2
+    exit 1
+fi
 grep -Fq 'application/vnd.pdparchitect.launcher.application.v1' \
     "$publish_workflow"
 grep -Fq '"launcher-stable"' "$publish_workflow"

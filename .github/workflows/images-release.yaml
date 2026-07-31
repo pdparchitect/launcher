@@ -3,10 +3,11 @@ name: Release images
 # The VERSION files are the release intent. Nobody tags by hand.
 #
 # After the Images workflow succeeds on main, every release unit is compared
-# against completed GitHub Releases. A missing release is tagged at the exact
-# CI-tested commit and its publish is dispatched. A tag left behind by a failed
-# publish is retried. Product release identities include the substrate version,
-# so substrate changes also refresh every final product image Launcher runs.
+# against completed GitHub Releases. A missing release is dispatched at the
+# exact CI-tested commit. The publish workflow creates the permanent tag only
+# after both native builds and their smoke tests succeed. Product release
+# identities include the substrate version, so substrate changes also refresh
+# every final product image Launcher runs.
 #
 # Releasing is therefore: bump a VERSION, add its changelog section, merge.
 on:
@@ -47,7 +48,7 @@ jobs:
         working-directory: images
         run: make check
 
-      - name: Tag and dispatch each unit whose version is new
+      - name: Dispatch each unit whose version is new
         uses: actions/github-script@v8
         with:
           script: |
@@ -69,10 +70,9 @@ jobs:
             const skipped = []
 
             for (const unit of units) {
-              // A Git tag is the immutable ref publishing runs at, but it is not
-              // proof that publishing completed. If dispatch, either build, or
-              // manifest assembly failed after the tag was created, no GitHub
-              // Release exists and this workflow must retry the dispatch.
+              // A completed GitHub Release is the release record. Failed
+              // publishes have no permanent tag and are retried from the same
+              // CI-tested commit.
               let releaseExists = true
               try {
                 await github.rest.repos.getReleaseByTag({
@@ -88,34 +88,14 @@ jobs:
                 continue
               }
 
-              let tagExists = true
-              try {
-                await github.rest.git.getRef({
-                  ...context.repo, ref: `tags/${unit.tag}`,
-                })
-              } catch (error) {
-                if (error.status !== 404) throw error
-                tagExists = false
-              }
-
-              if (!tagExists) {
-                await github.rest.git.createRef({
-                  ...context.repo,
-                  ref: `refs/tags/${unit.tag}`,
-                  sha,
-                })
-              }
-
-              // Dispatched explicitly: a tag created with GITHUB_TOKEN does not
-              // trigger another workflow, so relying on the tag push would
-              // silently publish nothing.
               await github.rest.actions.createWorkflowDispatch({
                 ...context.repo,
                 workflow_id: 'images-publish.yaml',
-                ref: unit.tag,
+                ref: context.payload.workflow_run.head_branch,
                 inputs: {
                   unit: unit.unit,
                   version: unit.version,
+                  commit: sha,
                   latest: 'true',
                 },
               })

@@ -3,9 +3,9 @@ name: Publish images
 # Publishes ONE release unit: the substrate, or a single composite product
 # image release.
 #
-# Not triggered by tags. Tags created with GITHUB_TOKEN do not start another
-# workflow, so images-release.yaml dispatches this explicitly after it has
-# tagged the CI-tested commit. Run it by hand for a one-off republish.
+# Not triggered by tags. images-release.yaml dispatches this workflow with the
+# exact commit that passed the Images workflow. The permanent release tag is
+# created only after both architecture builds and smoke tests succeed.
 #
 # ARM64 builds on a native runner rather than under QEMU: Launcher runs these
 # desktops through Apple `container` on macOS, so arm64 is a first-class target,
@@ -19,6 +19,10 @@ on:
         type: string
       version:
         description: 'Version to publish. Must match the unit VERSION file at this ref.'
+        required: true
+        type: string
+      commit:
+        description: 'Full CI-tested commit SHA to build and release.'
         required: true
         type: string
       latest:
@@ -58,6 +62,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.commit }}
           lfs: true
 
       - name: Verify the unit and version
@@ -66,10 +71,20 @@ jobs:
         env:
           UNIT: ${{ inputs.unit }}
           VERSION: ${{ inputs.version }}
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
+          EXPECTED_COMMIT: ${{ inputs.commit }}
         run: |
           set -euo pipefail
+
+          if ! [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to publish an invalid commit SHA." >&2
+            exit 1
+          fi
+          actual_commit="$(git rev-parse HEAD)"
+          if [ "$actual_commit" != "$EXPECTED_COMMIT" ]; then
+            echo "Refusing to publish $actual_commit; expected" \
+              "$EXPECTED_COMMIT." >&2
+            exit 1
+          fi
 
           record="$(
             bash tools/units.sh | awk -F '\t' -v u="$UNIT" '$2 == u'
@@ -86,12 +101,6 @@ jobs:
               "this commit says $declared." >&2
             exit 1
           fi
-          if [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "$release_tag" ]; then
-            echo "Refusing to publish from '$REF_NAME'. Select the immutable" \
-              "release tag '$release_tag' when dispatching this workflow." >&2
-            exit 1
-          fi
-
           # A unit maps to a bake group (the substrate) or to a single target.
           if [ "$UNIT" = substrate ]; then
             group=substrate
@@ -146,7 +155,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.commit }}
           lfs: true
+
+      # Keep this before toolchain cleanup so it runs in the same environment
+      # as the Images workflow that authorized the release.
+      - name: Validate sources and the build graph
+        working-directory: images
+        run: make check
 
       - name: Free disk space
         run: |
@@ -172,10 +188,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate sources and the build graph
-        working-directory: images
-        run: make check
 
       # Architecture-suffixed, so the merge job can assemble one manifest per
       # repository from the two native builds.
@@ -217,6 +229,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.commit }}
           lfs: true
 
       - name: Log in to GHCR
@@ -353,12 +366,14 @@ jobs:
             echo RELEASE_NOTES_EOF
           } >> "$GITHUB_OUTPUT"
 
-      # Recorded at this unit's own tag, which is the ref this run was
-      # dispatched at, so releases never overwrite each other across units.
+      # Creating a release for a missing tag creates that tag at the tested
+      # commit. This is deliberately last: failed builds never leave a
+      # permanent release tag behind.
       - name: Create the GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify.outputs.release_tag }}
+          target_commitish: ${{ inputs.commit }}
           name: ${{ inputs.unit }} ${{ needs.verify.outputs.image_version }}
           body: ${{ steps.notes.outputs.content }}
           prerelease: ${{ steps.manifest.outputs.prerelease == 'true' }}
