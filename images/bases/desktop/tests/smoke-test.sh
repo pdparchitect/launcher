@@ -104,7 +104,9 @@ if [ "${SMOKE_FIXED_MOUNTS:-false}" != "true" ]; then
     # account too. With the default location the pin is invisible here and pnpm
     # silently downloads the newest release on first use, so refuse the network
     # to tell the two apart.
-    in_container 'sudo -u agent env HOME=/home/agent COREPACK_ENABLE_NETWORK=0 pnpm --version >/dev/null' ||
+    docker exec --user agent "$container" env \
+        HOME=/home/agent COREPACK_ENABLE_NETWORK=0 \
+        pnpm --version >/dev/null ||
         fail "the session user cannot run the pinned pnpm without downloading one"
 fi
 
