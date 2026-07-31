@@ -51,7 +51,7 @@ RUN_PREVIEW_PORT ?= 6902
 RUN_STATE ?= launcher-$(TARGET)
 
 .PHONY: help check smoke print builder core-ubuntu desktop hermes-desktop \
-	openclaw-desktop petbox-desktop build rebuild images run push \
+	openclaw-desktop petbox-desktop pi-desktop build rebuild images run push \
 	push-substrate push-product versions clean
 
 help:
@@ -71,6 +71,7 @@ help:
 	@echo "  make hermes-desktop  Build only the Hermes product image"
 	@echo "  make openclaw-desktop    Build only the OpenClaw product image"
 	@echo "  make petbox-desktop  Build only the Petbox product image"
+	@echo "  make pi-desktop      Build only the Pi product image"
 	@echo
 	@echo "Ordering is derived from the graph in docker-bake.hcl, so any target"
 	@echo "builds the parents it depends on and rebuilds when they change."
@@ -83,7 +84,7 @@ help:
 
 # Targets that only need the parent as a dependency are built `cacheonly` and
 # are not loaded into the image store. Naming one explicitly loads it.
-core-ubuntu desktop hermes-desktop openclaw-desktop petbox-desktop:
+core-ubuntu desktop hermes-desktop openclaw-desktop petbox-desktop pi-desktop:
 	$(BAKE_ENV) $(BAKE_CMD) $@
 
 build:
@@ -194,6 +195,7 @@ builder:
 clean:
 	-$(DOCKER) image rm \
 		pdparchitect/launcher-image-hermes-desktop:$(TAG) \
+		pdparchitect/launcher-image-pi-desktop:$(TAG) \
 		pdparchitect/launcher-image-base-desktop:$(TAG) \
 		pdparchitect/launcher-image-runtime-node:$(TAG) \
 		pdparchitect/launcher-image-core-ubuntu:$(TAG)

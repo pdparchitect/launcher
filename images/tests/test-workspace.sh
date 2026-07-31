@@ -223,5 +223,6 @@ assert_linked openclaw-desktop desktop \
     products/openclaw/desktop/Dockerfile DESKTOP_IMAGE
 assert_linked petbox-desktop desktop \
     products/petbox/desktop/Dockerfile DESKTOP_IMAGE
+assert_linked pi-desktop desktop products/pi/desktop/Dockerfile DESKTOP_IMAGE
 
 echo "Image workspace release and build-graph checks passed."

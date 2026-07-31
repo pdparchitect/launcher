@@ -1,0 +1,30 @@
+#!/bin/bash
+# desktop-selftest - what the shared smoke test runs in a live Pi session.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "pi selftest"
+
+check "Pi runs" pi --version
+check "the state directory is writable" test -w "$HOME/.pi/agent"
+check "the workspace is writable" test -w /workspace
+
+if [ "$failures" -gt 0 ]; then
+    echo "pi selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "pi selftest: Pi is ready"

@@ -112,6 +112,9 @@ private final class LauncherUpdateMenu: NSObject {
 
 @MainActor
 private final class LauncherHelpMenu: NSObject {
+    private static let menuIdentifier = NSUserInterfaceItemIdentifier(
+        "dev.pdparchitect.launcher.help"
+    )
     private static let identifier = NSUserInterfaceItemIdentifier(
         "dev.pdparchitect.launcher.report-an-issue"
     )
@@ -135,7 +138,36 @@ private final class LauncherHelpMenu: NSObject {
 
     func install() {
         guard
-            let helpMenu = NSApplication.shared.helpMenu,
+            let mainMenu = NSApplication.shared.mainMenu
+        else {
+            return
+        }
+
+        let helpMenu: NSMenu
+        if let installedMenu = NSApplication.shared.helpMenu {
+            helpMenu = installedMenu
+        } else if
+            let installedMenu = mainMenu.items.first(
+                where: { $0.identifier == Self.menuIdentifier }
+            )?.submenu
+        {
+            helpMenu = installedMenu
+            NSApplication.shared.helpMenu = installedMenu
+        } else {
+            let menu = NSMenu(title: "Help")
+            let menuItem = NSMenuItem(
+                title: "Help",
+                action: nil,
+                keyEquivalent: ""
+            )
+            menuItem.identifier = Self.menuIdentifier
+            menuItem.submenu = menu
+            mainMenu.addItem(menuItem)
+            NSApplication.shared.helpMenu = menu
+            helpMenu = menu
+        }
+
+        guard
             !helpMenu.items.contains(
                 where: { $0.identifier == Self.identifier }
             )

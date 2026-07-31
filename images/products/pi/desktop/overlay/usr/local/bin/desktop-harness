@@ -1,0 +1,8 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G opens another Pi session.
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Pi}" \
+    -e bash -lc 'cd /workspace && exec pi'

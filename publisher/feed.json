@@ -7,6 +7,7 @@
     "ghcr.io/pdparchitect/buzznode:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-petbox-desktop:launcher-stable",
     "ghcr.io/pdparchitect/launcher-image-hermes-desktop:launcher-stable",
-    "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:launcher-stable"
+    "ghcr.io/pdparchitect/launcher-image-openclaw-desktop:launcher-stable",
+    "ghcr.io/pdparchitect/launcher-image-pi-desktop:launcher-stable"
   ]
 }
