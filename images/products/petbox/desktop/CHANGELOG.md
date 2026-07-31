@@ -4,6 +4,12 @@ Petbox source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.3.5]
+
+- Update to Launcher desktop substrate 0.1.6 so root-launched Chromium
+  processes authenticate to the X display and paint their browser surfaces in
+  Apple fixed-mount sessions.
+
 ## [0.3.4]
 
 - Update to Launcher desktop substrate 0.1.5 so Chromium retains software

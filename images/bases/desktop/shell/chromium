@@ -3,6 +3,21 @@
 # Placed in /usr/local/bin to override any system chromium and provide a
 # single entry point for menus, xdg-open, kitty, and CLI tools.
 
+# In fixed-mount mode, Xvnc and Openbox run as root with their cookie in the
+# runtime directory. Chromium's subprocesses do not reliably use that
+# non-default authority path, so give root-launched browsers the same cookie at
+# root's default location. Unprivileged browser launches continue using the
+# shared runtime file directly.
+if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -n "${DISPLAY:-}" ]; then
+    authority_source=${XAUTHORITY:-/run/launcher-desktop/Xauthority}
+    if [ -r "$authority_source" ] && [ "$authority_source" != /root/.Xauthority ]; then
+        install -o root -g root -m 600 "$authority_source" /root/.Xauthority
+    fi
+    if [ -r /root/.Xauthority ]; then
+        export XAUTHORITY=/root/.Xauthority
+    fi
+fi
+
 # Only use the GPU when a render node is present and this user can open it.
 # With one the browser can composite and rasterize on the GPU, which removes
 # the largest source of repaint work on this desktop. Without one, disable GPU
@@ -10,13 +25,18 @@
 # expose a render node, so disabling both paths can leave browser surfaces
 # unpainted. A passed-through node is normally root:render 0660, so testing for
 # presence alone is insufficient.
-gpu_args=(--disable-gpu)
+gpu_args=(--ozone-platform=x11 --disable-gpu)
 for node in /dev/dri/renderD*; do
     if [ -r "$node" ] && [ -w "$node" ]; then
-        gpu_args=(--ignore-gpu-blocklist --enable-gpu-rasterization)
+        gpu_args=(--ozone-platform=x11 --ignore-gpu-blocklist --enable-gpu-rasterization)
         break
     fi
 done
+
+display_args=()
+if [ -n "${DISPLAY:-}" ]; then
+    display_args=("--display=$DISPLAY")
+fi
 
 if [ -x /opt/google/chrome/google-chrome ]; then
     browser=/opt/google/chrome/google-chrome
@@ -28,6 +48,7 @@ else
 fi
 
 exec "$browser" \
+    "${display_args[@]}" \
     --no-sandbox \
     --test-type \
     "${gpu_args[@]}" \

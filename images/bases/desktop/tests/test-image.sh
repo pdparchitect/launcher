@@ -17,10 +17,21 @@ grep -Fq 'DESKTOP_PERSISTENT_PATHS' "$project/init.sh"
 grep -Fq 'fixed-ownership mounts detected' "$project/init.sh"
 grep -Fq 'XAUTHORITY=/run/launcher-desktop/Xauthority' "$dockerfile"
 grep -Fq 'chown agent:agent "$XAUTHORITY"' "$project/init.sh"
+grep -Fq 'install -o root -g root -m 600 "$authority_source" /root/.Xauthority' \
+    "$project/shell/chromium"
+grep -Fq 'export XAUTHORITY=/root/.Xauthority' "$project/shell/chromium"
+grep -Fq 'gpu_args=(--ozone-platform=x11 --disable-gpu)' \
+    "$project/shell/chromium"
+grep -Fq 'display_args=("--display=$DISPLAY")' "$project/shell/chromium"
 if grep -Fq -- '--disable-software-rasterizer' "$project/shell/chromium"; then
     echo "The Chromium wrapper disables its no-GPU software fallback." >&2
     exit 1
 fi
+if grep -Fq -- '--use-angle=swiftshader' "$project/shell/chromium"; then
+    echo "The Chromium wrapper forces SwiftShader without requiring it." >&2
+    exit 1
+fi
+bash -n "$project/shell/chromium"
 awk '
     /if \[ "\$fixed_mounts" = false \]; then/ { guarded = 1 }
     guarded && /chown "\$runtime_user:\$runtime_group"/ { found = 1 }

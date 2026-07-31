@@ -8,6 +8,12 @@ are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.7]
+
+- Update the shared Launcher desktop base to `0.1.6`, allowing root-launched
+  Chromium processes to authenticate to the X display and paint the OpenClaw
+  Control UI in Apple fixed-mount sessions.
+
 ## [0.1.6]
 
 - Update the shared Launcher desktop base to `0.1.5`, keeping Chromium usable
