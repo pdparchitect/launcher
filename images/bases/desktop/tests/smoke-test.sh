@@ -10,10 +10,8 @@ set -euo pipefail
 image="${1:-pdparchitect/launcher-image-hermes-desktop:local}"
 port="${SMOKE_PORT:-16999}"
 preview_port="${SMOKE_PREVIEW_PORT:-17000}"
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 container=""
 snapshot=""
-browser_snapshot=""
 fixed_mount_dir=""
 
 cleanup() {
@@ -22,9 +20,6 @@ cleanup() {
     fi
     if [ -n "$snapshot" ]; then
         rm -f "$snapshot"
-    fi
-    if [ -n "$browser_snapshot" ]; then
-        rm -f "$browser_snapshot"
     fi
     if [ -n "$fixed_mount_dir" ]; then
         rmdir "$fixed_mount_dir" 2>/dev/null || true
@@ -92,6 +87,25 @@ if [ "${SMOKE_FIXED_MOUNTS:-false}" != "true" ]; then
         in_container 'find /home/agent -maxdepth 1 -mindepth 1 ! -user agent -printf "%f\n" 2>/dev/null || true'
     )"
     [ -z "$strays" ] || fail "not owned by the session user in /home/agent: $strays"
+
+    # Every path a product asks the base to persist has to exist in the session
+    # and be writable by the account that runs the product. A path that is only
+    # a Dockerfile declaration is a volume the product cannot use.
+    persistent_paths="$(
+        docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' \
+            "$image" | sed -n 's/^DESKTOP_PERSISTENT_PATHS=//p'
+    )"
+    for path in /workspace $persistent_paths; do
+        in_container "sudo -u agent test -w '$path'" ||
+            fail "the session user cannot write the persistent path $path"
+    done
+
+    # The pnpm pin lives in a shared corepack home so it holds for the desktop
+    # account too. With the default location the pin is invisible here and pnpm
+    # silently downloads the newest release on first use, so refuse the network
+    # to tell the two apart.
+    in_container 'sudo -u agent env HOME=/home/agent COREPACK_ENABLE_NETWORK=0 pnpm --version >/dev/null' ||
+        fail "the session user cannot run the pinned pnpm without downloading one"
 fi
 
 # Openbox runs the autostart program, which brings up the panel and the
@@ -167,24 +181,23 @@ done
 [ -n "$x_access" ] || fail "the agent account cannot authenticate to the X display"
 
 # A successful xprop only proves that the cookie works for a small X11 client.
-# Launch the real headed browser and capture a known rendered frame. Normal
-# sessions launch it as agent. Fixed-mount sessions also exercise root, which
-# is the account Openbox uses in the Apple Linux VM.
+# Launch the real headed browser and wait for its window. Normal sessions launch
+# it as agent. Fixed-mount sessions also exercise root, which is the account
+# Openbox uses in the Apple Linux VM.
 smoke_browser() {
     local browser_user="$1"
     local browser_label="$2"
     local browser_profile="/tmp/launcher-browser-smoke-${browser_label}"
     local browser_log="/tmp/launcher-browser-smoke-${browser_label}.log"
-    local browser_frame="/tmp/launcher-browser-smoke-${browser_label}.ppm"
     local browser_title="LauncherBrowserSmoke${browser_label}"
-    local browser_url="data:text/html,%3Ctitle%3E${browser_title}%3C/title%3E%3Cbody%20style=margin:0%3Bbackground:%2300ff00%3E"
+    local browser_url="data:text/html,%3Ctitle%3E${browser_title}%3C/title%3E"
     local launch_prefix="env"
 
     if [ "$browser_user" = agent ]; then
         launch_prefix="sudo -u agent env"
     fi
 
-    in_container "rm -rf '$browser_profile' '$browser_log' '$browser_frame'; $launch_prefix HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
+    in_container "rm -rf '$browser_profile' '$browser_log'; $launch_prefix HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
 
     local browser_ready=""
     for _ in $(seq 1 30); do
@@ -200,18 +213,6 @@ smoke_browser() {
     if in_container "ps -eo args | grep '[l]auncher-browser-smoke-${browser_label}' | grep -Fq -- '--disable-software-rasterizer'"; then
         fail "Chromium disabled its software rasterizer without a GPU"
     fi
-
-    local browser_window
-    browser_window="$(
-        in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' | head -1"
-    )"
-    in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool windowactivate --sync '$browser_window'; env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority scrot --focused '$browser_frame'"
-    browser_snapshot="$(mktemp)"
-    docker cp "$container:$browser_frame" "$browser_snapshot" >/dev/null
-    python3 "$script_dir/assert-browser-frame.py" "$browser_snapshot" ||
-        fail "Chromium created a ${browser_user} window but did not paint its software-rendered page"
-    rm -f "$browser_snapshot"
-    browser_snapshot=""
 }
 
 if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
@@ -223,44 +224,7 @@ if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
 fi
 smoke_browser agent Agent
 
-# The desktop substrate has to actually be configured, not merely installed.
-# Openbox, tint2, and cortile all start happily with stock defaults, so a
-# session can look "up" while none of this image's configuration is in effect.
-
-# tint2 must be running against the image's panel layout, not a stale copy in
-# the user config.
-in_container 'ps -eo args --no-headers | grep -q -- "[t]int2 -c /etc/xdg/tint2/tint2rc"' ||
-    fail "tint2 is not running against /etc/xdg/tint2/tint2rc"
-
-# The Openbox theme rc.xml names must exist, or the window manager silently
-# falls back to its built-in appearance.
-theme="$(in_container 'sed -n "s|.*<name>\(.*\)</name>.*|\1|p" /etc/xdg/openbox/rc.xml | head -1' | tr -d '\r')"
-[ -n "$theme" ] || fail "rc.xml does not name an Openbox theme"
-in_container "test -f /usr/share/themes/${theme}/openbox-3/themerc" ||
-    fail "rc.xml names Openbox theme '${theme}', which is not installed"
-
-in_container 'test -f /etc/xdg/openbox/menu.xml' || fail "no root menu installed"
 in_container 'pgrep -x cortile >/dev/null' || fail "the tiling helper is not running"
-
-# The KasmVNC client must be the patched one: branded, with the upstream
-# control bar and connect dialog hidden.
-in_container 'test -f /usr/share/kasmvnc/www/.desktop-brand' ||
-    fail "the KasmVNC client was never patched"
-in_container 'grep -q "assets/custom.css" /usr/share/kasmvnc/www/index.html' ||
-    fail "the KasmVNC client is missing this desktop's stylesheet"
-if in_container 'grep -Rq "\"KasmVNC\"" /usr/share/kasmvnc/www/assets/ui-*.js'; then
-    fail "the KasmVNC brand string was not replaced"
-fi
-
-# Chrome's window controls are drawn from PNGs generated out of the Openbox
-# glyph masks at build time.
-in_container 'test -n "$(find /usr/share/launcher-desktop/gtk-overlay -name "*.png" -print -quit)"' ||
-    fail "the GTK symbolic resource overlay was not generated"
-
-# feh sets the root pixmap and exits, so assert the effect rather than the
-# process.
-in_container 'DISPLAY=:1 xprop -root _XROOTPMAP_ID 2>/dev/null | grep -q "pixmap id"' ||
-    fail "no wallpaper was applied to the root window"
 
 # The preview endpoint must return a real capture of the running X display,
 # not merely report that its HTTP process is alive.

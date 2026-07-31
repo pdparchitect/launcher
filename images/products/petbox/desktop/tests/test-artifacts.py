@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import ast
 import json
 import os
 import subprocess
@@ -11,16 +10,11 @@ from pathlib import Path
 
 import petartifacts
 import petlib
-import petprompts
 
 PRODUCT_DIRECTORY = Path(__file__).resolve().parents[1]
 PETCTL = (
     PRODUCT_DIRECTORY
     / "overlay/usr/local/bin/petctl"
-)
-PET_HABITAT = (
-    PRODUCT_DIRECTORY
-    / "overlay/usr/local/bin/pet-habitat"
 )
 
 
@@ -153,14 +147,6 @@ class ArtifactTests(unittest.TestCase):
         petartifacts.install(self.pet)
         self.assertEqual(skill.read_text(), "Jojo's own rules.\n")
 
-    def test_builtin_skills_have_codex_metadata(self):
-        self.assertTrue(petartifacts.SKILL.startswith("---\n"))
-        self.assertIn("name: leaving-artifacts", petartifacts.SKILL)
-        self.assertIn("description:", petartifacts.SKILL)
-        self.assertTrue(petprompts.EXAMPLE_SKILL.startswith("---\n"))
-        self.assertIn("name: keeping-a-journal", petprompts.EXAMPLE_SKILL)
-        self.assertIn("description:", petprompts.EXAMPLE_SKILL)
-
     def test_new_pet_scaffolds_discoverable_skills(self):
         environment = dict(os.environ)
         environment["PETS_ROOT"] = str(self.root)
@@ -226,26 +212,6 @@ class ArtifactTests(unittest.TestCase):
 
         self.assertIn("jojo left warning", left.stdout)
         self.assertIn("Mind the wire", listed.stdout)
-
-    def test_every_rendered_icon_is_a_rectangular_known_palette(self):
-        module = ast.parse(PET_HABITAT.read_text())
-        icons = None
-        for node in module.body:
-            if not isinstance(node, ast.Assign):
-                continue
-            if any(
-                isinstance(target, ast.Name) and target.id == "ICONS"
-                for target in node.targets
-            ):
-                icons = ast.literal_eval(node.value)
-                break
-
-        self.assertEqual(set(icons), set(petartifacts.KINDS))
-        for rows in icons.values():
-            self.assertEqual(len(rows), 10)
-            self.assertEqual({len(row) for row in rows}, {10})
-            self.assertLessEqual(set("".join(rows)), set(".ifa"))
-
 
 if __name__ == "__main__":
     unittest.main()

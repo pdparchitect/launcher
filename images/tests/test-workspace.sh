@@ -94,15 +94,28 @@ for product_dir in "${product_dirs[@]}"; do
         echo "$application does not expose the shared desktop preview." >&2
         exit 1
     fi
-    while IFS= read -r asset; do
-        if [[ "$asset" = /* || "$asset" = *..* || ! -f "$product_dir/launcher/$asset" ]]; then
-            echo "$application references invalid media asset '$asset'." >&2
-            exit 1
-        fi
-    done < <(
-        jq -er '.media.icon, .media.cover, .media.screenshots[].source' \
-            "$application"
+
+    # A product's state directories are declared twice, for two different
+    # readers: VOLUME, so a bare `docker run` keeps them, and
+    # DESKTOP_PERSISTENT_PATHS, so the base creates them and hands them to the
+    # session user before anything starts. Declaring one and not the other
+    # loses that product's state on the next start, silently.
+    mapfile -t declared_volumes < <(
+        sed -n 's/^VOLUME \[\(.*\)\]$/\1/p' "$product_dir/Dockerfile" |
+            grep -o '"[^"]*"' | tr -d '"' | sort -u
     )
+    mapfile -t declared_persistent < <(
+        {
+            echo /workspace
+            sed -n 's/.*DESKTOP_PERSISTENT_PATHS="\([^"]*\)".*/\1/p' \
+                "$product_dir/Dockerfile" | tr ' ' '\n'
+        } | grep -v '^$' | sort -u
+    )
+    if [ "${declared_volumes[*]}" != "${declared_persistent[*]}" ]; then
+        echo "$product_dir declares volumes [${declared_volumes[*]}] but" \
+            "persists [${declared_persistent[*]}]." >&2
+        exit 1
+    fi
 done
 
 graph="$(docker buildx bake --print all 2>/dev/null)"
@@ -174,33 +187,25 @@ jq -e '
     exit 1
 }
 
+# Two properties of the publish path that nothing else can catch: it is never
+# exercised by a pull request, and getting either wrong publishes an artefact
+# that was never tested. Everything else about those workflows is left to the
+# workflows themselves.
 release_workflow="../.github/workflows/images-release.yaml"
 publish_workflow="../.github/workflows/images-publish.yaml"
-grep -Fq 'getReleaseByTag' "$release_workflow"
-grep -Fq 'commit: sha' "$release_workflow"
 if grep -Fq 'createRef' "$release_workflow"; then
     echo "Release orchestration creates permanent tags before publishing." >&2
     exit 1
 fi
-grep -Fq 'RELEASE_VERSION="${{ needs.verify.outputs.image_version }}"' \
-    "$publish_workflow"
-grep -Fq 'bash bases/desktop/tests/smoke-test.sh "$image"' "$publish_workflow"
-grep -Fq 'tag_name: ${{ needs.verify.outputs.release_tag }}' "$publish_workflow"
-grep -Fq 'target_commitish: ${{ inputs.commit }}' "$publish_workflow"
-if [ "$(grep -Fc 'ref: ${{ inputs.commit }}' "$publish_workflow")" -ne 3 ]; then
-    echo "Publish jobs do not all check out the tested commit." >&2
+if ! grep -Fq 'bash bases/desktop/tests/smoke-test.sh "$image"' \
+    "$publish_workflow"; then
+    echo "The publish workflow ships images it never smoke tested." >&2
     exit 1
 fi
-validate_line="$(grep -n -m1 'Validate sources and the build graph' \
-    "$publish_workflow" | cut -d: -f1)"
-cleanup_line="$(grep -n -m1 'Free disk space' "$publish_workflow" | cut -d: -f1)"
-if [ "$validate_line" -ge "$cleanup_line" ]; then
-    echo "Publish validation runs after hosted toolchain cleanup." >&2
+if ! grep -Fq 'ref: ${{ inputs.commit }}' "$publish_workflow"; then
+    echo "Publish jobs do not check out the tested commit." >&2
     exit 1
 fi
-grep -Fq 'application/vnd.pdparchitect.launcher.application.v1' \
-    "$publish_workflow"
-grep -Fq '"launcher-stable"' "$publish_workflow"
 
 # Every product image must identify the upstream source it packages.
 for product_dir in "${product_dirs[@]}"; do

@@ -37,7 +37,7 @@ func TestIndexInjectsSessionToken(t *testing.T) {
 	}
 }
 
-func TestDesignAssetsAreServed(t *testing.T) {
+func TestWebAndCatalogAssetsAreServed(t *testing.T) {
 	handler := New(
 		&fakeService{},
 		"test-token",
@@ -46,9 +46,6 @@ func TestDesignAssetsAreServed(t *testing.T) {
 				Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`),
 			},
 			"pantalk-ghost/screenshot.png": {
-				Data: []byte("\x89PNG\r\n\x1a\n"),
-			},
-			"buzznode/screenshot.png": {
 				Data: []byte("\x89PNG\r\n\x1a\n"),
 			},
 		}),
@@ -68,13 +65,6 @@ func TestDesignAssetsAreServed(t *testing.T) {
 		{
 			path:         "/styles.css",
 			contentType:  "text/css",
-			body:         "/assets/hero.png",
-			cacheControl: "no-store",
-		},
-		{
-			path:         "/components/agent-card.js",
-			contentType:  "text/javascript",
-			body:         "customElements.define('agent-card'",
 			cacheControl: "no-store",
 		},
 		{
@@ -84,20 +74,11 @@ func TestDesignAssetsAreServed(t *testing.T) {
 			cacheControl: "no-store",
 		},
 		{
-			path:         "/assets/logo.png",
-			contentType:  "image/png",
-			cacheControl: "public, max-age=3600",
-		},
-		{
 			path:        "/catalog-assets/pantalk-ghost/icon.svg",
 			contentType: "image/svg+xml",
 		},
 		{
 			path:        "/catalog-assets/pantalk-ghost/screenshot.png",
-			contentType: "image/png",
-		},
-		{
-			path:        "/catalog-assets/buzznode/screenshot.png",
 			contentType: "image/png",
 		},
 	}
@@ -133,12 +114,6 @@ func TestDesignAssetsAreServed(t *testing.T) {
 				)
 			}
 		})
-	}
-	request := httptest.NewRequest(http.MethodGet, "/support.js", nil)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("obsolete support.js status = %d, want 404", response.Code)
 	}
 }
 
