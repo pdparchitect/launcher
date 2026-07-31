@@ -4,6 +4,21 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.14] - 2026-07-31
+
+### Added
+
+- Publish native Linux ARM64 desktop packages alongside the existing x86-64
+  release package.
+- Track images pulled by Launcher and remove unreferenced images after a
+  seven-day grace period through daily and manual cleanup. Cleanup targets
+  exact tracked image IDs without pruning unrelated images or volumes.
+
+### Changed
+
+- Rename the Linux application build target to `make build-linux` for symmetry
+  with `make build-macos`.
+
 ## [0.4.13] - 2026-07-31
 
 ### Added

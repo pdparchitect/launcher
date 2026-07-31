@@ -235,6 +235,23 @@ func (missing *Missing) PullWithProgress(
 	}
 	return resolved.Pull(ctx, image, platform)
 }
+func (missing *Missing) ResolveImage(
+	ctx context.Context,
+	reference string,
+) (LocalImage, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return LocalImage{}, err
+	}
+	return resolved.ResolveImage(ctx, reference)
+}
+func (missing *Missing) DeleteImage(ctx context.Context, id string) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.DeleteImage(ctx, id)
+}
 func (missing *Missing) EnsureNetwork(
 	ctx context.Context,
 	instanceID string,

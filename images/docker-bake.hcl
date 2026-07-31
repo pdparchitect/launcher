@@ -81,7 +81,8 @@ group "default" {
 group "all" {
   targets = [
     "core-ubuntu", "node", "desktop",
-    "hermes-desktop", "openclaw-desktop", "petbox-desktop", "pi-desktop",
+    "cursor-desktop", "hermes-desktop", "opencode-desktop",
+    "openclaw-desktop", "petbox-desktop", "pi-desktop",
   ]
 }
 
@@ -95,7 +96,8 @@ group "substrate" {
 
 group "products" {
   targets = [
-    "hermes-desktop", "openclaw-desktop", "petbox-desktop", "pi-desktop",
+    "cursor-desktop", "hermes-desktop", "opencode-desktop",
+    "openclaw-desktop", "petbox-desktop", "pi-desktop",
   ]
 }
 
@@ -141,6 +143,21 @@ target "desktop" {
   }
 }
 
+target "cursor-desktop" {
+  inherits = ["_common"]
+  labels = {
+    "dev.pdparchitect.launcher.substrate.version" = SUBSTRATE_VERSION
+  }
+  context    = "products/cursor/desktop"
+  dockerfile = "Dockerfile"
+  tags       = tag_list("cursor-desktop")
+
+  # Overrides `${DESKTOP_IMAGE}` with the freshly built desktop target.
+  contexts = {
+    "pdparchitect/launcher-image-base-desktop:local" = "target:desktop"
+  }
+}
+
 target "hermes-desktop" {
   inherits   = ["_common"]
   labels = {
@@ -166,6 +183,21 @@ target "openclaw-desktop" {
   tags       = tag_list("openclaw-desktop")
 
   # Overrides `FROM ${DESKTOP_IMAGE}` with the freshly built desktop target.
+  contexts = {
+    "pdparchitect/launcher-image-base-desktop:local" = "target:desktop"
+  }
+}
+
+target "opencode-desktop" {
+  inherits = ["_common"]
+  labels = {
+    "dev.pdparchitect.launcher.substrate.version" = SUBSTRATE_VERSION
+  }
+  context    = "products/opencode/desktop"
+  dockerfile = "Dockerfile"
+  tags       = tag_list("opencode-desktop")
+
+  # Overrides `${DESKTOP_IMAGE}` with the freshly built desktop target.
   contexts = {
     "pdparchitect/launcher-image-base-desktop:local" = "target:desktop"
   }

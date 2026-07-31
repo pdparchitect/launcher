@@ -35,10 +35,24 @@ jobs:
         run: make check
 
   linux:
+    name: Linux ${{ matrix.package_arch }}
     if: github.actor != 'github-actions[bot]'
     needs: check
 
-    runs-on: ubuntu-24.04
+    # Wails links GTK and WebKitGTK through cgo, so each architecture builds
+    # against native system libraries on its matching runner.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_arch: x86_64
+            executable_pattern: 'ELF 64-bit.*x86-64'
+            runner: ubuntu-24.04
+          - package_arch: arm64
+            executable_pattern: 'ELF 64-bit.*ARM aarch64'
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
 
     steps:
@@ -62,19 +76,24 @@ jobs:
             libwebkit2gtk-4.1-dev
 
       - name: Build Linux desktop application
-        run: make build-desktop
+        run: make build-linux
 
       - name: Verify Linux executable
+        env:
+          EXECUTABLE_PATTERN: ${{ matrix.executable_pattern }}
         run: |
           test -x dist/launcher-desktop
           file dist/launcher-desktop
-          file dist/launcher-desktop | grep --quiet 'ELF 64-bit.*x86-64'
+          file dist/launcher-desktop |
+            grep --quiet --extended-regexp "$EXECUTABLE_PATTERN"
 
       - name: Package Linux application
+        env:
+          PACKAGE_ARCH: ${{ matrix.package_arch }}
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           package_dir="dist/Agent Launcher"
-          archive="Agent-Launcher-${version}-Linux-x86_64.tar.gz"
+          archive="Agent-Launcher-${version}-Linux-${PACKAGE_ARCH}.tar.gz"
 
           mkdir -p "${package_dir}"
           cp dist/launcher-desktop "${package_dir}/launcher"
@@ -84,8 +103,8 @@ jobs:
       - name: Upload Linux application
         uses: actions/upload-artifact@v6
         with:
-          name: Agent-Launcher-Linux-x86_64
-          path: dist/Agent-Launcher-*-Linux-x86_64.tar.gz
+          name: Agent-Launcher-Linux-${{ matrix.package_arch }}
+          path: dist/Agent-Launcher-*-Linux-${{ matrix.package_arch }}.tar.gz
           if-no-files-found: error
           retention-days: 14
 

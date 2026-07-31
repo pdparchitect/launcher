@@ -38,7 +38,7 @@ MACOS_BUILD_FLAGS := -devtools
 DESKTOP_TAGS := $(DESKTOP_TAGS),devtools
 endif
 
-.PHONY: help web web-open desktop check test images-check images-build build build-desktop native-macos build-macos build-all clean
+.PHONY: help web web-open desktop check test images-check images-build build build-linux native-macos build-macos build-all clean
 
 help:
 	@echo "Launcher development"
@@ -51,7 +51,7 @@ help:
 	@echo "  make images-check  Validate the container image sources"
 	@echo "  make images-build  Build the Ubuntu, desktop, and Hermes image chain"
 	@echo "  make build      Build Launcher for this machine"
-	@echo "  make build-desktop  Build the Wails desktop executable"
+	@echo "  make build-linux  Build the Linux Wails desktop executable"
 	@echo "  make build-macos  Build the single-binary SwiftUI/Wails macOS app"
 	@echo "                    Web Inspector is on by default; DEVTOOLS=0 omits it"
 	@echo "  make build-all  Cross-compile Linux and macOS binaries"
@@ -93,7 +93,11 @@ build:
 	mkdir -p dist
 	go build -trimpath -ldflags "$(LDFLAGS)" -o dist/launcher .
 
-build-desktop: $(NATIVE_MACOS_TARGET)
+build-linux:
+	@if [ "$(HOST_OS)" != "linux" ]; then \
+		echo "make build-linux must run on Linux"; \
+		exit 1; \
+	fi
 	mkdir -p dist
 	CGO_ENABLED=1 $(PATCHED_GO) go build \
 		-tags "$(DESKTOP_TAGS),production" -trimpath \

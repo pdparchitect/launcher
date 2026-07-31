@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-OpenCode}" \
+    --override remember_window_size=no \
+    --override initial_window_width=118c \
+    --override initial_window_height=38c \
+    -e bash -lc 'cd /workspace && exec opencode'

@@ -104,6 +104,26 @@ func TestDeleteRequiresForce(t *testing.T) {
 	}
 }
 
+func TestCleanupPrintsImageCleanupReport(t *testing.T) {
+	service := &fakeService{cleanupReport: agent.ImageCleanupReport{
+		Tracked: 4, Protected: 2, Deferred: 1, Removed: 1,
+	}}
+	var stdout bytes.Buffer
+	app := New(service, &fakeOpener{}, &stdout, &bytes.Buffer{}, "test")
+
+	if code := app.Run(t.Context(), []string{"cleanup"}); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if service.cleanupMinimumAge != agent.DefaultImageRetention ||
+		!strings.Contains(stdout.String(), "Removed 1 unused image") {
+		t.Fatalf(
+			"cleanup age = %v, stdout = %q",
+			service.cleanupMinimumAge,
+			stdout.String(),
+		)
+	}
+}
+
 func TestOpenPrintsDesktopURL(t *testing.T) {
 	service := &fakeService{view: agent.View{Instance: testInstance()}}
 	opener := &fakeOpener{}
@@ -300,13 +320,15 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 }
 
 type fakeService struct {
-	catalog       []agent.CatalogEntry
-	created       domain.Instance
-	createOptions agent.CreateOptions
-	views         []agent.View
-	view          agent.View
-	deleteCalled  bool
-	doctorErr     error
+	catalog           []agent.CatalogEntry
+	created           domain.Instance
+	createOptions     agent.CreateOptions
+	views             []agent.View
+	view              agent.View
+	deleteCalled      bool
+	doctorErr         error
+	cleanupReport     agent.ImageCleanupReport
+	cleanupMinimumAge time.Duration
 }
 
 func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
@@ -342,6 +364,13 @@ func (*fakeService) Stop(context.Context, string) (domain.Instance, error) {
 func (service *fakeService) Delete(context.Context, string) error {
 	service.deleteCalled = true
 	return nil
+}
+func (service *fakeService) CleanupImages(
+	_ context.Context,
+	minimumAge time.Duration,
+) (agent.ImageCleanupReport, error) {
+	service.cleanupMinimumAge = minimumAge
+	return service.cleanupReport, nil
 }
 func (*fakeService) Logs(context.Context, string, bool) error { return nil }
 

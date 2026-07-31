@@ -60,7 +60,7 @@ Then run or build the desktop application:
 
 ```bash
 make desktop
-make build-desktop
+make build-linux
 ```
 
 Build and open the native Apple silicon application on macOS:
@@ -94,13 +94,17 @@ modifying the module cache.
 ```bash
 make check
 make build
-make build-desktop
+make build-linux
 make build-macos
 make build-all
 ```
 
 `make build-all` creates Linux command-line binaries for AMD64 and ARM64 plus a
 macOS ARM64 command-line binary without requiring macOS.
+
+`make build-linux` creates the Linux desktop executable for the build host's
+architecture. Release automation runs it on native AMD64 and ARM64 Linux
+runners because Wails links the host GTK and WebKitGTK libraries through cgo.
 
 `make build-macos` creates an ad-hoc signed native Apple silicon application
 for local development. The release workflow replaces that signature with a
@@ -130,6 +134,7 @@ internal/config/           platform data-folder selection
 internal/desktop/          Wails native desktop host
 internal/domain/           persisted instance model
 internal/httpapi/          loopback API and embedded Launcher interface
+internal/imagecache/       persisted runtime image ownership and retention ledger
 internal/runtime/          Docker and Apple container adapters
 internal/store/            file-backed instance library
 internal/updatecheck/      cached stable Launcher release checks

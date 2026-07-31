@@ -352,6 +352,58 @@ func TestApplePullLimitsDownloadToSelectedPlatform(t *testing.T) {
 	}
 }
 
+func TestDockerResolvesAndDeletesExactImageID(t *testing.T) {
+	runner := &fakeRunner{captureResults: []Result{
+		{Stdout: []byte("sha256:abc123\n")},
+		{},
+	}}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+
+	image, err := docker.ResolveImage(t.Context(), "example/app@sha256:release")
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if image.ID != "sha256:abc123" {
+		t.Fatalf("ResolveImage() = %#v", image)
+	}
+	if err := docker.DeleteImage(t.Context(), image.ID); err != nil {
+		t.Fatalf("DeleteImage() error = %v", err)
+	}
+	want := [][]string{
+		{"image", "inspect", "--format", "{{.Id}}", "example/app@sha256:release"},
+		{"image", "rm", "sha256:abc123"},
+	}
+	if !reflect.DeepEqual(runner.captureArgs, want) {
+		t.Fatalf("image commands = %#v, want %#v", runner.captureArgs, want)
+	}
+}
+
+func TestAppleResolvesAndDeletesExactImageID(t *testing.T) {
+	runner := &fakeRunner{captureResults: []Result{
+		{Stdout: []byte(`[{"id":"abc123"}]`)},
+		{},
+	}}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	image, err := apple.ResolveImage(t.Context(), "example/app@sha256:release")
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if image.ID != "abc123" {
+		t.Fatalf("ResolveImage() = %#v", image)
+	}
+	if err := apple.DeleteImage(t.Context(), image.ID); err != nil {
+		t.Fatalf("DeleteImage() error = %v", err)
+	}
+	want := [][]string{
+		{"image", "inspect", "example/app@sha256:release"},
+		{"image", "delete", "abc123"},
+	}
+	if !reflect.DeepEqual(runner.captureArgs, want) {
+		t.Fatalf("image commands = %#v, want %#v", runner.captureArgs, want)
+	}
+}
+
 func TestAppleStatusReadsInspectJSON(t *testing.T) {
 	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
 		{

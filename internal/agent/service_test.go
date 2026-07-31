@@ -361,7 +361,7 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"pull", "ensure-network", "stop", "remove", "create", "start",
+		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "remove", "create", "start",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
@@ -406,7 +406,9 @@ func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	wantCalls := []string{"pull", "ensure-network", "remove", "create"}
+	wantCalls := []string{
+		"resolve-image", "pull", "resolve-image", "ensure-network", "remove", "create",
+	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
 	}
@@ -517,7 +519,7 @@ func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"pull", "ensure-network", "stop", "remove", "create", "create", "start",
+		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "remove", "create", "create", "start",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
@@ -686,6 +688,98 @@ func TestRecentLogsReadsFromTheAgentRuntime(t *testing.T) {
 	}
 }
 
+func TestCleanupImagesDeletesOnlyExpiredUnreferencedTrackedImages(t *testing.T) {
+	containerRuntime := &fakeRuntime{resolvedImages: map[string]string{
+		"pantalk/ghost:old":     "old-image-id",
+		"pantalk/ghost:default": "current-image-id",
+	}}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		Name: "Ada", Image: "pantalk/ghost:old",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := service.Update(t.Context(), instance.ID); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if err := service.imageCache.Record(
+		"old-image-id",
+		"pantalk/ghost:old",
+		service.options.Now().Add(-8*24*time.Hour),
+	); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	containerRuntime.deletedImageIDs = nil
+
+	report, err := service.CleanupImages(t.Context(), DefaultImageRetention)
+
+	if err != nil {
+		t.Fatalf("CleanupImages() error = %v", err)
+	}
+	if report.Tracked != 2 || report.Protected != 1 ||
+		report.Deferred != 0 || report.Removed != 1 {
+		t.Fatalf("CleanupImages() report = %#v", report)
+	}
+	if len(containerRuntime.deletedImageIDs) != 1 ||
+		containerRuntime.deletedImageIDs[0] != "old-image-id" {
+		t.Fatalf("deleted image IDs = %#v", containerRuntime.deletedImageIDs)
+	}
+}
+
+func TestCleanupImagesAbortsBeforeDeletionWhenActiveImageCannotResolve(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	if _, err := service.Create(t.Context(), CreateOptions{
+		Name: "Ada", Image: "pantalk/ghost:old",
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := service.imageCache.Record(
+		"unused-image-id",
+		"pantalk/ghost:unused",
+		service.options.Now().Add(-8*24*time.Hour),
+	); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	containerRuntime.resolveImageErr = errors.New("runtime unavailable")
+	containerRuntime.deletedImageIDs = nil
+
+	_, err := service.CleanupImages(t.Context(), DefaultImageRetention)
+
+	if err == nil || !strings.Contains(err.Error(), "resolve active image") {
+		t.Fatalf("CleanupImages() error = %v", err)
+	}
+	if len(containerRuntime.deletedImageIDs) != 0 {
+		t.Fatalf("deleted image IDs = %#v", containerRuntime.deletedImageIDs)
+	}
+}
+
+func TestCleanupImagesRetainsLedgerEntryWhenRuntimeDeletionFails(t *testing.T) {
+	containerRuntime := &fakeRuntime{deleteImageErr: errors.New("image is in use")}
+	service := newTestService(t, containerRuntime)
+	if err := service.imageCache.Record(
+		"unused-image-id",
+		"pantalk/ghost:unused",
+		service.options.Now().Add(-8*24*time.Hour),
+	); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+
+	report, err := service.CleanupImages(t.Context(), DefaultImageRetention)
+
+	if err == nil || !strings.Contains(err.Error(), "image is in use") {
+		t.Fatalf("CleanupImages() error = %v", err)
+	}
+	if report.Removed != 0 {
+		t.Fatalf("CleanupImages() report = %#v", report)
+	}
+	entries, readErr := service.imageCache.Entries()
+	if readErr != nil || len(entries) != 1 || entries[0].ID != "unused-image-id" {
+		t.Fatalf("image cache entries = %#v, %v", entries, readErr)
+	}
+}
+
 func newTestService(t *testing.T, containerRuntime *fakeRuntime) *Service {
 	t.Helper()
 	manifest := catalog.Manifest{
@@ -774,6 +868,10 @@ type fakeRuntime struct {
 	pullProgress          []string
 	pullImage             string
 	pullPlatform          string
+	resolvedImages        map[string]string
+	resolveImageErr       error
+	deletedImageIDs       []string
+	deleteImageErr        error
 	calls                 []string
 }
 
@@ -803,6 +901,24 @@ func (runtime *fakeRuntime) PullWithProgress(
 		progress(message)
 	}
 	return nil
+}
+func (runtime *fakeRuntime) ResolveImage(
+	_ context.Context,
+	reference string,
+) (launchruntime.LocalImage, error) {
+	runtime.calls = append(runtime.calls, "resolve-image")
+	if runtime.resolveImageErr != nil {
+		return launchruntime.LocalImage{}, runtime.resolveImageErr
+	}
+	if id := runtime.resolvedImages[reference]; id != "" {
+		return launchruntime.LocalImage{ID: id}, nil
+	}
+	return launchruntime.LocalImage{ID: "local:" + reference}, nil
+}
+func (runtime *fakeRuntime) DeleteImage(_ context.Context, id string) error {
+	runtime.calls = append(runtime.calls, "delete-image")
+	runtime.deletedImageIDs = append(runtime.deletedImageIDs, id)
+	return runtime.deleteImageErr
 }
 func (runtime *fakeRuntime) EnsureNetwork(
 	_ context.Context,

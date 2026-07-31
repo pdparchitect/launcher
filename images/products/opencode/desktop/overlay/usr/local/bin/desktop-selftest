@@ -1,0 +1,36 @@
+#!/bin/bash
+# desktop-selftest - product assertions run by the shared live smoke test.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "opencode selftest"
+
+check "OpenCode runs" opencode --version
+check "the Launcher theme is selected" \
+    grep -Fq '"theme": "launcher"' \
+    "$HOME/.opencode/config/opencode/tui.json"
+check "the Launcher theme is installed" \
+    grep -Fq '"siteBackground": "#1B1818"' \
+    "$HOME/.opencode/config/opencode/themes/launcher.json"
+check "the state directory is writable" test -w "$HOME/.opencode"
+check "the workspace is writable" test -w /workspace
+
+if [ "$failures" -gt 0 ]; then
+    echo "opencode selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "opencode selftest: OpenCode is ready"

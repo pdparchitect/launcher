@@ -113,6 +113,16 @@ jobs:
           SMOKE_PORT: 16904
         run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-petbox-desktop:local
 
+      - name: Smoke test the Cursor Agent product
+        env:
+          SMOKE_PORT: 16905
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-cursor-desktop:local
+
+      - name: Smoke test the OpenCode product
+        env:
+          SMOKE_PORT: 16906
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-opencode-desktop:local
+
       - name: Collect container logs on failure
         if: failure()
         run: |
