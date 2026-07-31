@@ -6,6 +6,13 @@
 
 set -e
 
+# dbus-run-session creates a private address that container exec shells and
+# privilege-dropped product processes do not inherit. Publish it at a stable,
+# read-only location before starting the notification owner. The notify-send
+# adapter reads this file instead of allowing libnotify to autolaunch an
+# isolated bus.
+printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" > /run/launcher-desktop/dbus-session-address
+
 # Register the chromium wrapper as the default browser when MIME associations
 # have not already been configured.
 if [ ! -f "$HOME/.config/mimeapps.list" ]; then

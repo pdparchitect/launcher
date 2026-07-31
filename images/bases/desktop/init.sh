@@ -52,7 +52,9 @@ fi
 runtime_group="$runtime_user"
 runtime_uid="$(id -u "$runtime_user")"
 export XDG_RUNTIME_DIR="/run/user/$runtime_uid"
-mkdir -p "$XDG_RUNTIME_DIR" "$(dirname "$XAUTHORITY")"
+desktop_runtime_dir="$(dirname "$XAUTHORITY")"
+session_bus_address_file="$desktop_runtime_dir/dbus-session-address"
+mkdir -p "$XDG_RUNTIME_DIR" "$desktop_runtime_dir"
 chmod 0700 "$XDG_RUNTIME_DIR"
 chmod 1777 /tmp/.X11-unix
 
@@ -60,9 +62,12 @@ chmod 1777 /tmp/.X11-unix
 # fixed-mount mode KasmVNC runs as root while products can still deliberately
 # run as `agent`; a stable runtime path lets the base grant that account access
 # without changing ownership anywhere in the persistent home or workspace.
-touch "$XAUTHORITY"
-chown "$runtime_user:$runtime_group" "$XAUTHORITY"
+touch "$XAUTHORITY" "$session_bus_address_file"
+: > "$session_bus_address_file"
+chown "$runtime_user:$runtime_group" \
+    "$XAUTHORITY" "$session_bus_address_file"
 chmod 0600 "$XAUTHORITY"
+chmod 0644 "$session_bus_address_file"
 
 if [ "$fixed_mounts" = false ]; then
     chown "$runtime_user:$runtime_group" \

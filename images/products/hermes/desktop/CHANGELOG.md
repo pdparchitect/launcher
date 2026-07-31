@@ -8,6 +8,11 @@ on, are recorded on the image itself as
 `dev.pdparchitect.launcher.upstream.version` and `.substrate.version`. They are
 not repeated here.
 
+## [0.1.12]
+
+- Update to Launcher desktop substrate 0.1.8 so `notify-send` reaches native
+  notifications from Hermes and root container shells.
+
 ## [0.1.11]
 
 - Update to Launcher desktop substrate 0.1.7 and declare its shared health and
