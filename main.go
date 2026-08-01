@@ -118,6 +118,7 @@ func main() {
 			appOptions,
 			cli.WithDesktop(func(ctx context.Context) error {
 				return desktop.Run(ctx, service, desktop.Options{
+					DataRoot:      root,
 					Stdout:        os.Stdout,
 					OpenPath:      systemOpener.OpenPath,
 					CatalogAssets: catalogue,

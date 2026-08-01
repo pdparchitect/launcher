@@ -8,7 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pdparchitect/launcher/internal/agent"
@@ -51,10 +54,16 @@ type notificationPoller struct {
 	service notificationAgentService
 	client  *http.Client
 	deliver func(notificationSource, bridgeNotification) error
+	cursors *notificationCursorStore
 	sources map[string]notificationSource
 }
 
+// newNotificationPoller keeps its cursors under root so a launcher restart
+// resumes where the previous run stopped. Without that, every bridge is asked
+// for its whole retained queue again and the desktop repeats notifications the
+// user has already seen.
 func newNotificationPoller(
+	root string,
 	service notificationAgentService,
 	deliver func(notificationSource, bridgeNotification) error,
 ) *notificationPoller {
@@ -64,6 +73,7 @@ func newNotificationPoller(
 			Timeout: 3 * time.Second,
 		},
 		deliver: deliver,
+		cursors: newNotificationCursorStore(root),
 		sources: make(map[string]notificationSource),
 	}
 }
@@ -95,7 +105,9 @@ func (poller *notificationPoller) refresh(ctx context.Context) error {
 		return err
 	}
 	updated := make(map[string]notificationSource)
+	known := make(map[string]struct{}, len(views))
 	for _, view := range views {
+		known[view.ID] = struct{}{}
 		if view.State != launchruntime.StatusRunning {
 			continue
 		}
@@ -108,14 +120,17 @@ func (poller *notificationPoller) refresh(ctx context.Context) error {
 				agentName: view.Name,
 				url:       resolved.URL(),
 			}
-			if previous, exists := poller.sources[view.ID]; exists && previous.url == source.url {
-				source.cursor = previous.cursor
-			}
+			// The cursor is only meaningful for the bridge that issued it, so
+			// an agent republished on a different address starts over. A bridge
+			// that restarted behind the same address rejects the stale cursor
+			// itself, because its generation no longer matches.
+			source.cursor = poller.cursors.lookup(view.ID, source.url)
 			updated[view.ID] = source
 			break
 		}
 	}
 	poller.sources = updated
+	poller.cursors.retain(known)
 	return nil
 }
 
@@ -136,6 +151,126 @@ func (poller *notificationPoller) poll(ctx context.Context) {
 		}
 		source.cursor = page.NextCursor
 		poller.sources[id] = source
+		poller.cursors.save(source)
+	}
+}
+
+// notificationCursorStore remembers how far each agent's notification bridge
+// has been read. Cursors survive a launcher restart, which is what keeps
+// already-delivered notifications from being announced a second time.
+type notificationCursorStore struct {
+	path    string
+	mutex   sync.Mutex
+	cursors map[string]notificationCursorRecord
+}
+
+type notificationCursorRecord struct {
+	URL    string `json:"url"`
+	Cursor string `json:"cursor"`
+}
+
+// An empty root keeps the cursors in memory only, which is all a build without
+// a data folder can offer.
+func newNotificationCursorStore(root string) *notificationCursorStore {
+	cursorStore := &notificationCursorStore{
+		cursors: make(map[string]notificationCursorRecord),
+	}
+	if root == "" {
+		return cursorStore
+	}
+	cursorStore.path = filepath.Join(root, "notifications", "cursors.json")
+	cursorStore.restore()
+	return cursorStore
+}
+
+func (cursorStore *notificationCursorStore) restore() {
+	data, err := os.ReadFile(cursorStore.path)
+	if err != nil {
+		return
+	}
+	var records map[string]notificationCursorRecord
+	if json.Unmarshal(data, &records) != nil {
+		return
+	}
+	for id, record := range records {
+		if record.URL == "" || record.Cursor == "" {
+			continue
+		}
+		cursorStore.cursors[id] = record
+	}
+}
+
+func (cursorStore *notificationCursorStore) lookup(
+	agentID string,
+	target string,
+) string {
+	cursorStore.mutex.Lock()
+	defer cursorStore.mutex.Unlock()
+
+	record, exists := cursorStore.cursors[agentID]
+	if !exists || record.URL != target {
+		return ""
+	}
+	return record.Cursor
+}
+
+func (cursorStore *notificationCursorStore) save(source notificationSource) {
+	cursorStore.mutex.Lock()
+	defer cursorStore.mutex.Unlock()
+
+	record := notificationCursorRecord{
+		URL:    source.url,
+		Cursor: source.cursor,
+	}
+	if cursorStore.cursors[source.agentID] == record {
+		return
+	}
+	cursorStore.cursors[source.agentID] = record
+	cursorStore.persist()
+}
+
+// retain drops cursors for agents that no longer exist so a long-lived
+// installation does not accumulate them forever.
+func (cursorStore *notificationCursorStore) retain(
+	agentIDs map[string]struct{},
+) {
+	cursorStore.mutex.Lock()
+	defer cursorStore.mutex.Unlock()
+
+	changed := false
+	for id := range cursorStore.cursors {
+		if _, keep := agentIDs[id]; keep {
+			continue
+		}
+		delete(cursorStore.cursors, id)
+		changed = true
+	}
+	if changed {
+		cursorStore.persist()
+	}
+}
+
+// persist runs under the store mutex. A cursor that fails to reach disk only
+// costs a repeat of the current backlog after the next restart, so the write
+// stays quiet rather than interrupting delivery.
+func (cursorStore *notificationCursorStore) persist() {
+	if cursorStore.path == "" {
+		return
+	}
+	data, err := json.MarshalIndent(cursorStore.cursors, "", "  ")
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(cursorStore.path), 0o700); err != nil {
+		return
+	}
+	temporary := cursorStore.path + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return
+	}
+	if err := os.Rename(temporary, cursorStore.path); err != nil {
+		_ = os.Remove(temporary)
 	}
 }
 

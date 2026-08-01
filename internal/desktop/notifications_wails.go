@@ -14,6 +14,7 @@ import (
 func runNativeNotifications(
 	ctx context.Context,
 	wailsContext context.Context,
+	root string,
 	service httpapi.Service,
 	output io.Writer,
 ) {
@@ -40,6 +41,7 @@ func runNativeNotifications(
 	}
 
 	poller := newNotificationPoller(
+		root,
 		service,
 		func(
 			source notificationSource,

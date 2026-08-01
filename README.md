@@ -1,8 +1,8 @@
 # Launcher
 
-Launcher is a local-first home for AI agents. It makes installing and running
-an agent feel more like using a game launcher than managing containers,
-services, and virtual machines.
+Launcher is a local-first home for AI agents. Each agent you install gets a
+name and a space of its own, so keeping several of them feels more like using
+a game launcher than managing infrastructure.
 
 [![Download the latest release](https://img.shields.io/badge/Download-latest%20release-2ea44f?style=for-the-badge&logo=github)](https://github.com/pdparchitect/launcher/releases/latest)
 
@@ -24,27 +24,44 @@ services, and virtual machines.
   </tr>
 </table>
 
+## Who Launcher is for
+
+Launcher is for people who like experimenting with new AI agents and
+harnesses. They ship constantly and differ in what they can actually do:
+which models they use, which tools and MCP servers they bring, and whether
+they work in a terminal or drive a full desktop and browser. The only way to
+find the one that suits your work is to run it on your own machine.
+
+An unfamiliar agent is unfamiliar code, and running several of them on one
+computer creates recurring problems:
+
+- A new agent runs with your shell access, your credentials, and your files
+- Global installs collide over configuration, credentials, and runtime
+  versions
+- Agents compete for ports and shared state
+- Removing an agent rarely removes everything it installed
+
+Launcher makes each agent easy to try and easy to discard. Each one runs in
+its own space and can only reach the workspace you give it. Install an agent,
+run it on real work, and remove it completely if it does not suit you. The
+agents you keep stay installed side by side, each with its own workspace and
+history.
+
 ## Why Launcher
 
-- **Local control** - Run agents on your own computer without a hosted control
-  plane.
-- **Secure by design** - Keep each agent isolated in its own local container,
-  expose its interfaces only on localhost, and launch images resolved to
-  immutable OCI digests.
-- **A familiar experience** - Discover, install, launch, stop, and update
-  agents from one desktop application.
-- **Less infrastructure work** - Launcher handles the local container runtime
-  and agent lifecycle behind a simple interface.
-- **Useful visibility** - See agent status, CPU use, memory use, and uptime in
-  one place.
-- **Desktop and command line** - Use the graphical interface for everyday work
-  and the CLI for automation or troubleshooting.
-- **Update awareness** - See when a newer stable Launcher release is available
-  without interrupting your work.
-- **Resilient registry** - Browse cached applications even when one of their
-  publishers is temporarily unavailable.
-- **Safe storage cleanup** - Reclaim old Launcher image data without pruning
-  unrelated runtime images or application volumes.
+- **Try anything, keep what works** - Install an agent, run it on real work,
+  and remove it completely if it does not suit you. The ones you keep hold on
+  to their own workspace and history.
+- **Find what is out there** - Browse a catalogue of agents and harnesses in
+  one place instead of hunting down install instructions for each one.
+- **Contained by default** - Each agent is isolated from your system and from
+  the others, and is reachable only from your own machine.
+- **Several at once** - Keep agents side by side without them competing for
+  configuration, credentials, ports, or runtime versions.
+- **Local control** - Agents run on your own computer with no hosted control
+  plane, and their files stay where you can reach them.
+- **Nothing to wire up** - Launcher handles the runtime and the agent
+  lifecycle, so installing an agent is one action rather than a setup guide.
 
 ## What you can do
 
