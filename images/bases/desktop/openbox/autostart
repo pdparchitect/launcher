@@ -13,6 +13,13 @@ set -e
 # isolated bus.
 printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" > /run/launcher-desktop/dbus-session-address
 
+# Own the Secret Service before anything that might ask for a secret. This runs
+# to completion rather than in the background: an application started below and
+# finding no keyring does not retry, it reports a lost or unstorable secret. A
+# session without one is still a session, so a failure here is reported and
+# stepped over.
+desktop-keyring || echo "autostart: continuing without a Secret Service" >&2
+
 # Register the chromium wrapper as the default browser when MIME associations
 # have not already been configured.
 if [ ! -f "$HOME/.config/mimeapps.list" ]; then

@@ -36,10 +36,19 @@ ARG TARGETARCH
 # xauth, xkb-data, and x11-xkb-utils are listed explicitly even though
 # kasmvncserver depends on them, so an autoremove can never take them out.
 # xfonts-base supplies the core font path Xvnc is started with.
+#
+# gnome-keyring is the session's Secret Service provider, and libsecret-tools
+# the client that makes it testable from a shell. Nothing in Ubuntu implements
+# org.freedesktop.secrets, so without a provider every libsecret client in
+# every product either fails or falls back to a plaintext store. It is started
+# and unlocked by desktop-keyring, which must ship with the package: installed
+# and left locked, the keyring turns Chrome's silent plaintext fallback into an
+# unlock dialog, which is worse than not having it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils ssl-cert \
     xauth xkb-data x11-xkb-utils xfonts-base \
     xterm dbus-x11 libnotify-bin x11-utils \
+    gnome-keyring libsecret-tools \
     scrot \
     openbox obconf tint2 kitty ranger feh picom htop xdotool wmctrl \
     fonts-noto fonts-noto-color-emoji \
@@ -160,6 +169,8 @@ COPY cortile/cortilectl /usr/local/bin/cortilectl
 COPY cortile/cortile-config.toml /home/agent/.config/cortile/config.toml
 COPY shell/chromium /usr/local/bin/chromium
 COPY shell/notify-send /usr/local/bin/notify-send
+COPY shell/desktop-keyring /usr/local/bin/desktop-keyring
+COPY shell/session-bus.sh /etc/profile.d/desktop-session-bus.sh
 COPY --from=desktop-bridge-build /out/desktop-bridge /usr/local/bin/desktop-bridge
 COPY shell/desktop-welcome /usr/local/bin/desktop-welcome
 COPY shell/desktop-harness /usr/local/bin/desktop-harness
@@ -176,11 +187,14 @@ RUN chmod 0755 \
         /usr/local/bin/cortilectl \
         /usr/local/bin/desktop-bridge \
         /usr/local/bin/desktop-harness \
+        /usr/local/bin/desktop-keyring \
         /usr/local/bin/desktop-panel-status \
         /usr/local/bin/desktop-welcome \
         /usr/local/bin/notify-send && \
     echo '[ -d /etc/bash.bashrc.d ] && for f in /etc/bash.bashrc.d/*.sh; do . "$f"; done' \
         >> /etc/bash.bashrc && \
+    ln -s ../profile.d/desktop-session-bus.sh \
+        /etc/bash.bashrc.d/desktop-session-bus.sh && \
     mkdir -p /usr/share/xsessions && \
     printf '[Desktop Entry]\nName=Openbox\nExec=openbox-session\nType=Application\n' \
         > /usr/share/xsessions/openbox.desktop
