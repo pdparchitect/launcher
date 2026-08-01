@@ -63,6 +63,85 @@ static void InstallInspectorShortcut(WKWebView *webView) {
         }];
 }
 
+/*
+ Arrow keys reach an agent as their keypad twins under this shell.
+
+ macOS tags the arrow keys with its numeric-pad modifier flag - a leftover from
+ keyboards where the arrows really were part of the keypad. WebKit passes that
+ through as KeyboardEvent.location === 3, while the UI Events specification
+ reserves that value for keys physically on the numeric keypad; Chrome and
+ Firefox normalise a standalone arrow to 0.
+
+ That single wrong value is then read, correctly, by everything downstream. The
+ KasmVNC client uses location to pick between XK_Up and XK_KP_Up, so the agent
+ receives KP_Up. Terminals faithfully report KP_UP rather than UP under the
+ kitty keyboard protocol, and full-screen applications that negotiate it - vim
+ among them - fail to recognise a key they were never taught, and insert its
+ raw code instead of moving the cursor. Nothing in the chain is misbehaving on
+ its own terms, which is why the only sound place to fix it is here, before the
+ page reads the value.
+
+ location is a prototype getter, so correcting it needs no event interception:
+ the page sees the corrected value through the ordinary property read. The
+ script is inert in a browser that already reports 0.
+ */
+static NSString *const kArrowKeyLocationFix =
+    @"(function () {"
+    @"  var proto = KeyboardEvent.prototype;"
+    @"  if (proto.__launcherArrowLocationFixed) { return; }"
+    @"  var descriptor ="
+    @"    Object.getOwnPropertyDescriptor(proto, 'location');"
+    @"  if (!descriptor || typeof descriptor.get !== 'function') { return; }"
+    @"  var arrows = {"
+    @"    ArrowUp: true, ArrowDown: true,"
+    @"    ArrowLeft: true, ArrowRight: true"
+    @"  };"
+    @"  Object.defineProperty(proto, 'location', {"
+    @"    configurable: true,"
+    @"    enumerable: descriptor.enumerable,"
+    @"    get: function () {"
+    @"      return arrows[this.key] ? 0 : descriptor.get.call(this);"
+    @"    }"
+    @"  });"
+    @"  Object.defineProperty(proto, '__launcherArrowLocationFixed', {"
+    @"    value: true"
+    @"  });"
+    @"})();";
+
+static bool gArrowKeyFixInstalled = false;
+
+static bool InstallArrowKeyFixOnMainThread(void) {
+    if (gArrowKeyFixInstalled) {
+        return true;
+    }
+    WKWebView *webView = nil;
+    if (FindLauncherWindow(&webView) == nil || webView == nil) {
+        return false;
+    }
+
+    // Document start, every frame: the viewer's own page immediately replaces
+    // itself with the agent's interface, so the navigation that matters is
+    // always a later one than the install.
+    WKUserScript *script = [[WKUserScript alloc]
+        initWithSource:kArrowKeyLocationFix
+         injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+      forMainFrameOnly:NO];
+    [webView.configuration.userContentController addUserScript:script];
+    gArrowKeyFixInstalled = true;
+    return true;
+}
+
+bool LauncherNativeHostInstallArrowKeyFix(void) {
+    if ([NSThread isMainThread]) {
+        return InstallArrowKeyFixOnMainThread();
+    }
+    __block bool installed = false;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        installed = InstallArrowKeyFixOnMainThread();
+    });
+    return installed;
+}
+
 static bool InstallOnMainThread(void) {
     WKWebView *webView = nil;
     NSWindow *window = FindLauncherWindow(&webView);

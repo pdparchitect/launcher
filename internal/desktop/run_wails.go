@@ -233,6 +233,10 @@ func runViewer(ctx context.Context, name string, target string, kind string) err
 		},
 		OnStartup: func(wailsContext context.Context) {
 			nativehost.BadgeDockIcon()
+			// Before Wails navigates: the viewer page replaces itself with the
+			// agent's interface immediately, and the fix has to be installed
+			// ahead of that load.
+			nativehost.InstallArrowKeyFix()
 			nativehost.InstallViewerChrome()
 			go func() {
 				select {
@@ -245,6 +249,7 @@ func runViewer(ctx context.Context, name string, target string, kind string) err
 		OnDomReady: func(context.Context) {
 			// Same race as the launcher's shell: OnStartup can run before
 			// Wails has created and exposed the native window.
+			nativehost.InstallArrowKeyFix()
 			nativehost.InstallViewerChrome()
 		},
 	})
