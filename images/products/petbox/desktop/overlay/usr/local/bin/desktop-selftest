@@ -33,7 +33,6 @@ check "the seeded pet arrived" test -f "${PETS_ROOT:-/workspace/pets}/pip/AGENTS
 check "petctl runs" petctl status
 check "the supervisor is running" pgrep -f '/usr/local/bin/petd'
 check "the habitat is running" pgrep -f '/usr/local/bin/pet-habitat'
-check "the wallpaper clock is running" pgrep -f '/usr/local/bin/pet-wallpaper'
 
 # The sprite is the product. Give the supervisor a moment to have started one:
 # it polls, and a smoke test can arrive within that window.

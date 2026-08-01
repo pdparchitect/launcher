@@ -4,6 +4,11 @@ Petbox source versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.3.8]
+
+- Keep the seeded workspace owned by the desktop session user so Petbox can
+  create files and pets at the workspace root.
+
 ## [0.3.7]
 
 - Update to Launcher desktop substrate 0.1.8 so `notify-send` reaches native

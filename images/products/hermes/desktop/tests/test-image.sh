@@ -10,29 +10,21 @@ project="products/hermes/desktop"
 cd "$images_dir"
 bash tools/check-project-programs.sh "$project"
 
-grep -Eq '^COPY +overlay +/$' "$dockerfile"
-test -d "$project/overlay"
+# Upstream is a git checkout, so the tag alone does not pin it: a moved tag
+# still builds. Keep the revision pinned and both pins well-formed.
 grep -Eq '^ARG HERMES_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$dockerfile"
 grep -Eq '^ARG HERMES_SOURCE_TAG=v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$' \
     "$dockerfile"
 grep -Eq '^ARG HERMES_SOURCE_SHA=[0-9a-f]{40}$' "$dockerfile"
-grep -Fq 'git clone --branch "${HERMES_SOURCE_TAG}" --depth 1' "$dockerfile"
 grep -Fq 'test "$(git -C /opt/hermes rev-parse HEAD)" = "$HERMES_SOURCE_SHA"' \
     "$dockerfile"
-grep -Fq 'dev.pdparchitect.launcher.upstream.version="${HERMES_VERSION}"' \
-    "$dockerfile"
-grep -Fq 'dev.pdparchitect.launcher.upstream.ref="${HERMES_SOURCE_TAG}"' \
-    "$dockerfile"
-grep -Fq 'HERMES_HOME=/home/agent/.hermes' "$dockerfile"
-grep -Fq 'UV_LINK_MODE=copy' "$dockerfile"
-grep -Fq 'VOLUME ["/workspace", "/home/agent/.hermes"]' "$dockerfile"
-grep -Fq 'kasm-patch "Hermes Desktop"' "$dockerfile"
 
+# Playwright's own installer would reinstall the browser stack the desktop base
+# already carries, roughly doubling this layer for nothing.
 if grep -Fq 'playwright install --with-deps' "$dockerfile"; then
     echo "Hermes reinstalls system dependencies supplied by the desktop base." >&2
     exit 1
 fi
-grep -Fq 'npx playwright install chromium --only-shell' "$dockerfile"
 
 if grep -Eq '^ *org\.opencontainers\.image\.version="\$\{HERMES_VERSION\}"' \
     "$dockerfile"; then

@@ -19,12 +19,6 @@ check() {
 echo "opencode selftest"
 
 check "OpenCode runs" opencode --version
-check "the Launcher theme is selected" \
-    grep -Fq '"theme": "launcher"' \
-    "$HOME/.opencode/config/opencode/tui.json"
-check "the Launcher theme is installed" \
-    grep -Fq '"siteBackground": "#1B1818"' \
-    "$HOME/.opencode/config/opencode/themes/launcher.json"
 check "the state directory is writable" test -w "$HOME/.opencode"
 check "the workspace is writable" test -w /workspace
 

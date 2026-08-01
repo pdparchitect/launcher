@@ -64,6 +64,7 @@ export class RuntimeSetupDialog extends HTMLElement {
       if (this.busy) {
         return
       }
+
       this.dispatch(
         this.setup?.state === 'stopped'
           ? 'start-runtime'
@@ -113,49 +114,51 @@ export class RuntimeSetupDialog extends HTMLElement {
             'Return to Launcher and select Check Again.',
           ]
       : stopped
-        ? [
-            'Apple Container is installed, but its background service is stopped.',
-            'Select Start Runtime below.',
-            'Approve the recommended Linux kernel download if macOS asks.',
-            'Launcher will verify the service before enabling agents.',
-          ]
-        : [
-            'Review the runtime error below.',
-            'Correct the runtime installation or service problem.',
-            'Select Check Again to verify the runtime.',
-          ]
+      ? [
+          'Apple Container is installed, but its background service is stopped.',
+          'Select Start Runtime below.',
+          'Approve the recommended Linux kernel download if macOS asks.',
+          'Launcher will verify the service before enabling agents.',
+        ]
+      : [
+          'Review the runtime error below.',
+          'Correct the runtime installation or service problem.',
+          'Select Check Again to verify the runtime.',
+        ]
 
     this.querySelector('[data-status-label]').textContent = missing
       ? 'INSTALLATION REQUIRED'
       : stopped
-        ? 'SERVICE STOPPED'
-        : 'RUNTIME UNAVAILABLE'
+      ? 'SERVICE STOPPED'
+      : 'RUNTIME UNAVAILABLE'
     this.querySelector('[data-runtime-name]').textContent =
       runtime.toUpperCase()
     this.querySelector('[data-summary]').textContent = missing
       ? `${runtime} is required before Launcher can install or run local agents.`
       : stopped
-        ? `${runtime} is installed and ready to be started.`
-        : this.setup.message
+      ? `${runtime} is installed and ready to be started.`
+      : this.setup.message
+
     const list = this.querySelector('[data-steps]')
 
     list.replaceChildren()
+
     for (const instruction of steps) {
       const item = document.createElement('li')
 
       item.textContent = instruction
       list.append(item)
     }
+
     const guidance = this.querySelector('[data-guidance]')
 
     guidance.textContent = this.setup.guidance || ''
     guidance.hidden = !this.setup.guidance
+
     const primary = this.querySelector('[data-primary]')
 
     primary.hidden = !missing && !stopped
-    primary.textContent = stopped
-      ? 'START RUNTIME'
-      : 'OPEN INSTALLATION PAGE'
+    primary.textContent = stopped ? 'START RUNTIME' : 'OPEN INSTALLATION PAGE'
     this.querySelector('[data-status-icon]').textContent = stopped ? '▶' : '!'
   }
 
@@ -164,6 +167,7 @@ export class RuntimeSetupDialog extends HTMLElement {
     this.querySelectorAll('button').forEach((button) => {
       button.disabled = busy
     })
+
     const primary = this.querySelector('[data-primary]')
 
     if (busy && label) {

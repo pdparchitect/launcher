@@ -18,6 +18,30 @@ if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -n "${DISPLAY:-}" ]; then
     fi
 fi
 
+# The session keeps HOME=/home/agent whichever account runs it: a Docker volume
+# is chownable so the session runs as `agent`, while Apple's fixed-ownership
+# mounts leave it on the VM root account. A browser started by the root session
+# therefore writes into the agent account's home, and what it creates there
+# comes out root-owned - including ".config/google-chrome/Crash Reports", which
+# Chromium derives from the default profile location rather than from
+# --user-data-dir. A later launch as `agent` cannot write that directory, its
+# crash handler dies on the failed mkdir, and browser startup dies with it. Keep
+# Chromium's per-user directories in the home of the account actually running
+# it. A session already running as the owner of HOME - every Docker session, and
+# any product that stays on `agent` - keeps the directories it has.
+if [ -n "${HOME:-}" ] && [ ! -O "$HOME" ]; then
+    own_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    if [ -n "$own_home" ] && [ "$own_home" != "$HOME" ] &&
+        mkdir -p \
+            "$own_home/.config" \
+            "$own_home/.cache" \
+            "$own_home/.local/share" 2>/dev/null; then
+        export XDG_CONFIG_HOME="$own_home/.config"
+        export XDG_CACHE_HOME="$own_home/.cache"
+        export XDG_DATA_HOME="$own_home/.local/share"
+    fi
+fi
+
 # Only use the GPU when a render node is present and this user can open it.
 # With one the browser can composite and rasterize on the GPU, which removes
 # the largest source of repaint work on this desktop. Without one, disable GPU

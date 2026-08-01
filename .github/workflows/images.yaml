@@ -123,6 +123,21 @@ jobs:
           SMOKE_PORT: 16906
         run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-opencode-desktop:local
 
+      - name: Smoke test the Pi product
+        env:
+          SMOKE_PORT: 16907
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-pi-desktop:local
+
+      # Apple container exposes host directories as fixed-ownership VirtioFS
+      # shares, which puts the whole session on the root account and gives
+      # Chromium a different Xauthority path. A Docker volume is always
+      # chownable, so no run above reaches that branch of the base.
+      - name: Smoke test the desktop base on fixed-ownership mounts
+        env:
+          SMOKE_PORT: 16908
+          SMOKE_FIXED_MOUNTS: 'true'
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-base-desktop:local
+
       - name: Collect container logs on failure
         if: failure()
         run: |

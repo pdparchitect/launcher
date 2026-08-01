@@ -9,14 +9,10 @@ dockerfile="$project_dir/Dockerfile"
 cd "$images_dir"
 bash tools/check-project-programs.sh runtimes/node
 
-grep -Fq 'corepack prepare' "$dockerfile"
-
-# Corepack records its activation under the building user's home unless this
-# shared location makes the pin visible to the desktop account too.
-if ! grep -Eq '^ENV COREPACK_HOME=' "$dockerfile"; then
-    echo "The Node runtime must set COREPACK_HOME." >&2
-    exit 1
-fi
-grep -Fq 'test "$(pnpm --version)" = "${PNPM_VERSION}"' "$dockerfile"
+# Nothing else to assert about the source. The build itself fails when the
+# pinned pnpm is not the one that ends up installed, and whether that pin is
+# visible to the unprivileged desktop account - the failure that actually
+# happens here - is asserted against a running container by the desktop
+# smoke test.
 
 echo "Node runtime image checks passed."

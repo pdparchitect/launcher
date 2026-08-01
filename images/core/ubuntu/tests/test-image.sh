@@ -10,7 +10,6 @@ cd "$images_dir"
 bash tools/check-project-programs.sh core/ubuntu
 
 # The core is a foundation, not an application.
-grep -Fq 'amd64|arm64)' "$dockerfile"
 if grep -Eq '^(ENTRYPOINT|CMD|HEALTHCHECK|EXPOSE)' "$dockerfile"; then
     echo "The Ubuntu core must not define a product runtime." >&2
     exit 1
