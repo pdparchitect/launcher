@@ -184,6 +184,7 @@ func run(
 			go runNativeNotifications(
 				notificationContext,
 				wailsContext,
+				runOptions.DataRoot,
 				service,
 				runOptions.Stdout,
 			)

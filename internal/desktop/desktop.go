@@ -16,6 +16,9 @@ import (
 )
 
 type Options struct {
+	// DataRoot is where the desktop keeps state that has to outlive the
+	// process, such as how far each agent's notifications have been read.
+	DataRoot      string
 	Stdout        io.Writer
 	OpenPath      func(string) error
 	CatalogAssets fs.FS
