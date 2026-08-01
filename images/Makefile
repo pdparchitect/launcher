@@ -50,7 +50,8 @@ RUN_PORT ?= 6901
 RUN_PREVIEW_PORT ?= 6902
 RUN_STATE ?= launcher-$(TARGET)
 
-.PHONY: help check smoke print builder core-ubuntu cursor-desktop desktop \
+.PHONY: help check smoke print builder core-ubuntu claude-code-desktop \
+	codex-desktop cursor-desktop desktop \
 	hermes-desktop opencode-desktop openclaw-desktop petbox-desktop pi-desktop \
 	build rebuild images run push \
 	push-substrate push-product versions clean
@@ -68,6 +69,8 @@ help:
 	@echo "  make run TARGET=hermes-desktop   Serve a product image instead"
 	@echo
 	@echo "  make core-ubuntu     Build only the Ubuntu core"
+	@echo "  make claude-code-desktop Build only the Claude Code product image"
+	@echo "  make codex-desktop   Build only the Codex product image"
 	@echo "  make cursor-desktop  Build only the Cursor Agent product image"
 	@echo "  make desktop         Build only the desktop base"
 	@echo "  make hermes-desktop  Build only the Hermes product image"
@@ -87,7 +90,8 @@ help:
 
 # Targets that only need the parent as a dependency are built `cacheonly` and
 # are not loaded into the image store. Naming one explicitly loads it.
-core-ubuntu cursor-desktop desktop hermes-desktop opencode-desktop \
+core-ubuntu claude-code-desktop codex-desktop cursor-desktop desktop \
+hermes-desktop opencode-desktop \
 openclaw-desktop petbox-desktop pi-desktop:
 	$(BAKE_ENV) $(BAKE_CMD) $@
 
@@ -198,6 +202,8 @@ builder:
 
 clean:
 	-$(DOCKER) image rm \
+		pdparchitect/launcher-image-claude-code-desktop:$(TAG) \
+		pdparchitect/launcher-image-codex-desktop:$(TAG) \
 		pdparchitect/launcher-image-cursor-desktop:$(TAG) \
 		pdparchitect/launcher-image-hermes-desktop:$(TAG) \
 		pdparchitect/launcher-image-opencode-desktop:$(TAG) \

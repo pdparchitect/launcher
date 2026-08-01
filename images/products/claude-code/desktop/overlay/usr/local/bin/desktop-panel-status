@@ -1,0 +1,16 @@
+#!/bin/bash
+# desktop-panel-status - text for the tint2 status slot.
+#
+# The one thing worth saying in a panel slot on a fresh desktop is whether this
+# agent can reach Anthropic yet. An API key in the environment counts, so a
+# session driven that way is not told to sign in.
+
+set -uo pipefail
+
+config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+if [ -s "$config/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    printf '<span foreground="#7A7770">CLAUDE CODE</span>\n'
+else
+    printf '<span foreground="#D97757">CLAUDE CODE · RUN /login</span>\n'
+fi

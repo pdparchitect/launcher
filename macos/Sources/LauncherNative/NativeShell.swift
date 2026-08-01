@@ -188,11 +188,11 @@ private final class LauncherHelpMenu: NSObject {
 @Observable
 private final class NativeShellModel: NSObject, WKScriptMessageHandler {
     var items: [SidebarItem] = [
-        SidebarItem(id: "home", title: "Home", symbol: "house"),
+        SidebarItem(id: "explore", title: "Explore", symbol: "sparkles"),
         SidebarItem(
-            id: "agents",
-            title: "Agents",
-            symbol: "square.stack.3d.up"
+            id: "library",
+            title: "Library",
+            symbol: "books.vertical"
         ),
         SidebarItem(id: "marketplace", title: "Marketplace", symbol: "bag"),
         SidebarItem(
@@ -201,7 +201,7 @@ private final class NativeShellModel: NSObject, WKScriptMessageHandler {
             symbol: "waveform.path.ecg"
         ),
     ]
-    var selection: String? = "home"
+    var selection: String? = "explore"
 
     let webView: WKWebView
     private let updateMenu: LauncherUpdateMenu

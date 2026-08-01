@@ -1,15 +1,11 @@
 {
   "schemaVersion": 2,
   "id": "74bb8926-441f-49e3-80b6-13981d46227e",
-  "slug": "cursor-agent",
-  "name": "Cursor Agent",
+  "slug": "cursor",
+  "name": "Cursor",
   "publisher": "Anysphere",
   "description": "A persistent browser terminal for Cursor Agent, with interactive coding, rules, skills, MCP tools, resumable sessions, and workspace access—without the Cursor editor.",
-  "tags": [
-    "DEVELOPMENT",
-    "ASSISTANT",
-    "TERMINAL"
-  ],
+  "tags": ["DEVELOPMENT", "ASSISTANT", "TERMINAL"],
   "media": {
     "icon": "icon.svg",
     "cover": "screenshot.jpg",

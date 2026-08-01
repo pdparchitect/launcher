@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!--
+    Codex desktop ground: the periwinkle field OpenAI sets Codex's own artwork
+    on. One diagonal ramp carries the whole thing, with a soft highlight up in
+    the right where the artwork's light comes from, and nothing else - the
+    terminal is the subject and this is the light behind it.
+
+    Built from gradients rather than a blurred shape, because SVG filters are
+    the one thing a wallpaper loader may not implement, and artwork that
+    silently disappears is worse than an effect never used.
+  -->
+  <defs>
+    <linearGradient id="field" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5B4FC7"/>
+      <stop offset="45%" stop-color="#7468E4"/>
+      <stop offset="100%" stop-color="#A6A3FF"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#C4C2FF" stop-opacity=".75"/>
+      <stop offset="60%" stop-color="#C4C2FF" stop-opacity=".18"/>
+      <stop offset="100%" stop-color="#C4C2FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="depth" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3D3496" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#3D3496" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#field)"/>
+  <ellipse cx="1560" cy="120" rx="820" ry="620" fill="url(#highlight)"/>
+  <ellipse cx="120" cy="1020" rx="760" ry="560" fill="url(#depth)"/>
+</svg>

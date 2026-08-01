@@ -128,6 +128,16 @@ jobs:
           SMOKE_PORT: 16907
         run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-pi-desktop:local
 
+      - name: Smoke test the Claude Code product
+        env:
+          SMOKE_PORT: 16909
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-claude-code-desktop:local
+
+      - name: Smoke test the Codex product
+        env:
+          SMOKE_PORT: 16910
+        run: bash bases/desktop/tests/smoke-test.sh pdparchitect/launcher-image-codex-desktop:local
+
       # Apple container exposes host directories as fixed-ownership VirtioFS
       # shares, which puts the whole session on the root account and gives
       # Chromium a different Xauthority path. A Docker volume is always

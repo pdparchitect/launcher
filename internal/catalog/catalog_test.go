@@ -102,10 +102,13 @@ func TestManifestsFromBundlesRejectsIdentityCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load second bundle: %v", err)
 	}
-	_, _, err = manifestsFromBundles(map[string]applicationBundle{
-		"first":  first,
-		"second": second,
-	})
+	_, _, err = manifestsFromBundles(
+		map[string]applicationBundle{
+			"first":  first,
+			"second": second,
+		},
+		[]string{"first", "second"},
+	)
 	if err == nil || !strings.Contains(err.Error(), "published by both") {
 		t.Fatalf("manifestsFromBundles() error = %v, want collision", err)
 	}

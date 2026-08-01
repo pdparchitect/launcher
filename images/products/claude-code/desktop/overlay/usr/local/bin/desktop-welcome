@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Claude Code}" \
+    --override remember_window_size=no \
+    --override initial_window_width=102c \
+    --override initial_window_height=31c \
+    -e bash -lc 'cd /workspace && exec claude'

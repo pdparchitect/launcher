@@ -1,0 +1,16 @@
+#!/bin/bash
+# desktop-panel-status - text for the tint2 status slot.
+#
+# The one thing worth saying in a panel slot on a fresh desktop is whether this
+# agent can reach OpenAI yet. An API key in the environment counts, so a
+# session driven that way is not told to sign in.
+
+set -uo pipefail
+
+home="${CODEX_HOME:-$HOME/.codex}"
+
+if [ -s "$home/auth.json" ] || [ -n "${OPENAI_API_KEY:-}" ]; then
+    printf '<span foreground="#9BA0B4">CODEX</span>\n'
+else
+    printf '<span foreground="#C77DEB">CODEX · SIGN IN TO START</span>\n'
+fi

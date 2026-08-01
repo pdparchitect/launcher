@@ -4,6 +4,29 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-08-01
+
+### Added
+
+- Replace the Home screen with Explore, which promotes one of the catalogue's
+  first three agents at a time. Its artwork becomes the page backdrop, and a
+  single control moves to the next promotion, each with its description, tags,
+  and an install action. A grid of the first nine agents sits below it, and
+  the Marketplace carries the rest.
+
+### Changed
+
+- Rename the Agents screen to Library, and move runtime and Launcher version
+  information into a system panel in its sidebar. The recent agents, recent
+  activity, and system overview sections are gone from the front page.
+- List every matching agent in the Library instead of paginating it.
+
+### Fixed
+
+- Present the catalogue in the order publisher feeds declare their
+  applications, rather than sorting it by name. The registry keeps that order
+  through its cache, so a restored catalogue matches a refreshed one.
+
 ## [0.4.14] - 2026-07-31
 
 ### Added

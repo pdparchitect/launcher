@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --chrome: #1d1f2e;
+        --canvas: #24273a;
+        --edge: #4a4e63;
+        --white: #ffffff;
+        --soft: #c9ccd8;
+        --muted: #9ba0b4;
+        --orchid: #c77deb;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 40px;
+        color: var(--soft);
+        background:
+          radial-gradient(70% 62% at 82% 8%, rgba(196, 194, 255, 0.75), transparent 62%),
+          radial-gradient(58% 56% at 4% 96%, rgba(61, 52, 150, 0.55), transparent 62%),
+          linear-gradient(38deg, #5b4fc7 0%, #7468e4 45%, #a6a3ff 100%);
+      }
+
+      main {
+        width: min(720px, 100%);
+        padding: 44px 44px 38px;
+        background: var(--canvas);
+        border: 1px solid var(--white);
+        border-radius: 10px;
+      }
+
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .wordmark svg { width: 34px; height: 34px; flex: none; }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 44px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        color: var(--white);
+      }
+
+      .standfirst {
+        margin: 16px 0 30px;
+        max-width: 36ch;
+        font-size: 16px;
+        color: var(--muted);
+      }
+
+      hr {
+        margin: 0 0 24px;
+        border: 0;
+        border-top: 1px solid var(--edge);
+      }
+
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 12px 28px;
+        font-family: 'DejaVu Sans Mono', monospace;
+        font-size: 13px;
+      }
+
+      dt {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 11px;
+        padding-top: 2px;
+      }
+
+      dd { margin: 0; color: var(--soft); }
+
+      dd b { color: var(--orchid); font-weight: 400; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="wordmark">
+        <svg viewBox="0 0 100 100" role="img" aria-label="Codex">
+          <g
+            fill="none"
+            stroke="#FFFFFF"
+            stroke-width="9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 26 46 50 22 74" />
+            <path d="M56 76h22" />
+          </g>
+        </svg>
+        <h1>codex</h1>
+      </div>
+
+      <p class="standfirst">
+        A terminal that only reaches the workspace you gave it.
+      </p>
+
+      <hr />
+
+      <dl>
+        <dt>Terminal</dt>
+        <dd><b>Control-Shift-G</b> opens another session</dd>
+        <dt>Workspace</dt>
+        <dd>/workspace</dd>
+        <dt>State</dt>
+        <dd>~/.codex, kept across restarts</dd>
+      </dl>
+    </main>
+  </body>
+</html>

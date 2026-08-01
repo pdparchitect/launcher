@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "id": "b4a3c56e-88dc-4603-8ab4-ef8b69a109dc",
+  "slug": "claude-code",
+  "name": "Claude Code",
+  "publisher": "Anthropic",
+  "description": "A persistent browser desktop for Claude Code, Anthropic's terminal coding agent, with its interface, subagents, skills, MCP servers, resumable sessions, and workspace.",
+  "tags": [
+    "DEVELOPMENT",
+    "ASSISTANT",
+    "TERMINAL"
+  ],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "screenshot.jpg",
+    "screenshots": [
+      {
+        "source": "screenshot.jpg",
+        "alt": "Claude Code running in its persistent, branded browser desktop"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    },
+    "health": {
+      "kind": "health",
+      "port": 6902,
+      "path": "/healthz"
+    },
+    "notifications": {
+      "kind": "notifications",
+      "port": 6902,
+      "path": "/notifications"
+    },
+    "preview": {
+      "kind": "preview",
+      "port": 6902,
+      "path": "/preview.jpg"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/claude-code",
+      "target": "/home/agent/.claude"
+    }
+  ]
+}

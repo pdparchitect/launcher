@@ -145,6 +145,11 @@ publisher's discovery set. The **Publish application feed** workflow validates
 the document and moves `ghcr.io/pdparchitect/launcher-feed:stable`. Dispatch it
 manually after verifying every newly listed application channel.
 
+The order of `applications` is the order Launcher presents the catalogue in:
+Explore promotes the first three and shows the first nine. Feeds are read in
+the order `internal/catalog/sources.json` lists them, so reordering the array
+is how a publisher changes what its users see first.
+
 Adding another publisher requires adding its stable feed reference to
 `internal/catalog/sources.json` and releasing a new Launcher binary. Normal
 application updates do not change that bootstrap list.

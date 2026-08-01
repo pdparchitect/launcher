@@ -111,6 +111,7 @@ runtime is missing, the application guides you to the official installer.
 ## Documentation
 
 - [Using Launcher](docs/using-launcher.md)
+- [Serving the web interface](docs/web-interface.md)
 - [Developing Launcher](docs/development.md)
 - [Application registry](docs/application-registry.md)
 - [Container image sources](images/README.md)

@@ -1,0 +1,25 @@
+#!/bin/bash
+# Seed the answers this desktop already knows before handing over to Claude
+# Code.
+#
+# Claude Code's first run asks which text style suits the terminal. Here the
+# palette in /etc/xdg/kitty/theme.conf is fixed and dark, so the question has
+# exactly one right answer. Recording it - and the onboarding it belongs to -
+# leaves sign-in as the first thing the session actually asks for.
+#
+# Both files are seeded only when absent, so a user's own settings, and any
+# state a previous session wrote, are never overwritten.
+
+set -euo pipefail
+
+export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+mkdir -p "$CLAUDE_CONFIG_DIR"
+for seed in settings.json .claude.json; do
+    if [ ! -e "$CLAUDE_CONFIG_DIR/$seed" ]; then
+        install -m 0644 "/usr/share/claude-code/$seed" \
+            "$CLAUDE_CONFIG_DIR/$seed"
+    fi
+done
+
+exec /usr/bin/claude "$@"

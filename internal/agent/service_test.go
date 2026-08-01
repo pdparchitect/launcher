@@ -218,7 +218,7 @@ func TestCreateReportsRuntimePullOutput(t *testing.T) {
 	}
 }
 
-func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
+func TestCatalogKeepsRegistryOrderAndPresentationMetadata(t *testing.T) {
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
 	ghost := service.manifests[testGhostCatalogID]
@@ -237,17 +237,19 @@ func TestCatalogIncludesEveryManifestAndPresentationMetadata(t *testing.T) {
 
 	entries := service.Catalog()
 
+	// The registry publishes the catalogue in the order its feeds declare, and
+	// the service passes that order through rather than sorting by name.
 	if len(entries) != 2 ||
-		entries[0].ID != testBuzzCatalogID ||
-		entries[0].Slug != "buzznode" ||
-		entries[1].ID != testGhostCatalogID ||
-		entries[1].Slug != "pantalk-ghost" {
+		entries[0].ID != testGhostCatalogID ||
+		entries[0].Slug != "pantalk-ghost" ||
+		entries[1].ID != testBuzzCatalogID ||
+		entries[1].Slug != "buzznode" {
 		t.Fatalf("Catalog() = %#v", entries)
 	}
-	if entries[1].Description != ghost.Description ||
-		entries[1].Memory != ghost.Memory ||
-		len(entries[1].Media.Screenshots) != 1 {
-		t.Fatalf("Ghost entry = %#v", entries[1])
+	if entries[0].Description != ghost.Description ||
+		entries[0].Memory != ghost.Memory ||
+		len(entries[0].Media.Screenshots) != 1 {
+		t.Fatalf("Ghost entry = %#v", entries[0])
 	}
 }
 
