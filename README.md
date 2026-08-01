@@ -52,10 +52,13 @@ history.
 - **Try anything, keep what works** - Install an agent, run it on real work,
   and remove it completely if it does not suit you. The ones you keep hold on
   to their own workspace and history.
-- **Find what is out there** - Browse a catalogue of agents and harnesses in
-  one place instead of hunting down install instructions for each one.
+- **Discover what is out there** - Browse a catalogue of agents and harnesses
+  in one place instead of hunting down install instructions for each one.
 - **Contained by default** - Each agent is isolated from your system and from
   the others, and is reachable only from your own machine.
+- **Let agents work unattended** - Because an agent can only reach its own
+  space, you can let it work without approving every step, and check in when
+  it has something to show you.
 - **Several at once** - Keep agents side by side without them competing for
   configuration, credentials, ports, or runtime versions.
 - **Local control** - Agents run on your own computer with no hosted control
@@ -66,8 +69,16 @@ history.
 ## What you can do
 
 Launcher provides a catalogue of packaged AI applications and a private
-library of the agents installed on your computer. From the same interface, you
-can:
+library of the agents installed on your computer. Each agent runs in its own
+space, which makes a few things practical:
+
+- Let an agent work on a task without approving every step
+- Give an agent its own browser and desktop, with its own logged-in sessions
+- Run the same task through different agents and compare the results
+- Keep separate agents for separate projects, each with its own workspace,
+  credentials, and history
+
+Managing them is the ordinary part:
 
 - Browse available applications
 - Install multiple local agent instances

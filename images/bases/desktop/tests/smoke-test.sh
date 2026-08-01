@@ -174,18 +174,25 @@ curl -fsS "http://127.0.0.1:${preview_port}/notifications" |
 # back, and delete a secret from a login shell that was given no bus address,
 # which is how command-line callers actually arrive, and hold the whole round
 # trip to a timeout so a prompt fails the test instead of hanging it.
+#
+# The keyring belongs to the account the session runs as, and that account is
+# root in a fixed-mount session. Unlike notifications, which reach the bridge
+# from any account through the notify-send adapter, a secret has no adapter to
+# delegate through: libsecret is linked into the application. So this asks the
+# bus owner, the same way the adapter finds one.
 in_container 'pgrep -x gnome-keyring-d >/dev/null' ||
     fail "the session keyring is not running"
 
+bus_user="$(in_container 'stat -c %U /run/launcher-desktop/dbus-session-address')"
 secret_daemons_before="$(in_container 'pgrep -cx dbus-daemon')"
-docker exec --user agent "$container" env -u DBUS_SESSION_BUS_ADDRESS \
+docker exec "$container" sudo -u "$bus_user" env -u DBUS_SESSION_BUS_ADDRESS \
     HOME=/home/agent bash -lc '
         printf %s launcher-smoke-secret |
             timeout 20 secret-tool store --label=smoke launcher smoke &&
         test "$(timeout 20 secret-tool lookup launcher smoke)" = launcher-smoke-secret &&
         timeout 20 secret-tool clear launcher smoke
     ' >/dev/null 2>&1 ||
-    fail "a secret did not survive a store and lookup through the session keyring"
+    fail "a secret did not survive a store and lookup through the session keyring as $bus_user"
 secret_daemons_after="$(in_container 'pgrep -cx dbus-daemon')"
 [ "$secret_daemons_after" = "$secret_daemons_before" ] ||
     fail "secret-tool autolaunched a disconnected D-Bus session"

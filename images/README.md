@@ -116,6 +116,13 @@ program runs, and shells started outside the session inherit the bus address
 from `/etc/profile.d/desktop-session-bus.sh` instead of autolaunching a private
 bus that owns none of them.
 
+The keyring belongs to the account the session runs as, which is `root` in an
+Apple fixed-mount session. A product process that deliberately drops to `agent`
+there reaches the display and, through the `notify-send` adapter, the bridge —
+but not the keyring, because libsecret is linked into the application and has
+nothing to delegate through. Such a product stores its secrets from the session
+account.
+
 The keyring lives in `$XDG_DATA_HOME/keyrings`, which the base deliberately
 does not persist: only the product knows whether its secrets are worth keeping,
 and a base-declared volume there would nest inside whatever the product mounts
