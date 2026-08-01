@@ -202,9 +202,7 @@ export class AgentActionsDialog extends HTMLElement {
     this.querySelector('[data-available-image]').textContent =
       agent.availableImage || 'No update available'
     this.clearErrors()
-    this.setMode(
-      mode === 'update' && agent.updateAvailable ? 'update' : 'menu'
-    )
+    this.setMode(mode === 'update' && agent.updateAvailable ? 'update' : 'menu')
 
     if (!this.dialog.open) {
       this.dialog.showModal()
@@ -329,10 +327,11 @@ export class AgentActionsDialog extends HTMLElement {
       update.stage === 'pulling'
         ? 'DOWNLOADING'
         : update.stage === 'restoring'
-          ? 'RECOVERING'
-          : `${value}%`
-    this.querySelector('[data-update-progress-bar]').style.width =
-      indeterminate ? '32%' : `${value}%`
+        ? 'RECOVERING'
+        : `${value}%`
+    this.querySelector('[data-update-progress-bar]').style.width = indeterminate
+      ? '32%'
+      : `${value}%`
     this.querySelector('[data-update-progress-message]').textContent =
       update.message || 'Updating the agent…'
     this.appendUpdateLog(update.stage, update.message)
@@ -345,7 +344,9 @@ export class AgentActionsDialog extends HTMLElement {
       return
     }
 
-    const line = `[${String(stage || 'updating').toUpperCase()}] ${cleanMessage}`
+    const line = `[${String(
+      stage || 'updating'
+    ).toUpperCase()}] ${cleanMessage}`
 
     if (line === this.lastUpdateLogLine) {
       return
@@ -369,8 +370,9 @@ export class AgentActionsDialog extends HTMLElement {
   updateUpdateLogCount() {
     const count = this.updateLogLines?.length || 0
 
-    this.querySelector('[data-update-log-count]').textContent =
-      `${count} ${count === 1 ? 'ENTRY' : 'ENTRIES'}`
+    this.querySelector('[data-update-log-count]').textContent = `${count} ${
+      count === 1 ? 'ENTRY' : 'ENTRIES'
+    }`
   }
 
   dispatch(name, detail = {}) {

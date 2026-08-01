@@ -238,6 +238,16 @@ if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
         fail "Chromium did not install root's default Xauthority securely"
     in_container 'cmp -s /run/launcher-desktop/Xauthority /root/.Xauthority' ||
         fail "root's default Xauthority does not contain the active display cookie"
+
+    # A root-launched browser must keep its own state out of the session
+    # account's home. One root-owned directory under it is enough to stop the
+    # next launch as `agent`: Chromium's crash handler exits on the first
+    # directory it cannot create and takes browser startup with it.
+    browser_strays="$(
+        in_container 'find /home/agent/.config/google-chrome /home/agent/.cache/google-chrome /home/agent/.local/share/pki /home/agent/.pki -mindepth 1 ! -user agent -printf "%p\n" 2>/dev/null | head -5'
+    )"
+    [ -z "$browser_strays" ] ||
+        fail "the root browser left state the session user cannot write: $browser_strays"
 fi
 smoke_browser agent Agent
 

@@ -237,7 +237,9 @@ export class DeployDialog extends HTMLElement {
       return
     }
 
-    const line = `[${String(stage || 'installing').toUpperCase()}] ${cleanMessage}`
+    const line = `[${String(
+      stage || 'installing'
+    ).toUpperCase()}] ${cleanMessage}`
 
     if (line === this.lastLogLine) {
       return

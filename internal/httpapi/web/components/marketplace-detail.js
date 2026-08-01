@@ -126,8 +126,8 @@ export class MarketplaceDetail extends HTMLElement {
         interfaces.some((item) => item.kind === 'kasmweb')
           ? 'STREAMED WORKSPACE'
           : interfaces.some((item) => item.kind === 'web')
-            ? 'LOCAL WEB'
-            : 'CONNECTED SERVICE',
+          ? 'LOCAL WEB'
+          : 'CONNECTED SERVICE',
       ],
       ['MEMORY', entry.memory || 'MANAGED BY LAUNCHER'],
     ]
