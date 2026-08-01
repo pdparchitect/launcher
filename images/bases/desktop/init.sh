@@ -102,6 +102,12 @@ workspace_seed_dir=/usr/local/share/launcher-desktop/workspace
 if [ -d "$workspace_seed_dir" ]; then
     if [ "$runtime_user" = agent ]; then
         cp --archive --update=none "$workspace_seed_dir/." /workspace/
+
+        # Copying `source/.` with --archive also copies the source directory's
+        # ownership onto the destination itself. The image-owned seed is root
+        # owned, so restore the workspace root after the copy; otherwise the
+        # ownership stamp above prevents a later startup from repairing it.
+        chown "$runtime_user:$runtime_group" /workspace
     else
         cp --recursive --update=none "$workspace_seed_dir/." /workspace/
     fi
