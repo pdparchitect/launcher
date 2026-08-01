@@ -202,19 +202,34 @@ smoke_browser() {
     in_container "rm -rf '$browser_profile' '$browser_log'; $launch_prefix HOME=/home/agent DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority setsid chromium --user-data-dir='$browser_profile' --app='$browser_url' --window-size=400,300 --window-position=100,100 >'$browser_log' 2>&1 </dev/null &"
 
     local browser_ready=""
-    for _ in $(seq 1 30); do
+    for _ in $(seq 1 60); do
         if in_container "env DISPLAY=:1 XAUTHORITY=/run/launcher-desktop/Xauthority xdotool search --onlyvisible --name '^${browser_title}$' >/dev/null 2>&1"; then
             browser_ready=yes
             break
         fi
         sleep 1
     done
-    [ -n "$browser_ready" ] ||
+    if [ -z "$browser_ready" ]; then
+        echo "--- Chromium ${browser_user} log ---" >&2
+        in_container "tail -100 '$browser_log'" >&2 || true
         fail "Chromium did not create a visible ${browser_user} software-rendered window"
+    fi
 
     if in_container "ps -eo args | grep '[l]auncher-browser-smoke-${browser_label}' | grep -Fq -- '--disable-software-rasterizer'"; then
         fail "Chromium disabled its software rasterizer without a GPU"
     fi
+
+    # Fixed-mount mode checks root and agent sequentially. Stop the first
+    # browser before starting the second so two software-rendered process trees
+    # do not compete on a loaded CI runner and turn a startup check into a race.
+    in_container "pkill -TERM -f '[l]auncher-browser-smoke-${browser_label}' >/dev/null 2>&1 || true"
+    for _ in $(seq 1 20); do
+        if ! in_container "pgrep -f '[l]auncher-browser-smoke-${browser_label}' >/dev/null"; then
+            break
+        fi
+        sleep 0.1
+    done
+    in_container "pkill -KILL -f '[l]auncher-browser-smoke-${browser_label}' >/dev/null 2>&1 || true"
 }
 
 if [ "${SMOKE_FIXED_MOUNTS:-false}" = "true" ]; then
