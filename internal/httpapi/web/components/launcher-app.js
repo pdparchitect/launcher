@@ -13,8 +13,8 @@ import './marketplace-detail.js'
 import './runtime-setup-dialog.js'
 
 const navigation = [
-  ['home', 'HOME'],
-  ['agents', 'AGENTS'],
+  ['explore', 'EXPLORE'],
+  ['library', 'LIBRARY'],
   ['marketplace', 'MARKETPLACE'],
   ['activity', 'ACTIVITY'],
 ]
@@ -22,8 +22,8 @@ const navigation = [
 // The native sidebar follows macOS conventions rather than the interface's own
 // upper-case styling, so it carries its own title-cased labels and SF Symbols.
 const nativeNavigation = [
-  ['home', 'Home', 'house'],
-  ['agents', 'Agents', 'square.stack.3d.up'],
+  ['explore', 'Explore', 'sparkles'],
+  ['library', 'Library', 'books.vertical'],
   ['marketplace', 'Marketplace', 'bag'],
   ['activity', 'Activity', 'waveform.path.ecg'],
 ]
@@ -35,13 +35,18 @@ const nativeSidebarItems = nativeNavigation.map(([id, title, symbol]) => ({
 }))
 
 const screens = new Set([
-  'home',
-  'agents',
+  'explore',
+  'library',
   'marketplace',
   'marketplace-detail',
   'activity',
   'settings',
 ])
+
+// How much of the catalogue Explore shows: three agents in the promoted hero,
+// and a grid of the first nine. The Marketplace carries the whole catalogue.
+const promotedLimit = 3
+const exploreGridLimit = 9
 
 const dismissedUpdateKey = 'launcher-dismissed-update'
 
@@ -85,6 +90,21 @@ function displayInterface(agent) {
     .sort()
     .map((id) => interfaces[id])
     .find((item) => item.kind === 'web' || item.kind === 'kasmweb')
+}
+
+function catalogAssetURL(source) {
+  return source ? `/catalog-assets/${source}` : ''
+}
+
+// The artwork behind an Explore slide. A catalogue screenshot says most about
+// an agent; its cover stands in when it has none, and the interface's own
+// artwork when the catalogue itself is unavailable.
+function promotedArtwork(entry) {
+  const media = entry?.media
+  const source = media?.screenshots?.[0]?.source || media?.cover
+  const url = catalogAssetURL(source)
+
+  return url ? `url("${url}")` : `url("/assets/hero.png")`
 }
 
 function formatTime(value) {
@@ -140,7 +160,8 @@ export class LauncherApp extends HTMLElement {
   constructor() {
     super()
     this.api = new LauncherAPI()
-    this.screen = 'home'
+    this.screen = 'explore'
+    this.exploreEntryID = null
     this.agents = []
     this.agentIssues = []
     this.catalog = []
@@ -154,7 +175,6 @@ export class LauncherApp extends HTMLElement {
     this.marketplaceEntryID = null
     this.query = ''
     this.filter = 'all'
-    this.page = 1
     this.agentRefreshPromise = null
     this.deletedAgentIDs = new Set()
     this.startWatches = new Map()
@@ -235,8 +255,8 @@ export class LauncherApp extends HTMLElement {
             </details>
           </aside>
           <div class="content">
-            <section class="screen" data-screen="home"></section>
-            <section class="screen" data-screen="agents" hidden></section>
+            <section class="screen" data-screen="explore"></section>
+            <section class="screen" data-screen="library" hidden></section>
             <section class="screen" data-screen="marketplace" hidden></section>
             <section class="screen" data-screen="marketplace-detail"
               hidden></section>
@@ -499,10 +519,8 @@ export class LauncherApp extends HTMLElement {
       this.launcherStatus = await this.api.launcher()
       nativeSidebar.publishLauncherUpdate(this.launcherStatus)
       this.renderUpdateBanner()
-
-      if (this.screen === 'home') {
-        this.renderHome()
-      }
+      // The Agents screen reports the Launcher version in its system panel.
+      this.renderScreen()
     } catch (error) {
       console.warn('Launcher update check failed:', error)
     }
@@ -517,10 +535,7 @@ export class LauncherApp extends HTMLElement {
     try {
       this.launcherStatus = await this.api.checkLauncherUpdate()
       this.renderUpdateBanner()
-
-      if (this.screen === 'home') {
-        this.renderHome()
-      }
+      this.renderScreen()
 
       if (!this.launcherStatus.updateAvailable) {
         this.showToast('Launcher is up to date')
@@ -764,10 +779,6 @@ export class LauncherApp extends HTMLElement {
 
     this.screen = screen
 
-    if (screen !== 'agents') {
-      this.page = 1
-    }
-
     const navigationScreen =
       screen === 'marketplace-detail' ? 'marketplace' : screen
 
@@ -812,12 +823,12 @@ export class LauncherApp extends HTMLElement {
   renderScreen() {
     this.updateNavigation()
 
-    if (this.screen === 'home') {
-      this.renderHome()
+    if (this.screen === 'explore') {
+      this.renderExplore()
     }
 
-    if (this.screen === 'agents') {
-      this.renderAgents()
+    if (this.screen === 'library') {
+      this.renderLibrary()
     }
 
     if (this.screen === 'marketplace') {
@@ -837,165 +848,310 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
-  renderHome() {
-    const screen = this.querySelector('[data-screen="home"]')
+  // The hero promotes a shortlist rather than the whole catalogue: a promotion
+  // nobody would reach is not a promotion. The registry publishes the
+  // catalogue in the order its publishers declare it, so the shortlist is
+  // simply what they put first.
+  promotedEntries(entries = this.catalog) {
+    return entries.slice(0, promotedLimit)
+  }
 
+  currentExploreEntry(entries = this.catalog) {
+    const promoted = this.promotedEntries(entries)
+
+    return (
+      promoted.find((entry) => entry.id === this.exploreEntryID) ||
+      promoted[0] ||
+      null
+    )
+  }
+
+  // The screen is rebuilt only when the catalogue itself changes. Agent state
+  // refreshes every five seconds, and rebuilding then would restart the
+  // artwork transition on every tick.
+  renderExplore() {
+    const screen = this.querySelector('[data-screen="explore"]')
+    const entries = this.catalog
+    const signature = [
+      this.catalogLoading ? 'loading' : this.catalogError || 'ready',
+      ...entries.map((entry) => entry.id),
+    ].join('|')
+
+    if (screen.dataset.signature !== signature) {
+      screen.dataset.signature = signature
+      this.renderExploreShell(screen, entries)
+    }
+
+    this.updateExplore(screen, entries)
+  }
+
+  renderExploreShell(screen, entries) {
     screen.innerHTML = `
-      <section class="hero">
-        <div class="hero__art"></div>
+      <section class="hero explore-hero">
+        <div class="hero__art explore-hero__art" data-art aria-hidden="true">
+        </div>
         <div class="hero__copy">
-          <small class="eyebrow">YOUR LOCAL AGENT WORKSPACE</small>
-          <h2>Your Agents.<br><mark>Your Rules.</mark></h2>
-          <p>
-            Deploy specialized AI agents to automate, assist, and accelerate
-            your workflow-all on this computer.
-          </p>
+          <small class="eyebrow" data-eyebrow></small>
+          <h2 data-name></h2>
+          <p data-description></p>
+          <div class="tag-list explore-hero__tags" data-tags></div>
           <div class="button-row">
-            <button class="primary-button" data-screen-link="marketplace">
-              DEPLOY NEW AGENT <span>＋</span>
-            </button>
-            <button class="secondary-button" data-screen-link="marketplace">
-              BROWSE MARKETPLACE
+            <button class="primary-button" type="button" data-install></button>
+            <button class="secondary-button" type="button" data-details>
+              VIEW DETAILS
             </button>
           </div>
         </div>
-        <div class="hero__stat">
-          <small class="eyebrow">ACTIVE AGENTS</small>
-          <strong data-home-online></strong>
-          <span>RUNNING LOCALLY</span>
+        <div class="explore-next" data-promoted role="group"
+          aria-label="Promoted agents">
+          <button class="explore-next__button" type="button" data-next
+            aria-label="Next promoted agent"
+            title="Next promoted agent">›</button>
+          <span class="explore-next__position" data-position></span>
         </div>
       </section>
-      <div class="dashboard-grid">
-        <section class="panel panel--agents">
-          <header class="panel-heading">
-            <div><small class="eyebrow">YOUR AGENTS</small>
-              <h3>READY WHEN YOU ARE</h3></div>
-            <button class="text-button" data-screen-link="agents">
-              VIEW ALL →
-            </button>
-          </header>
-          <div class="home-agent-grid" data-home-agents></div>
-        </section>
-        <aside class="dashboard-stack">
-          <section class="panel">
-            <small class="eyebrow">QUICK ACTIONS</small>
-            <button class="quick-action" data-screen-link="marketplace">
-              <span>＋</span><strong>DEPLOY AGENT</strong><i>→</i>
-            </button>
-            <button class="quick-action" data-screen-link="agents">
-              <span>◈</span><strong>MANAGE AGENTS</strong><i>→</i>
-            </button>
-          </section>
-          <section class="panel">
-            <small class="eyebrow">RECENT ACTIVITY</small>
-            <div class="mini-activity" data-mini-activity></div>
-            <button class="text-button text-button--wide"
-              data-screen-link="activity">VIEW ALL ACTIVITY →</button>
-          </section>
-        </aside>
-      </div>
-      <section class="panel system-overview">
-        <small class="eyebrow">SYSTEM OVERVIEW</small>
-        <div class="overview-stats" data-overview></div>
+      <section class="explore-catalogue">
+        <header class="panel-heading">
+          <div>
+            <small class="eyebrow">THE CATALOGUE</small>
+            <h3>AGENTS YOU CAN RUN</h3>
+          </div>
+          <button class="text-button" data-screen-link="marketplace">
+            OPEN MARKETPLACE →
+          </button>
+        </header>
+        <div class="explore-grid" data-grid></div>
       </section>
     `
 
-    const online = this.agents.filter(
-      (agent) => statusFor(agent) === 'online'
-    ).length
+    const grid = screen.querySelector('[data-grid]')
 
-    screen.querySelector('[data-home-online]').textContent = online
-
-    const agentGrid = screen.querySelector('[data-home-agents]')
-
-    if (!this.agents.length) {
-      agentGrid.append(
-        this.emptyState(
-          'NO AGENTS DEPLOYED',
-          'Visit the Marketplace to create your first local agent.',
-          'OPEN MARKETPLACE',
-          'marketplace'
-        )
-      )
-    } else {
-      for (const agent of this.agents.slice(0, 2)) {
-        agentGrid.append(this.agentCard(agent, 'home'))
-      }
+    for (const entry of entries.slice(0, exploreGridLimit)) {
+      grid.append(this.exploreCard(entry))
     }
 
-    this.renderActivityList(
-      screen.querySelector('[data-mini-activity]'),
-      this.activity.slice(0, 3),
-      true
-    )
-
-    const overview = screen.querySelector('[data-overview]')
-    const launcherVersion = this.launcherStatus?.currentVersion || '-'
-    const launcherVersionLabel =
-      launcherVersion === 'dev'
-        ? 'DEV'
-        : launcherVersion === '-'
-        ? '-'
-        : `V${launcherVersion}`
-    let launcherVersionDetail = 'UPDATE STATUS UNKNOWN'
-
-    if (launcherVersion === 'dev') {
-      launcherVersionDetail = 'DEVELOPMENT BUILD'
-    } else if (this.launcherStatus?.updateAvailable) {
-      launcherVersionDetail = `V${this.launcherStatus.latestVersion} AVAILABLE`
-    } else if (this.launcherStatus?.checking) {
-      launcherVersionDetail = 'CHECKING FOR UPDATES'
-    } else if (this.launcherStatus?.checkedAt) {
-      launcherVersionDetail = 'UP TO DATE'
+    if (!entries.length) {
+      grid.append(
+        this.catalogLoading
+          ? this.loadingState(
+              'LOADING CATALOGUE',
+              'Fetching application publishers and their latest releases.'
+            )
+          : this.emptyState(
+              'CATALOGUE UNAVAILABLE',
+              this.catalogError ||
+                'Launcher could not load any application publisher.'
+            )
+      )
     }
 
-    const overviewItems = [
-      ['INSTALLED AGENTS', this.agents.length, 'MANAGED BY LAUNCHER'],
-      ['RUNNING AGENTS', online, 'LOCAL CONTAINERS'],
-      [
-        'RUNTIME',
-        this.doctorReport?.runtime?.toUpperCase() || '-',
-        this.doctorReport?.version || 'NOT DETECTED',
-      ],
-      ['LAUNCHER', launcherVersionLabel, launcherVersionDetail],
-    ]
+    screen
+      .querySelector('[data-next]')
+      .addEventListener('click', () => this.moveExplore(1))
+    screen
+      .querySelector('[data-promoted]')
+      .addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+          return
+        }
 
-    for (const [label, value, detail] of overviewItems) {
-      const item = document.createElement('div')
+        event.preventDefault()
+        this.moveExplore(event.key === 'ArrowLeft' ? -1 : 1)
+      })
+    screen.querySelector('[data-install]').addEventListener('click', () => {
+      const entry = this.currentExploreEntry()
 
-      const opensLauncherUpdate =
-        label === 'LAUNCHER' &&
-        this.launcherStatus?.updateAvailable &&
-        this.launcherStatus?.releaseUrl
-
-      item.classList.toggle(
-        'overview-stat--update',
-        label === 'LAUNCHER' && this.launcherStatus?.updateAvailable
-      )
-      item.innerHTML = '<small></small><strong></strong>'
-      item.querySelector('small').textContent = label
-      item.querySelector('strong').textContent = value
-
-      const detailElement = document.createElement(
-        opensLauncherUpdate ? 'button' : 'span'
-      )
-
-      if (opensLauncherUpdate) {
-        detailElement.type = 'button'
-        detailElement.className = 'overview-stat__update'
-        detailElement.textContent = `${detail} →`
-        detailElement.addEventListener('click', () => this.openLauncherUpdate())
-      } else {
-        detailElement.textContent = detail
+      if (!entry) {
+        return
       }
 
-      item.append(detailElement)
-      overview.append(item)
-    }
+      this.dispatchEvent(
+        new CustomEvent('deploy-agent', {
+          bubbles: true,
+          detail: { entry },
+        })
+      )
+    })
+    screen.querySelectorAll('[data-details]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const entry = this.currentExploreEntry()
+
+        if (entry) {
+          this.showMarketplaceEntry(entry)
+        }
+      })
+    })
   }
 
-  renderAgents() {
-    const screen = this.querySelector('[data-screen="agents"]')
+  // A whole card is one control: the catalogue is something to look through,
+  // and every tile leads to the same place its thumbnail's slide does.
+  exploreCard(entry) {
+    const card = document.createElement('button')
+
+    card.type = 'button'
+    card.className = 'explore-card'
+    card.dataset.entry = entry.id
+    card.setAttribute('aria-label', `Learn more about ${entry.name}`)
+    card.innerHTML = `
+      <span class="explore-card__cover" aria-hidden="true"></span>
+      <span class="explore-card__body">
+        <span class="explore-card__identity">
+          <span class="explore-card__icon" aria-hidden="true"></span>
+          <strong></strong>
+          <small data-installed hidden>INSTALLED</small>
+        </span>
+        <span class="explore-card__description"></span>
+        <span class="tag-list"></span>
+      </span>
+    `
+    card.querySelector('.explore-card__cover').style.backgroundImage =
+      promotedArtwork(entry)
+    card.querySelector('.explore-card__icon').style.backgroundImage =
+      `url("${catalogAssetURL(entry.media?.icon)}")`
+    card.querySelector('strong').textContent = entry.name
+    card.querySelector('.explore-card__description').textContent =
+      entry.description
+
+    const tags = card.querySelector('.tag-list')
+
+    for (const tag of entry.tags || []) {
+      const item = document.createElement('span')
+
+      item.textContent = tag
+      tags.append(item)
+    }
+
+    card.addEventListener('click', () => this.showMarketplaceEntry(entry))
+
+    return card
+  }
+
+  moveExplore(step) {
+    const promoted = this.promotedEntries()
+
+    if (promoted.length < 2) {
+      return
+    }
+
+    const current = promoted.indexOf(this.currentExploreEntry())
+    const next = (current + step + promoted.length) % promoted.length
+
+    this.selectExploreEntry(promoted[next].id)
+  }
+
+  selectExploreEntry(id) {
+    if (this.exploreEntryID === id) {
+      return
+    }
+
+    this.exploreEntryID = id
+    this.updateExplore(
+      this.querySelector('[data-screen="explore"]'),
+      this.catalog
+    )
+  }
+
+  updateExplore(screen, entries) {
+    const entry = this.currentExploreEntry(entries)
+    const installed = new Set(this.agents.map((agent) => agent.catalogId))
+
+    this.updateExploreArtwork(screen, entry)
+
+    const name = screen.querySelector('[data-name]')
+
+    if (entry) {
+      screen.querySelector('[data-eyebrow]').textContent = installed.has(
+        entry.id
+      )
+        ? 'IN YOUR COLLECTION'
+        : 'NEW IN THE CATALOGUE'
+      name.textContent = entry.name
+      screen.querySelector('[data-description]').textContent = entry.description
+    } else {
+      screen.querySelector('[data-eyebrow]').textContent =
+        'YOUR LOCAL AGENT WORKSPACE'
+      name.innerHTML = 'Your Agents.<br><mark>Your Rules.</mark>'
+      screen.querySelector('[data-description]').textContent = this
+        .catalogLoading
+        ? 'Loading the catalogue of agents you can run on this computer.'
+        : this.catalogError ||
+          'Launcher could not load any application publisher.'
+    }
+
+    const tags = screen.querySelector('[data-tags]')
+
+    tags.replaceChildren()
+
+    for (const tag of entry?.tags || []) {
+      const item = document.createElement('span')
+
+      item.textContent = tag
+      tags.append(item)
+    }
+
+    const install = screen.querySelector('[data-install]')
+
+    install.textContent = entry
+      ? installed.has(entry.id)
+        ? 'CREATE ANOTHER'
+        : 'INSTALL AGENT'
+      : 'BROWSE MARKETPLACE'
+
+    // Without a promoted agent the primary action can only send the user to
+    // the Marketplace, which the shell's own navigation handler performs.
+    if (entry) {
+      delete install.dataset.screenLink
+    } else {
+      install.dataset.screenLink = 'marketplace'
+    }
+
+    screen.querySelectorAll('[data-details]').forEach((button) => {
+      button.hidden = !entry
+    })
+
+    // Installing an agent does not always reorder the catalogue, so the grid's
+    // badges are refreshed here rather than left to the next rebuild.
+    for (const card of screen.querySelectorAll('.explore-card')) {
+      card.querySelector('[data-installed]').hidden = !installed.has(
+        card.dataset.entry
+      )
+    }
+
+    this.updateExploreNavigation(screen, entries, entry)
+  }
+
+  // Restarting the fade is what makes the page's own backdrop change with the
+  // promoted agent rather than simply cutting to the next image.
+  updateExploreArtwork(screen, entry) {
+    const art = screen.querySelector('[data-art]')
+    const artwork = promotedArtwork(entry)
+
+    if (art.dataset.artwork === artwork) {
+      return
+    }
+
+    art.dataset.artwork = artwork
+    screen.style.setProperty('--explore-art', artwork)
+    art.classList.remove('is-entering')
+    // Reading the layout commits the removal, so re-adding the class starts
+    // the animation again instead of continuing the previous one.
+    void art.offsetWidth
+    art.classList.add('is-entering')
+  }
+
+  updateExploreNavigation(screen, entries, entry) {
+    const promoted = this.promotedEntries(entries)
+    const position = entry ? promoted.indexOf(entry) + 1 : 0
+
+    // One promoted agent has nowhere to advance to.
+    screen.querySelector('[data-promoted]').hidden = promoted.length < 2
+    screen.querySelector('[data-position]').textContent = `${String(
+      position
+    ).padStart(2, '0')} / ${String(promoted.length).padStart(2, '0')}`
+  }
+
+  renderLibrary() {
+    const screen = this.querySelector('[data-screen="library"]')
 
     screen.innerHTML = `
       <div class="agents-layout">
@@ -1009,10 +1165,8 @@ export class LauncherApp extends HTMLElement {
             <div class="filter-list" data-filters></div>
           </div>
           <div class="agent-list" data-agent-list></div>
-          <footer class="pagination-footer">
+          <footer class="agent-list-footer">
             <span data-result-count></span>
-            <nav class="pagination" aria-label="Agent pages"
-              data-pagination></nav>
           </footer>
         </section>
         <aside class="agents-sidebar">
@@ -1026,6 +1180,10 @@ export class LauncherApp extends HTMLElement {
             <small class="eyebrow">RESOURCE USAGE</small>
             <div class="resource-list" data-resources></div>
           </section>
+          <section class="panel">
+            <small class="eyebrow">SYSTEM</small>
+            <div class="system-list" data-system></div>
+          </section>
         </aside>
       </div>
     `
@@ -1035,8 +1193,7 @@ export class LauncherApp extends HTMLElement {
     search.value = this.query
     search.addEventListener('input', (event) => {
       this.query = event.target.value
-      this.page = 1
-      this.renderAgents()
+      this.renderLibrary()
       this.querySelector('[data-search]').focus()
     })
 
@@ -1056,8 +1213,7 @@ export class LauncherApp extends HTMLElement {
       button.classList.toggle('is-active', this.filter === id)
       button.addEventListener('click', () => {
         this.filter = id
-        this.page = 1
-        this.renderAgents()
+        this.renderLibrary()
       })
       filterList.append(button)
     }
@@ -1071,17 +1227,9 @@ export class LauncherApp extends HTMLElement {
 
       return statusMatches && (!needle || text.includes(needle))
     })
-    const pageSize = 6
-    const pageCount = Math.max(1, Math.ceil(matchingAgents.length / pageSize))
-
-    this.page = Math.min(this.page, pageCount)
-
-    const pages = Array.from({ length: pageCount }, (_, index) => index + 1)
-    const pageStart = (this.page - 1) * pageSize
-    const visibleAgents = matchingAgents.slice(pageStart, pageStart + pageSize)
     const list = screen.querySelector('[data-agent-list]')
 
-    if (!visibleAgents.length) {
+    if (!matchingAgents.length) {
       list.append(
         this.emptyState(
           'NO MATCHING AGENTS',
@@ -1091,40 +1239,20 @@ export class LauncherApp extends HTMLElement {
         )
       )
     } else {
-      for (const agent of visibleAgents) {
-        list.append(this.agentCard(agent, 'row'))
+      for (const agent of matchingAgents) {
+        list.append(this.agentCard(agent))
       }
     }
 
-    screen.querySelector(
-      '[data-result-count]'
-    ).textContent = `SHOWING ${visibleAgents.length} OF ${matchingAgents.length} AGENTS`
+    screen.querySelector('[data-result-count]').textContent = `SHOWING ${
+      matchingAgents.length
+    } OF ${this.agents.length} AGENTS`
 
-    const pagination = screen.querySelector('[data-pagination]')
-
-    for (const page of pages) {
-      const button = document.createElement('button')
-
-      button.type = 'button'
-      button.textContent = page
-      button.classList.toggle('is-active', page === this.page)
-      button.setAttribute('aria-label', `Page ${page}`)
-
-      if (page === this.page) {
-        button.setAttribute('aria-current', 'page')
-      }
-
-      button.addEventListener('click', () => {
-        this.page = page
-        this.renderAgents()
-      })
-      pagination.append(button)
-    }
-
-    this.renderAgentSummary(screen)
+    this.renderLibrarySummary(screen)
+    this.renderSystem(screen)
   }
 
-  renderAgentSummary(screen) {
+  renderLibrarySummary(screen) {
     const counts = {
       online: this.agents.filter((agent) => statusFor(agent) === 'online')
         .length,
@@ -1158,11 +1286,6 @@ export class LauncherApp extends HTMLElement {
     const resources = [
       ['TOTAL CPU', running.length ? `${cpu.toFixed(1)}%` : '-', cpu],
       ['MEMORY IN USE', formatBytes(memory), running.length ? 62 : 0],
-      [
-        'RUNTIME',
-        this.doctorReport?.runtime?.toUpperCase() || '-',
-        this.doctorReport ? 100 : 0,
-      ],
     ]
     const resourceList = screen.querySelector('[data-resources]')
 
@@ -1183,6 +1306,71 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
+  // Where this computer stands: the runtime behind every agent and the
+  // Launcher build managing them.
+  renderSystem(screen) {
+    const list = screen.querySelector('[data-system]')
+    const launcherVersion = this.launcherStatus?.currentVersion || '-'
+    const launcherVersionLabel =
+      launcherVersion === 'dev'
+        ? 'DEV'
+        : launcherVersion === '-'
+        ? '-'
+        : `V${launcherVersion}`
+    let launcherVersionDetail = 'UPDATE STATUS UNKNOWN'
+
+    if (launcherVersion === 'dev') {
+      launcherVersionDetail = 'DEVELOPMENT BUILD'
+    } else if (this.launcherStatus?.updateAvailable) {
+      launcherVersionDetail = `V${this.launcherStatus.latestVersion} AVAILABLE`
+    } else if (this.launcherStatus?.checking) {
+      launcherVersionDetail = 'CHECKING FOR UPDATES'
+    } else if (this.launcherStatus?.checkedAt) {
+      launcherVersionDetail = 'UP TO DATE'
+    }
+
+    const systemItems = [
+      [
+        'RUNTIME',
+        this.doctorReport?.runtime?.toUpperCase() || '-',
+        this.doctorReport?.version || 'NOT DETECTED',
+      ],
+      ['LAUNCHER', launcherVersionLabel, launcherVersionDetail],
+    ]
+
+    for (const [label, value, detail] of systemItems) {
+      const item = document.createElement('div')
+      const opensLauncherUpdate =
+        label === 'LAUNCHER' &&
+        this.launcherStatus?.updateAvailable &&
+        this.launcherStatus?.releaseUrl
+
+      item.classList.toggle(
+        'system-stat--update',
+        label === 'LAUNCHER' && Boolean(this.launcherStatus?.updateAvailable)
+      )
+      item.innerHTML = '<small></small><strong></strong>'
+      item.querySelector('small').textContent = label
+      item.querySelector('strong').textContent = value
+
+      const detailElement = document.createElement(
+        opensLauncherUpdate ? 'button' : 'span'
+      )
+
+      if (opensLauncherUpdate) {
+        detailElement.type = 'button'
+        detailElement.className = 'system-stat__update'
+        detailElement.textContent = `${detail} →`
+        detailElement.addEventListener('click', () => this.openLauncherUpdate())
+      } else {
+        detailElement.textContent = detail
+      }
+
+      item.append(detailElement)
+      list.append(item)
+    }
+  }
+
   renderMarketplace() {
     const screen = this.querySelector('[data-screen="marketplace"]')
 
@@ -1195,11 +1383,6 @@ export class LauncherApp extends HTMLElement {
             Pick an agent, give it a name, and Launcher handles the machinery.
           </p>
         </div>
-        <span>${
-          this.catalogLoading
-            ? 'LOADING AGENTS…'
-            : `${this.catalog.length} AGENTS AVAILABLE`
-        }</span>
       </section>
       <div class="marketplace-grid" data-marketplace-grid></div>
     `
@@ -1284,7 +1467,6 @@ export class LauncherApp extends HTMLElement {
           <small class="eyebrow">LAUNCHER EVENT LOG</small>
           <h2>RECENT ACTIVITY</h2>
         </div>
-        <span>THIS SESSION</span>
       </section>
       <section class="panel activity-panel">
         <div class="activity-list" data-activity-list></div>
@@ -1335,10 +1517,9 @@ export class LauncherApp extends HTMLElement {
     }
   }
 
-  agentCard(agent, variant) {
+  agentCard(agent) {
     const card = document.createElement('agent-card')
 
-    card.variant = variant
     card.data = {
       agent,
       entry: catalogueEntry(this.catalog, agent),
@@ -1382,7 +1563,7 @@ export class LauncherApp extends HTMLElement {
     return loading
   }
 
-  renderActivityList(container, events, compact = false) {
+  renderActivityList(container, events) {
     if (!events.length) {
       const empty = document.createElement('p')
 
@@ -1396,29 +1577,18 @@ export class LauncherApp extends HTMLElement {
     for (const activity of events) {
       const item = document.createElement('div')
 
-      item.className = compact
-        ? 'activity-item activity-item--compact'
-        : 'activity-item activity-item--full'
-      item.innerHTML = compact
-        ? `
-          <i></i>
-          <span><strong></strong><time></time></span>
-        `
-        : `
-          <time></time>
-          <i></i>
-          <span><strong></strong><small></small></span>
-          <b data-activity-agent></b>
-        `
+      item.className = 'activity-item activity-item--full'
+      item.innerHTML = `
+        <time></time>
+        <i></i>
+        <span><strong></strong><small></small></span>
+        <b data-activity-agent></b>
+      `
       item.querySelector('i').dataset.type = activity.type
       item.querySelector('strong').textContent = activity.message
       item.querySelector('time').textContent = formatTime(activity.time)
-
-      if (!compact) {
-        item.querySelector('small').textContent = activity.detail
-        item.querySelector('[data-activity-agent]').textContent = activity.agent
-      }
-
+      item.querySelector('small').textContent = activity.detail
+      item.querySelector('[data-activity-agent]').textContent = activity.agent
       container.append(item)
     }
   }
@@ -1794,7 +1964,7 @@ export class LauncherApp extends HTMLElement {
     })
     this.activity = this.activity.slice(0, 50)
 
-    if (this.screen === 'activity' || this.screen === 'home') {
+    if (this.screen === 'activity') {
       this.renderScreen()
     }
   }

@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "id": "c4e2f994-ff40-4728-bd45-3e71ac7c5c32",
+  "slug": "codex",
+  "name": "Codex",
+  "publisher": "OpenAI",
+  "description": "A persistent browser desktop for Codex, OpenAI's terminal coding agent, with its interface, approval modes, MCP servers, resumable sessions, and workspace.",
+  "tags": [
+    "DEVELOPMENT",
+    "ASSISTANT",
+    "TERMINAL"
+  ],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "screenshot.jpg",
+    "screenshots": [
+      {
+        "source": "screenshot.jpg",
+        "alt": "Codex running in its persistent, branded browser desktop"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    },
+    "health": {
+      "kind": "health",
+      "port": 6902,
+      "path": "/healthz"
+    },
+    "notifications": {
+      "kind": "notifications",
+      "port": 6902,
+      "path": "/notifications"
+    },
+    "preview": {
+      "kind": "preview",
+      "port": 6902,
+      "path": "/preview.jpg"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/codex",
+      "target": "/home/agent/.codex"
+    }
+  ]
+}

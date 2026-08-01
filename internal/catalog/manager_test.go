@@ -81,6 +81,67 @@ func TestManagerStartsEmptyThenRefreshesAndRestoresCache(t *testing.T) {
 	}
 }
 
+// The catalogue is presented in the order publishers declare it, so neither a
+// refresh nor a restore from cache may reorder it — including alphabetically,
+// which these deliberately reversed names would otherwise hide.
+func TestManagerKeepsDeclaredApplicationOrder(t *testing.T) {
+	zebraReference := "ghcr.io/example/zebra:launcher-stable"
+	alphaReference := "ghcr.io/example/alpha:launcher-stable"
+	resolver := &fakeResolver{
+		artifacts: map[string]Artifact{
+			testFeedReference: feedArtifact(zebraReference, alphaReference),
+			zebraReference: applicationArtifact(
+				t,
+				zebraReference,
+				"zebra",
+				testApplicationID,
+				"a",
+			),
+			alphaReference: applicationArtifact(
+				t,
+				alphaReference,
+				"alpha",
+				"2784cf32-591a-4ba7-9c26-64ce6deeba55",
+				"b",
+			),
+		},
+		errors: make(map[string]error),
+	}
+	root := t.TempDir()
+	manager, err := NewManager(root, ManagerOptions{
+		Resolver:   resolver,
+		SourceData: testSources(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	if _, err := manager.Refresh(t.Context(), true); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	applications := manager.List()
+	if len(applications) != 2 ||
+		applications[0].Slug != "zebra" ||
+		applications[1].Slug != "alpha" {
+		t.Fatalf("Refresh() applications = %#v", applications)
+	}
+
+	restored, err := NewManager(root, ManagerOptions{
+		Resolver:   &fakeResolver{},
+		SourceData: testSources(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() restored error = %v", err)
+	}
+
+	cached := restored.List()
+	if len(cached) != 2 ||
+		cached[0].Slug != "zebra" ||
+		cached[1].Slug != "alpha" {
+		t.Fatalf("restored applications = %#v", cached)
+	}
+}
+
 func TestManagerUpdatesOtherApplicationsWhileOneUsesCache(t *testing.T) {
 	resolver := testResolver(t, "ghost", testApplicationID)
 	manager, err := NewManager(t.TempDir(), ManagerOptions{

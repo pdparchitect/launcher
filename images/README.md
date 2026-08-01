@@ -7,6 +7,8 @@ inheritance chain is:
 core/ubuntu
   -> runtimes/node
        -> bases/desktop
+            -> products/claude-code/desktop
+            -> products/codex/desktop
             -> products/cursor/desktop
             -> products/hermes/desktop
             -> products/opencode/desktop
@@ -49,6 +51,36 @@ so it can be skipped or swapped. Versions match the Pantalk Ghost toolchain.
 Hermes Agent installation. Hermes state persists in `/home/agent/.hermes`;
 the first desktop session opens `hermes setup`, and later sessions open the
 Hermes TUI.
+
+`products/claude-code/desktop` inherits the desktop base and adds a pinned
+Claude Code from npm. It opens the CLI in a persistent terminal. Claude Code
+keeps `~/.claude.json` beside `~/.claude`, so the image sets
+`CLAUDE_CONFIG_DIR` to bring both below one declared volume - mounting only the
+directory would re-onboard on every container replacement. The CLI's own
+updater is disabled, because the image is the unit Launcher updates and a
+self-update would replace the version the image labels record. The product
+directory is named `claude-code` rather than `claude`: "Claude Desktop" is a
+different Anthropic application and this image is not it.
+
+It is also the one **light** desktop here. Anthropic's surface is paper, so
+this product's `theme/apply-theme.sh` maps the base's dark colour vocabulary
+onto cream, ink and clay, role by role - window decorations, panel, root menu
+and Chromium's GTK surfaces - rather than replacing those files, which would
+freeze the product against later substrate changes. Its seeded Claude Code
+appearance is light to match, because a dark agent inside a paper terminal is
+the one combination that looks broken.
+
+`products/codex/desktop` inherits the desktop base and adds a pinned Codex CLI
+from npm, opened in a persistent terminal. `CODEX_HOME` is set explicitly
+rather than left to resolve from `HOME`, so an Apple fixed-mount session that
+runs as root still signs in onto the declared volume. First-run sign-in is left
+to Codex's own onboarding, which already offers the device-code path this
+desktop needs - the browser-callback flow returns to a loopback port inside the
+container and cannot complete from a browser on another machine.
+`products/petbox/desktop` packages the same CLI, but as the engine behind its
+pets rather than as Codex itself. Its `theme/apply-theme.sh` takes its palette
+from OpenAI's Codex artwork - a slate-navy terminal on a periwinkle field, one
+orchid accent, and the base's white window outline left exactly as it is.
 
 `products/cursor/desktop` installs only the pinned, checksummed Cursor Agent
 CLI packages for AMD64 and ARM64. It opens `cursor-agent` in a persistent
@@ -174,6 +206,8 @@ The output images are:
 pdparchitect/launcher-image-core-ubuntu:local
 pdparchitect/launcher-image-runtime-node:local
 pdparchitect/launcher-image-base-desktop:local
+pdparchitect/launcher-image-claude-code-desktop:local
+pdparchitect/launcher-image-codex-desktop:local
 pdparchitect/launcher-image-cursor-desktop:local
 pdparchitect/launcher-image-hermes-desktop:local
 pdparchitect/launcher-image-opencode-desktop:local
@@ -211,6 +245,8 @@ new product is runnable without editing the Makefile.
 
 ```sh
 make run                             # the desktop base
+make run TARGET=claude-code-desktop  # the Claude Code product image
+make run TARGET=codex-desktop        # the Codex product image
 make run TARGET=cursor-desktop       # Cursor Agent CLI only
 make run TARGET=hermes-desktop       # the Hermes product image
 make run TARGET=opencode-desktop     # the OpenCode terminal harness

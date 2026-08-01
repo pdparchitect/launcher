@@ -70,9 +70,39 @@ type cacheRecord struct {
 }
 
 type cacheState struct {
-	CheckedAt    time.Time              `json:"checkedAt"`
-	Feeds        map[string]cacheRecord `json:"feeds"`
+	CheckedAt time.Time              `json:"checkedAt"`
+	Feeds     map[string]cacheRecord `json:"feeds"`
+	// The order the publisher feeds declared their applications in. Maps carry
+	// no order, so without this a restored cache would present the catalogue
+	// differently from the refresh that wrote it.
+	Order        []string               `json:"order,omitempty"`
 	Applications map[string]cacheRecord `json:"applications"`
+}
+
+// applicationOrder returns the cached references in their declared order. A
+// cache written before the order was recorded falls back to sorted references,
+// which is arbitrary but stable.
+func (state cacheState) applicationOrder() []string {
+	order := make([]string, 0, len(state.Applications))
+	placed := make(map[string]struct{}, len(state.Applications))
+	for _, reference := range state.Order {
+		if _, cached := state.Applications[reference]; !cached {
+			continue
+		}
+		if _, seen := placed[reference]; seen {
+			continue
+		}
+		placed[reference] = struct{}{}
+		order = append(order, reference)
+	}
+	remaining := make([]string, 0, len(state.Applications)-len(order))
+	for reference := range state.Applications {
+		if _, seen := placed[reference]; !seen {
+			remaining = append(remaining, reference)
+		}
+	}
+	sort.Strings(remaining)
+	return append(order, remaining...)
 }
 
 type pendingRecord struct {
@@ -189,7 +219,8 @@ func (manager *Manager) Refresh(
 	}
 	pending := make(map[string]pendingRecord)
 	var warnings []string
-	applicationReferences := make(map[string]struct{})
+	var references []string
+	declared := make(map[string]struct{})
 
 	for _, reference := range manager.sources.Feeds {
 		artifact, fetchErr := manager.resolver.Fetch(ctx, reference)
@@ -244,8 +275,15 @@ func (manager *Manager) Refresh(
 			))
 		}
 		next.Feeds[reference] = record
+		// Feeds are read in the order the registry sources list them, and each
+		// feed's applications in the order it declares them. That sequence is
+		// the catalogue's own order, so it is kept rather than sorted.
 		for _, applicationReference := range feed.Applications {
-			applicationReferences[applicationReference] = struct{}{}
+			if _, seen := declared[applicationReference]; seen {
+				continue
+			}
+			declared[applicationReference] = struct{}{}
+			references = append(references, applicationReference)
 		}
 	}
 
@@ -254,11 +292,6 @@ func (manager *Manager) Refresh(
 	}
 
 	bundles := make(map[string]applicationBundle)
-	references := make([]string, 0, len(applicationReferences))
-	for reference := range applicationReferences {
-		references = append(references, reference)
-	}
-	sort.Strings(references)
 	results := make(chan applicationResolution, len(references))
 	concurrency := make(chan struct{}, 4)
 	var resolveGroup sync.WaitGroup
@@ -292,6 +325,7 @@ func (manager *Manager) Refresh(
 			continue
 		}
 		next.Applications[reference] = result.record
+		next.Order = append(next.Order, reference)
 		bundles[reference] = result.bundle
 		if result.pending != nil {
 			pending[result.pending.record.Blob] = *result.pending
@@ -301,7 +335,7 @@ func (manager *Manager) Refresh(
 	if len(bundles) == 0 {
 		return false, errors.New("no Launcher application is available")
 	}
-	manifests, assets, err := manifestsFromBundles(bundles)
+	manifests, assets, err := manifestsFromBundles(bundles, next.Order)
 	if err != nil {
 		return false, err
 	}
@@ -415,7 +449,7 @@ func (manager *Manager) restore() {
 		}
 		bundles[reference] = bundle
 	}
-	manifests, assets, err := manifestsFromBundles(bundles)
+	manifests, assets, err := manifestsFromBundles(bundles, state.applicationOrder())
 	if err != nil {
 		return
 	}
@@ -524,7 +558,8 @@ func cloneState(state cacheState) cacheState {
 
 func sameRecords(left cacheState, right cacheState) bool {
 	return reflect.DeepEqual(left.Feeds, right.Feeds) &&
-		reflect.DeepEqual(left.Applications, right.Applications)
+		reflect.DeepEqual(left.Applications, right.Applications) &&
+		reflect.DeepEqual(left.applicationOrder(), right.applicationOrder())
 }
 
 func safeBlobName(name string) bool {

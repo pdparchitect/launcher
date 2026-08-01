@@ -60,10 +60,15 @@ dialog. Use `--no-prompt` when running commands in scripts or CI.
 Opening the packaged application without arguments starts the desktop
 interface. It provides:
 
+- An Explore screen promoting the catalogue's first three agents, one at a
+  time, with the promoted agent's artwork behind the page, an install action,
+  and a grid of the first nine agents
 - A marketplace of available agents
 - Installation and local instance management
 - Start, stop, update, and delete controls
-- CPU, memory, status, and uptime information
+- A Library of the agents installed on this computer, with CPU, memory,
+  status, and uptime information, and the runtime and Launcher version in its
+  system panel
 - Access to a running agent's local interface
 
 Launcher can also serve the same interface in a browser:
@@ -73,7 +78,14 @@ launcher serve
 ```
 
 The browser server listens only on loopback and protects its API with a random
-per-process session token.
+per-process session token. That token is a same-origin protection rather than
+a login, so the interface has no authentication of its own.
+
+Running Launcher on a dedicated machine and using the web interface to manage
+agents is a supported way to work. See
+[Serving the web interface](web-interface.md) for the listen address rules,
+running it as a system service, reaching agent interfaces remotely, and the
+recommended zero trust proxy in front of it.
 
 ## Command-line interface
 
@@ -151,11 +163,11 @@ from other applications and all runtime volumes are left untouched. Run
 ## Launcher updates
 
 Launcher checks for a newer stable release in the background. A new version
-appears in a banner throughout the application and in the Home system
-overview. **View release** opens the matching GitHub release page so you can
+appears in a banner throughout the application and in the Library system
+panel. **View release** opens the matching GitHub release page so you can
 review its notes and download the package for your platform.
 
-The banner can be dismissed for that version. The Home overview continues to
+The banner can be dismissed for that version. The system panel continues to
 show that an update is available, and a later version displays a new banner.
 
 The last successful result is cached for immediate display and offline use.

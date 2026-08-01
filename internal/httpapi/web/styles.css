@@ -502,6 +502,204 @@ mark {
   z-index: 1;
 }
 
+/* Explore replaces the hero's stat column with the control that moves through
+   the promoted agents, in the space their artwork leaves on the right. The
+   band is a fixed, generous height — every agent has a different amount to
+   say, and the hero must not resize as it moves between them. */
+.explore-hero {
+  min-height: 620px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: start;
+  padding-bottom: 44px;
+  column-gap: 32px;
+}
+
+.explore-hero .hero__copy h2 {
+  margin: 14px 0 20px;
+  font-size: clamp(48px, 4.6vw, 68px);
+}
+
+/* Three lines whether the agent's description fills them or not, so the
+   buttons below stay exactly where they were. */
+.explore-hero .hero__copy p {
+  min-height: 72px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.explore-hero__tags {
+  min-height: 25px;
+  margin-top: 20px;
+}
+
+/* The promoted agent's own screenshot becomes the page backdrop. The same
+   wash as the interface's artwork keeps arbitrary catalogue imagery dark
+   enough for the copy to stay legible on top of it. */
+.explore-hero__art {
+  background: linear-gradient(
+      90deg,
+      #080a07 10%,
+      rgba(8, 10, 7, 0.94) 42%,
+      rgba(8, 10, 7, 0.46) 74%,
+      #080a07 100%
+    ),
+    linear-gradient(180deg, rgba(205, 220, 45, 0.1), rgba(8, 10, 7, 0.24)),
+    var(--explore-art, url('/assets/hero.png')) center top / cover no-repeat;
+  filter: saturate(0.82);
+}
+
+@keyframes explore-art-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 0.85;
+  }
+}
+
+.explore-hero__art.is-entering {
+  animation: explore-art-in 420ms ease both;
+}
+
+/* One direction is enough for a shortlist of three, and the arrow is large
+   because the artwork beside it is the only other thing in this half. */
+.explore-next {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-self: center;
+  justify-items: center;
+  gap: 12px;
+}
+
+.explore-next__button {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-bright);
+  background: rgba(5, 6, 4, 0.72);
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.explore-next__button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.explore-next__position {
+  color: var(--muted);
+  font-family: var(--font-technical);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+.explore-catalogue {
+  margin-top: 26px;
+}
+
+.explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 18px;
+}
+
+.explore-card {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+}
+
+.explore-card:hover {
+  border-color: var(--accent);
+}
+
+.explore-card__cover {
+  aspect-ratio: 16 / 7.2;
+  display: block;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised) center / cover no-repeat;
+  transition: filter 200ms ease;
+  filter: saturate(0.8) brightness(0.86);
+}
+
+.explore-card:hover .explore-card__cover {
+  filter: none;
+}
+
+.explore-card__body {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px 18px 18px;
+}
+
+.explore-card__identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.explore-card__icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--surface-raised) center / contain no-repeat;
+}
+
+.explore-card__identity strong {
+  overflow: hidden;
+  font-family: var(--font-interface);
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explore-card__identity small {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(234, 255, 0, 0.35);
+  color: var(--accent);
+  font-family: var(--font-technical);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+}
+
+/* Two lines whatever the publisher wrote, so a row of cards stays even. */
+.explore-card__description {
+  min-height: 40px;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #9d9d94;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explore-hero__art.is-entering {
+    animation: none;
+  }
+}
+
 .hero__copy h2,
 .marketplace-hero h2 {
   margin: 10px 0 16px;
@@ -599,7 +797,6 @@ mark {
   letter-spacing: 0.16em;
 }
 
-.dashboard-grid,
 .agents-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -612,7 +809,6 @@ mark {
   min-width: 0;
 }
 
-.dashboard-stack,
 .agents-sidebar {
   display: grid;
   align-content: start;
@@ -648,86 +844,32 @@ mark {
   font-size: 11px;
 }
 
-.text-button--wide {
-  width: 100%;
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--line);
-}
-
-.home-agent-grid {
+/* One row per fact rather than the four-across band this was on the front
+   page: the Agents sidebar is a narrow column. */
+.system-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.quick-action {
-  width: 100%;
-  min-height: 54px;
-  display: grid;
-  grid-template-columns: 30px 1fr auto;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  background: transparent;
-  text-align: left;
-}
-
-.quick-action:hover {
-  border-color: var(--accent);
-}
-
-.quick-action > span {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-}
-
-.quick-action strong {
-  font-family: var(--font-technical);
-  font-size: 12px;
-  letter-spacing: 0.14em;
-}
-
-.quick-action i {
-  color: var(--accent);
-  font-style: normal;
-}
-
-.system-overview {
-  margin-top: 18px;
-}
-
-.overview-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 14px;
   border: 1px solid var(--line);
 }
 
-.overview-stats > .overview-stat--update {
-  background: var(--accent-soft);
-}
-
-.overview-stats > div {
+.system-list > div {
   min-width: 0;
   display: grid;
   gap: 4px;
-  padding: 16px;
-  border-right: 1px solid var(--line);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.overview-stats > div:last-child {
-  border: 0;
+.system-list > div:last-child {
+  border-bottom: 0;
 }
 
-.overview-stats small,
-.overview-stats span {
+.system-list > .system-stat--update {
+  background: var(--accent-soft);
+}
+
+.system-list small,
+.system-list span {
   overflow: hidden;
   color: var(--muted);
   font-family: var(--font-technical);
@@ -737,7 +879,14 @@ mark {
   white-space: nowrap;
 }
 
-.overview-stat__update {
+.system-list strong {
+  color: var(--accent);
+  font-family: var(--font-interface);
+  font-size: 24px;
+  text-transform: uppercase;
+}
+
+.system-stat__update {
   min-width: 0;
   justify-self: start;
   overflow: hidden;
@@ -753,15 +902,8 @@ mark {
   white-space: nowrap;
 }
 
-.overview-stat__update:hover {
+.system-stat__update:hover {
   text-decoration: underline;
-}
-
-.overview-stats strong {
-  color: var(--accent);
-  font-family: var(--font-interface);
-  font-size: 28px;
-  text-transform: uppercase;
 }
 
 .agent-card {
@@ -769,35 +911,13 @@ mark {
   background: #080a07;
 }
 
-.agent-card--home {
-  padding: 16px;
-}
-
-.agent-card__heading,
-.agent-card__identity,
 .agent-card__title {
   display: flex;
   align-items: center;
-}
-
-.agent-card__heading {
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.agent-card__identity,
-.agent-card__title {
   min-width: 0;
   gap: 10px;
 }
 
-.agent-card__identity > span:last-child {
-  min-width: 0;
-  display: grid;
-}
-
-.agent-card__identity strong,
 .agent-card__title strong {
   overflow: hidden;
   font-family: var(--font-interface);
@@ -816,9 +936,10 @@ mark {
   background: var(--surface-raised) center / contain no-repeat;
 }
 
-.agent-status,
 .status-pill {
   width: max-content;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
   color: var(--muted);
   font-family: var(--font-technical);
   font-size: 9px;
@@ -826,12 +947,6 @@ mark {
   letter-spacing: 0.16em;
 }
 
-.status-pill {
-  padding: 4px 7px;
-  border: 1px solid var(--line);
-}
-
-.agent-status[data-status='online'],
 .status-pill[data-status='online'] {
   color: var(--accent);
   border-color: rgba(234, 255, 0, 0.35);
@@ -890,23 +1005,11 @@ mark {
   transform: scale(1.025);
 }
 
-.agent-preview--home {
-  aspect-ratio: 16 / 7.5;
-}
-
 .agent-description {
   overflow: hidden;
   color: #9d9d94;
   font-size: 13.5px;
   line-height: 1.5;
-}
-
-.agent-card--home .agent-description {
-  min-height: 41px;
-  display: -webkit-box;
-  margin: 12px 0;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .tag-list {
@@ -963,8 +1066,7 @@ mark {
   overscroll-behavior: contain;
 }
 
-.filter-list button,
-.pagination button {
+.filter-list button {
   min-width: 48px;
   height: 44px;
   padding: 0 13px;
@@ -977,8 +1079,7 @@ mark {
   white-space: nowrap;
 }
 
-.filter-list button.is-active,
-.pagination button.is-active {
+.filter-list button.is-active {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
@@ -1061,28 +1162,14 @@ mark {
   align-items: center;
 }
 
-.pagination-footer {
+.agent-list-footer {
   min-height: 62px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   color: var(--muted);
   font-family: var(--font-technical);
   font-size: 10px;
   letter-spacing: 0.11em;
-}
-
-.pagination {
-  display: flex;
-  gap: 7px;
-}
-
-.pagination button {
-  min-width: 38px;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  font-size: 12px;
 }
 
 .large-number {
@@ -1185,17 +1272,6 @@ mark {
       transparent 24%
     ),
     var(--surface);
-}
-
-.marketplace-hero > span,
-.activity-heading > span {
-  padding: 12px 14px;
-  border: 1px solid rgba(234, 255, 0, 0.4);
-  color: var(--accent);
-  font-family: var(--font-technical);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  white-space: nowrap;
 }
 
 .marketplace-grid {
@@ -1345,7 +1421,7 @@ mark {
   margin-bottom: 16px;
 }
 
-.marketplace-detail__information dl {
+.spec-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   margin: 0;
@@ -1353,8 +1429,8 @@ mark {
   background: rgba(5, 6, 4, 0.62);
 }
 
-.marketplace-detail__information dt,
-.marketplace-detail__information dd {
+.spec-list dt,
+.spec-list dd {
   min-width: 0;
   margin: 0;
   padding: 13px 14px;
@@ -1363,12 +1439,12 @@ mark {
   font-size: 10px;
 }
 
-.marketplace-detail__information dt {
+.spec-list dt {
   color: var(--muted);
   letter-spacing: 0.12em;
 }
 
-.marketplace-detail__information dd {
+.spec-list dd {
   overflow-wrap: anywhere;
   color: var(--text);
   text-align: right;
@@ -1503,14 +1579,8 @@ mark {
   padding: 22px 24px;
 }
 
-.activity-list,
-.mini-activity {
+.activity-list {
   display: grid;
-}
-
-.mini-activity {
-  gap: 12px;
-  margin-top: 14px;
 }
 
 .activity-item {
@@ -1585,34 +1655,6 @@ mark {
   font-weight: 400;
   letter-spacing: 0.14em;
   text-align: right;
-}
-
-.activity-item--compact {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  border: 0;
-}
-
-.activity-item--compact > i {
-  margin-top: 6px;
-}
-
-.activity-item--compact > span {
-  gap: 2px;
-}
-
-.activity-item--compact strong {
-  color: #dcdcd2;
-  font-family: var(--font-interface);
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.activity-item--compact time {
-  color: #6f6f68;
-  font-family: var(--font-technical);
-  font-size: 10px;
 }
 
 /* Matches .empty-state > p: muted descriptive copy at the inherited body size
@@ -2164,7 +2206,6 @@ mark {
     padding: 18px 0;
   }
 
-  .dashboard-grid,
   .agents-layout {
     grid-template-columns: minmax(0, 1fr) 285px;
   }
@@ -2197,13 +2238,8 @@ mark {
     min-width: 150px;
   }
 
-  .dashboard-grid,
   .agents-layout {
     grid-template-columns: 1fr;
-  }
-
-  .dashboard-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .agents-sidebar {
@@ -2218,16 +2254,11 @@ mark {
     grid-template-columns: 1fr;
   }
 
-  .overview-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .overview-stats > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .overview-stats > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
+  /* The hero is a single column here, so the control follows the copy rather
+     than sitting beside it. */
+  .explore-next {
+    justify-items: start;
+    align-self: start;
   }
 }
 
@@ -2318,20 +2349,8 @@ mark {
     right: 22px;
   }
 
-  .home-agent-grid,
-  .dashboard-stack,
-  .agents-sidebar,
-  .overview-stats {
+  .agents-sidebar {
     grid-template-columns: 1fr;
-  }
-
-  .overview-stats > div {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .overview-stats > div:nth-child(2) {
-    border-right: 0;
   }
 
   .agent-card--row {
@@ -2351,10 +2370,7 @@ mark {
     overflow-x: auto;
   }
 
-  .pagination-footer {
-    align-items: start;
-    flex-direction: column;
-    gap: 12px;
+  .agent-list-footer {
     padding: 16px 0;
   }
 

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f0eee6;
+        --card: #faf9f5;
+        --ink: #141413;
+        --muted: #7a7770;
+        --line: #ddd9cc;
+        --clay: #d97757;
+        --kraft: #d4a27f;
+        --manilla: #ebdbbc;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 40px;
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      main {
+        position: relative;
+        width: min(760px, 100%);
+        padding: 56px 56px 48px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        overflow: hidden;
+      }
+
+      /* The mark, cropped by the panel's corner rather than centred in it. */
+      .mark {
+        position: absolute;
+        top: -104px;
+        right: -104px;
+        width: 260px;
+        height: 260px;
+        opacity: 0.9;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(38px, 6vw, 62px);
+        font-weight: 400;
+        letter-spacing: -0.01em;
+      }
+
+      .standfirst {
+        margin: 10px 0 34px;
+        max-width: 30ch;
+        font-size: 19px;
+        font-style: italic;
+        color: var(--muted);
+      }
+
+      hr {
+        margin: 0 0 26px;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 12px 28px;
+        font-family: 'DejaVu Sans Mono', monospace;
+        font-size: 13px;
+      }
+
+      dt {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 11px;
+        padding-top: 2px;
+      }
+
+      dd { margin: 0; }
+
+      .swatches {
+        margin-top: 40px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .swatches span {
+        width: 46px;
+        height: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="mark" viewBox="0 0 100 100" role="img" aria-label="Claude">
+        <g fill="#D97757">
+          <path
+            d="M57.21 52.23L82.99 41.77L55.32 44.64ZM54.86 55.78L73.83 58.08L57.37 48.37ZM50.97 57.49L68.64 73.4L57.08 52.62ZM46.77 56.82L52.72 76.72L54.54 56.03ZM43.59 53.99L35.38 78.8L50.56 57.53ZM42.45 49.89L20.66 67.19L46.4 56.64ZM43.71 45.83L24.86 48.96L43.38 53.64ZM46.96 43.09L25.52 32.8L42.47 49.49ZM51.18 42.54L39.86 25.13L43.94 45.49ZM55.03 44.36L55.91 18.25L47.34 42.93ZM57.28 47.98L73.31 25.24L51.58 42.62Z"
+          />
+          <circle cx="50" cy="50" r="7.11" />
+        </g>
+      </svg>
+
+      <h1>Claude Code</h1>
+      <p class="standfirst">A terminal that only reaches the workspace you gave it.</p>
+
+      <hr />
+
+      <dl>
+        <dt>Terminal</dt>
+        <dd>Control-Shift-G opens another session</dd>
+        <dt>Workspace</dt>
+        <dd>/workspace</dd>
+        <dt>State</dt>
+        <dd>~/.claude, kept across restarts</dd>
+      </dl>
+
+      <div class="swatches" aria-hidden="true">
+        <span style="background: #d97757"></span>
+        <span style="background: #d4a27f"></span>
+        <span style="background: #ebdbbc"></span>
+        <span style="background: #141413"></span>
+      </div>
+    </main>
+  </body>
+</html>

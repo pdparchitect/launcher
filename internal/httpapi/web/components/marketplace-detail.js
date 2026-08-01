@@ -75,7 +75,7 @@ export class MarketplaceDetail extends HTMLElement {
           </div>
           <div class="tag-list" data-tags></div>
         </header>
-        <dl data-specifications></dl>
+        <dl class="spec-list" data-specifications></dl>
       </section>
       <section class="panel marketplace-detail__screenshots">
         <header class="panel-heading">
@@ -92,7 +92,7 @@ export class MarketplaceDetail extends HTMLElement {
             <small class="eyebrow">YOUR INSTALLATIONS</small>
             <h3 data-instance-heading></h3>
           </div>
-          <button class="text-button" type="button" data-screen-link="agents"
+          <button class="text-button" type="button" data-screen-link="library"
             data-manage>MANAGE ALL →</button>
         </header>
         <div class="marketplace-instance-list" data-instances></div>

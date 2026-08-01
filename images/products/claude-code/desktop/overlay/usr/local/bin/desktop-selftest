@@ -1,0 +1,37 @@
+#!/bin/bash
+# desktop-selftest - product assertions run by the shared live smoke test.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "claude code selftest"
+
+check "Claude Code runs" claude --version
+check "the state directory is writable" test -w "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# Claude Code keeps ~/.claude.json beside ~/.claude. Only CLAUDE_CONFIG_DIR
+# puts both below the declared volume; without it the onboarding state, the
+# MCP server list, and part of the session history live on the container
+# filesystem and are lost the next time the image is replaced.
+check "the state directory is the declared volume" \
+    test "${CLAUDE_CONFIG_DIR:-}" = /home/agent/.claude
+check "the pinned version is not self-updated" test "${DISABLE_AUTOUPDATER:-}" = 1
+check "the workspace is writable" test -w /workspace
+
+if [ "$failures" -gt 0 ]; then
+    echo "claude code selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "claude code selftest: Claude Code is ready"

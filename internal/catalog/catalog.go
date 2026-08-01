@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"sort"
 	"strings"
 	"testing/fstest"
 )
@@ -313,14 +312,22 @@ func loadApplicationBundle(
 	}, nil
 }
 
+// references carries the order the publisher feeds declare, which is the order
+// the catalogue is presented in. Ranging over bundles instead would hand back a
+// different catalogue on every refresh.
 func manifestsFromBundles(
 	bundles map[string]applicationBundle,
+	references []string,
 ) ([]Manifest, fstest.MapFS, error) {
 	manifests := make([]Manifest, 0, len(bundles))
 	assets := make(fstest.MapFS)
 	ids := make(map[string]string, len(bundles))
 	slugs := make(map[string]string, len(bundles))
-	for reference, bundle := range bundles {
+	for _, reference := range references {
+		bundle, resolved := bundles[reference]
+		if !resolved {
+			continue
+		}
 		manifest := bundle.Manifest
 		if owner, exists := ids[manifest.ID]; exists {
 			return nil, nil, fmt.Errorf(
@@ -345,9 +352,6 @@ func manifestsFromBundles(
 		}
 		manifests = append(manifests, manifest)
 	}
-	sort.Slice(manifests, func(left, right int) bool {
-		return manifests[left].Name < manifests[right].Name
-	})
 	return manifests, assets, nil
 }
 

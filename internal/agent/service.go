@@ -145,6 +145,9 @@ type Service struct {
 	runtime      Runtime
 	catalogMutex sync.RWMutex
 	manifests    map[string]catalog.Manifest
+	// The catalogue in the order the registry published it, which the index
+	// above cannot preserve.
+	catalogue    []catalog.Manifest
 	slugs        map[string]string
 	options      Options
 	imageCache   *imagecache.Store
@@ -192,8 +195,8 @@ func New(
 func (service *Service) Catalog() []CatalogEntry {
 	service.catalogMutex.RLock()
 	defer service.catalogMutex.RUnlock()
-	entries := make([]CatalogEntry, 0, len(service.manifests))
-	for _, manifest := range service.manifests {
+	entries := make([]CatalogEntry, 0, len(service.catalogue))
+	for _, manifest := range service.catalogue {
 		entries = append(entries, CatalogEntry{
 			ID: manifest.ID, Slug: manifest.Slug, Name: manifest.Name,
 			Publisher: manifest.Publisher, Description: manifest.Description,
@@ -201,22 +204,21 @@ func (service *Service) Catalog() []CatalogEntry {
 			Interfaces: manifest.Interfaces, Memory: manifest.Memory,
 		})
 	}
-	sort.Slice(entries, func(left, right int) bool {
-		return strings.ToLower(entries[left].Name) <
-			strings.ToLower(entries[right].Name)
-	})
 	return entries
 }
 
 func (service *Service) ReplaceCatalog(manifests []catalog.Manifest) {
 	manifestIndex := make(map[string]catalog.Manifest, len(manifests))
 	slugs := make(map[string]string, len(manifests))
+	catalogue := make([]catalog.Manifest, len(manifests))
+	copy(catalogue, manifests)
 	for _, manifest := range manifests {
 		manifestIndex[manifest.ID] = manifest
 		slugs[manifest.Slug] = manifest.ID
 	}
 	service.catalogMutex.Lock()
 	service.manifests = manifestIndex
+	service.catalogue = catalogue
 	service.slugs = slugs
 	service.catalogMutex.Unlock()
 }
