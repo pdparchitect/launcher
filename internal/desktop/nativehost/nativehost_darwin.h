@@ -23,4 +23,13 @@ bool LauncherNativeHostInstallArrowKeyFix(void);
 // application with that identifier was found and activated.
 bool LauncherNativeHostActivateProcess(int pid);
 
+// Presents a native text prompt. The caller owns the returned UTF-8 string
+// and must free it. A cancelled prompt returns NULL and leaves accepted false.
+char *LauncherNativeHostPromptText(
+    const char *title,
+    const char *message,
+    const char *defaultValue,
+    bool *accepted
+);
+
 #endif /* nativehost_darwin_h */

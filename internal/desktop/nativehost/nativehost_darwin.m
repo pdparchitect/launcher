@@ -2,6 +2,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
 
+#include <string.h>
+
 #import "nativehost_darwin.h"
 
 // Implemented by the statically linked LauncherNative Swift library.
@@ -283,6 +285,10 @@ static void InstallTitlebarBackdrop(NSWindow *window) {
     title.translatesAutoresizingMaskIntoConstraints = NO;
     title.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
     title.textColor = NSColor.secondaryLabelColor;
+    [title bind:NSValueBinding
+       toObject:window
+    withKeyPath:@"title"
+        options:nil];
     [backdrop addSubview:title];
     [NSLayoutConstraint activateConstraints:@[
         [title.centerXAnchor constraintEqualToAnchor:backdrop.centerXAnchor],
@@ -625,6 +631,71 @@ bool LauncherNativeHostActivateProcess(int pid) {
         activated = ActivateProcessOnMainThread(pid);
     });
     return activated;
+}
+
+static NSString *StringFromUTF8(const char *value) {
+    if (value == NULL) {
+        return @"";
+    }
+    NSString *result = [NSString stringWithUTF8String:value];
+    return result == nil ? @"" : result;
+}
+
+static char *PromptTextOnMainThread(
+    const char *title,
+    const char *message,
+    const char *defaultValue,
+    bool *accepted
+) {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = StringFromUTF8(title);
+    alert.informativeText = StringFromUTF8(message);
+    [alert addButtonWithTitle:@"Rename"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSTextField *field = [[NSTextField alloc]
+        initWithFrame:NSMakeRect(0.0, 0.0, 320.0, 24.0)];
+    field.stringValue = StringFromUTF8(defaultValue);
+    alert.accessoryView = field;
+    [alert.window setInitialFirstResponder:field];
+    [field selectText:nil];
+
+    if ([alert runModal] != NSAlertFirstButtonReturn) {
+        return NULL;
+    }
+    if (accepted != NULL) {
+        *accepted = true;
+    }
+    return strdup(field.stringValue.UTF8String);
+}
+
+char *LauncherNativeHostPromptText(
+    const char *title,
+    const char *message,
+    const char *defaultValue,
+    bool *accepted
+) {
+    if (accepted != NULL) {
+        *accepted = false;
+    }
+    if ([NSThread isMainThread]) {
+        return PromptTextOnMainThread(
+            title,
+            message,
+            defaultValue,
+            accepted
+        );
+    }
+    __block char *result = NULL;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        result = PromptTextOnMainThread(
+            title,
+            message,
+            defaultValue,
+            accepted
+        );
+    });
+    return result;
 }
 
 void LauncherNativeHostBadgeDockIcon(void) {

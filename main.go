@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mattn/go-isatty"
 	"github.com/pdparchitect/launcher/cli"
 	"github.com/pdparchitect/launcher/internal/agent"
 	"github.com/pdparchitect/launcher/internal/catalog"
@@ -96,6 +97,11 @@ func main() {
 	}
 	appOptions := []cli.Option{
 		cli.WithInput(os.Stdin),
+		cli.WithTerminalAttached(
+			isatty.IsTerminal(os.Stdin.Fd()) ||
+				isatty.IsTerminal(os.Stdout.Fd()) ||
+				isatty.IsTerminal(os.Stderr.Fd()),
+		),
 		cli.WithCatalogRefresh(func(ctx context.Context) (bool, error) {
 			return refreshCatalogue(ctx, true)
 		}),
@@ -127,19 +133,32 @@ func main() {
 				})
 			}),
 			cli.WithViewer(func(ctx context.Context, reference string) error {
-				return desktop.RunViewer(ctx, service, reference)
+				return desktop.RunViewer(
+					ctx,
+					service,
+					reference,
+					desktop.ViewerOptions{
+						Stdout: os.Stdout, OpenPath: systemOpener.OpenPath,
+					},
+				)
 			}),
 			cli.WithViewerTarget(func(
 				ctx context.Context,
+				id string,
 				name string,
 				url string,
 				kind string,
 			) error {
-				return desktop.RunViewerTarget(ctx, httpapi.ViewerTarget{
-					Name: name,
-					URL:  url,
-					Kind: kind,
-				})
+				return desktop.RunViewerTarget(
+					ctx,
+					service,
+					httpapi.ViewerTarget{
+						ID: id, Name: name, URL: url, Kind: kind,
+					},
+					desktop.ViewerOptions{
+						Stdout: os.Stdout, OpenPath: systemOpener.OpenPath,
+					},
+				)
 			}),
 		)
 	}

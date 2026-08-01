@@ -118,7 +118,7 @@ make build
 
 ./dist/launcher doctor
 ./dist/launcher catalog
-./dist/launcher create --image pantalk/ghost:local Ada
+./dist/launcher create --app pantalk-ghost --image pantalk/ghost:local Ada
 ./dist/launcher list
 ./dist/launcher open Ada
 ```

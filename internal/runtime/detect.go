@@ -368,6 +368,18 @@ func (missing *Missing) Logs(
 	return resolved.Logs(ctx, name, follow)
 }
 
+func (missing *Missing) Exec(
+	ctx context.Context,
+	name string,
+	options ExecOptions,
+) error {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return err
+	}
+	return resolved.Exec(ctx, name, options)
+}
+
 type MissingRuntimeError struct {
 	kind     Kind
 	goos     string

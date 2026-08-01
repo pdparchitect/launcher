@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,14 +17,55 @@ func TestCatalogListsGhost(t *testing.T) {
 	service := &fakeService{catalog: []agent.CatalogEntry{{
 		ID:   "370a2228-322d-4089-846b-62fb8c15d154",
 		Slug: "pantalk-ghost", Name: "Pantalk Ghost", Publisher: "Pantalk",
+		Image: "ghcr.io/pantalk/ghost@sha256:catalogue-image",
 	}}}
 	var stdout bytes.Buffer
 	app := New(service, &fakeOpener{}, &stdout, &bytes.Buffer{}, "test")
 	if code := app.Run(t.Context(), []string{"catalog"}); code != 0 {
 		t.Fatalf("Run() code = %d", code)
 	}
-	if !strings.Contains(stdout.String(), "Pantalk Ghost") {
-		t.Fatalf("stdout = %q", stdout.String())
+	for _, expected := range []string{
+		"IMAGE",
+		"Pantalk Ghost",
+		"ghcr.io/pantalk/ghost@sha256:catalogue-image",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("stdout = %q, missing %q", stdout.String(), expected)
+		}
+	}
+}
+
+func TestGuidePrintsCurrentAgentInstructions(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := New(&fakeService{}, &fakeOpener{}, &stdout, &stderr, "test")
+
+	if code := app.Run(t.Context(), []string{"guide"}); code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, expected := range []string{
+		"# Launcher agent guide",
+		"launcher create --app SLUG_OR_ID NAME",
+		"Never guess or silently choose an application.",
+		"launcher viewer NAME",
+		"launcher exec NAME COMMAND [ARG...]",
+		"launcher delete --force NAME",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("guide missing %q", expected)
+		}
+	}
+}
+
+func TestGuideRejectsArguments(t *testing.T) {
+	var stderr bytes.Buffer
+	app := New(&fakeService{}, &fakeOpener{}, &bytes.Buffer{}, &stderr, "test")
+
+	if code := app.Run(t.Context(), []string{"guide", "extra"}); code == 0 {
+		t.Fatal("Run() code = 0")
+	}
+	if !strings.Contains(stderr.String(), "does not accept arguments") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -82,13 +124,33 @@ func TestCreateStartsByDefault(t *testing.T) {
 	app := New(service, &fakeOpener{}, &bytes.Buffer{}, &bytes.Buffer{}, "test")
 	if code := app.Run(
 		t.Context(),
-		[]string{"create", "--name", "Ada", "--image", "pantalk/ghost:test"},
+		[]string{
+			"create", "--app", "pantalk-ghost", "--name", "Ada",
+			"--image", "pantalk/ghost:test",
+		},
 	); code != 0 {
 		t.Fatalf("Run() code = %d", code)
 	}
 	if !service.createOptions.Start ||
 		service.createOptions.CatalogID != "pantalk-ghost" {
 		t.Fatalf("CreateOptions = %#v", service.createOptions)
+	}
+}
+
+func TestCreateRequiresApplication(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	var stderr bytes.Buffer
+	app := New(service, &fakeOpener{}, &bytes.Buffer{}, &stderr, "test")
+
+	if code := app.Run(t.Context(), []string{"create", "Ada"}); code == 0 {
+		t.Fatal("Run() code = 0")
+	}
+	if service.createCalled || !strings.Contains(stderr.String(), "requires --app") {
+		t.Fatalf(
+			"CreateOptions = %#v, stderr = %q",
+			service.createOptions,
+			stderr.String(),
+		)
 	}
 }
 
@@ -229,6 +291,31 @@ func TestNoCommandOpensDesktopWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestNoCommandPrintsHelpWhenTerminalIsAttached(t *testing.T) {
+	service := &fakeService{}
+	called := false
+	var stdout bytes.Buffer
+	app := New(
+		service,
+		&fakeOpener{},
+		&stdout,
+		&bytes.Buffer{},
+		"test",
+		WithTerminalAttached(true),
+		WithDesktop(func(context.Context) error {
+			called = true
+			return nil
+		}),
+	)
+
+	if code := app.Run(t.Context(), nil); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if called || !strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("desktop called = %v, stdout = %q", called, stdout.String())
+	}
+}
+
 func TestDesktopCommandOpensDesktop(t *testing.T) {
 	service := &fakeService{}
 	called := false
@@ -238,6 +325,7 @@ func TestDesktopCommandOpensDesktop(t *testing.T) {
 		&bytes.Buffer{},
 		&bytes.Buffer{},
 		"test",
+		WithTerminalAttached(true),
 		WithDesktop(func(context.Context) error {
 			called = true
 			return nil
@@ -280,7 +368,7 @@ func TestViewerCommandOpensFramedAgentViewer(t *testing.T) {
 
 func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 	service := &fakeService{}
-	var gotName, gotURL, gotKind string
+	var gotID, gotName, gotURL, gotKind string
 	resolved := false
 	app := New(
 		service,
@@ -292,14 +380,18 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 			resolved = true
 			return nil
 		}),
-		WithViewerTarget(func(_ context.Context, name, url, kind string) error {
-			gotName, gotURL, gotKind = name, url, kind
+		WithViewerTarget(func(
+			_ context.Context,
+			id, name, url, kind string,
+		) error {
+			gotID, gotName, gotURL, gotKind = id, name, url, kind
 			return nil
 		}),
 	)
 
 	if code := app.Run(t.Context(), []string{
 		"viewer",
+		"-id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"-url", "http://127.0.0.1:16902",
 		"-name", "Pantalk Ghost",
 		"-kind", "kasmweb",
@@ -317,11 +409,53 @@ func TestViewerCommandWithURLSkipsRuntimeResolution(t *testing.T) {
 	if gotName != "Pantalk Ghost" || gotKind != "kasmweb" {
 		t.Fatalf("name = %q, kind = %q", gotName, gotKind)
 	}
+	if gotID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("id = %q", gotID)
+	}
+}
+
+func TestExecPassesCommandAndTerminalStreamsToService(t *testing.T) {
+	service := &fakeService{}
+	input := strings.NewReader("input")
+	app := New(
+		service,
+		&fakeOpener{},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		"test",
+		WithInput(input),
+	)
+
+	if code := app.Run(t.Context(), []string{
+		"exec",
+		"--tty",
+		"Ada",
+		"sh",
+		"-c",
+		"printf '%s' \"$HOME\"",
+	}); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if service.execReference != "Ada" {
+		t.Fatalf("exec reference = %q", service.execReference)
+	}
+	wantCommand := []string{"sh", "-c", "printf '%s' \"$HOME\""}
+	if !slices.Equal(service.execOptions.Command, wantCommand) {
+		t.Fatalf(
+			"exec command = %#v, want %#v",
+			service.execOptions.Command,
+			wantCommand,
+		)
+	}
+	if service.execOptions.Stdin != input || !service.execOptions.TTY {
+		t.Fatalf("exec options = %#v", service.execOptions)
+	}
 }
 
 type fakeService struct {
 	catalog           []agent.CatalogEntry
 	created           domain.Instance
+	createCalled      bool
 	createOptions     agent.CreateOptions
 	views             []agent.View
 	view              agent.View
@@ -329,6 +463,8 @@ type fakeService struct {
 	doctorErr         error
 	cleanupReport     agent.ImageCleanupReport
 	cleanupMinimumAge time.Duration
+	execReference     string
+	execOptions       agent.ExecOptions
 }
 
 func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
@@ -338,7 +474,6 @@ func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) 
 	return agent.DoctorReport{
 		Runtime: "container", Version: "test",
 		Executable: "/usr/local/bin/container", DataRoot: "/tmp/launcher",
-		DefaultImage: "pantalk/ghost:test",
 	}, nil
 }
 func (service *fakeService) Catalog() []agent.CatalogEntry { return service.catalog }
@@ -346,6 +481,7 @@ func (service *fakeService) Create(
 	_ context.Context,
 	options agent.CreateOptions,
 ) (domain.Instance, error) {
+	service.createCalled = true
 	service.createOptions = options
 	return service.created, nil
 }
@@ -373,6 +509,15 @@ func (service *fakeService) CleanupImages(
 	return service.cleanupReport, nil
 }
 func (*fakeService) Logs(context.Context, string, bool) error { return nil }
+func (service *fakeService) Exec(
+	_ context.Context,
+	reference string,
+	options agent.ExecOptions,
+) error {
+	service.execReference = reference
+	service.execOptions = options
+	return nil
+}
 
 type fakeOpener struct{ url string }
 

@@ -57,8 +57,10 @@ dialog. Use `--no-prompt` when running commands in scripts or CI.
 
 ## Desktop and browser interfaces
 
-Opening the packaged application without arguments starts the desktop
-interface. It provides:
+Opening the packaged application from Finder or an application launcher starts
+the desktop interface. Running `launcher` without arguments in a terminal
+prints CLI help instead; use `launcher desktop` to open the desktop explicitly
+from a terminal. The desktop interface provides:
 
 - An Explore screen promoting the catalogue's first three agents, one at a
   time, with the promoted agent's artwork behind the page, an install action,
@@ -93,16 +95,19 @@ recommended zero trust proxy in front of it.
 launcher desktop
 launcher serve
 launcher catalog [--refresh]
-launcher create NAME
+launcher create --app SLUG_OR_ID NAME
 launcher list
 launcher status NAME
 launcher start NAME
 launcher stop NAME
 launcher open NAME
+launcher viewer NAME
 launcher logs [--follow] NAME
+launcher exec [--tty] NAME COMMAND [ARG...]
 launcher delete --force NAME
 launcher cleanup
 launcher doctor
+launcher guide
 ```
 
 For example:
@@ -113,10 +118,33 @@ launcher catalog
 launcher create --app pantalk-ghost Ada
 launcher list
 launcher open Ada
+launcher viewer Ada
+launcher exec Ada uname -a
+launcher exec --tty Ada bash
 ```
+
+`launcher guide` prints a self-contained Markdown tutorial embedded in the
+binary. It is intended for both people and automated agents that need to learn
+the installed Launcher's discovery, creation, lifecycle, execution, and safety
+conventions without relying on external documentation.
 
 `launcher open` prints the local URL when the system cannot open a desktop
 browser.
+
+`launcher viewer` opens the agent in Launcher's specialized framed desktop
+window. On macOS, that window includes the native agent-management menus.
+
+`launcher catalog` includes each application's slug, name, publisher, and
+resolved container image. Use the slug with `launcher create --app`.
+
+`launcher exec` runs the command directly without a host shell and streams its
+standard input, output, and error through the selected container provider. Use
+`--tty` for interactive terminal programs. To use pipes, redirects, or other
+shell syntax inside the agent, invoke a shell explicitly, for example:
+
+```bash
+launcher exec Ada sh -c 'ps aux | grep node'
+```
 
 ## Runtime selection
 

@@ -62,6 +62,75 @@ func TestAppleCreateBuildsSupportedCommand(t *testing.T) {
 	}
 }
 
+func TestDockerExecStreamsCommandThroughProvider(t *testing.T) {
+	runner := &fakeRunner{runStdout: "output", runStderr: "warning"}
+	var stdout, stderr bytes.Buffer
+	input := strings.NewReader("input")
+	docker := NewDocker("docker", runner, &stdout, &stderr)
+
+	err := docker.Exec(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		ExecOptions{
+			Command: []string{"sh", "-c", "printf '%s' \"$HOME\""},
+			Stdin:   input,
+			TTY:     true,
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	want := []string{
+		"exec", "--interactive", "--tty",
+		"launcher-ghost-aaaaaaaaaaaa",
+		"sh", "-c", "printf '%s' \"$HOME\"",
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("Exec() args = %#v, want %#v", runner.runArgs, want)
+	}
+	if runner.runStdin != input {
+		t.Fatal("Exec() did not attach standard input")
+	}
+	if stdout.String() != "output" || stderr.String() != "warning" {
+		t.Fatalf("Exec() output = (%q, %q)", stdout.String(), stderr.String())
+	}
+}
+
+func TestAppleExecStreamsCommandThroughProvider(t *testing.T) {
+	runner := &fakeRunner{runStdout: "output", runStderr: "warning"}
+	var stdout, stderr bytes.Buffer
+	input := strings.NewReader("input")
+	apple := NewApple("container", runner, &stdout, &stderr)
+
+	err := apple.Exec(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		ExecOptions{
+			Command: []string{"uname", "-a"},
+			Stdin:   input,
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	want := []string{
+		"exec", "--interactive",
+		"launcher-ghost-aaaaaaaaaaaa",
+		"uname", "-a",
+	}
+	if !reflect.DeepEqual(runner.runArgs, want) {
+		t.Fatalf("Exec() args = %#v, want %#v", runner.runArgs, want)
+	}
+	if runner.runStdin != input {
+		t.Fatal("Exec() did not attach standard input")
+	}
+	if stdout.String() != "output" || stderr.String() != "warning" {
+		t.Fatalf("Exec() output = (%q, %q)", stdout.String(), stderr.String())
+	}
+}
+
 func TestDockerEnsureNetworkCreatesOwnedNetwork(t *testing.T) {
 	runner := &fakeRunner{
 		captureResult: Result{Stderr: []byte("network not found")},
@@ -765,6 +834,7 @@ type fakeRunner struct {
 	runCalled      bool
 	runStdout      string
 	runStderr      string
+	runStdin       io.Reader
 }
 
 func (runner *fakeRunner) Capture(
@@ -788,12 +858,13 @@ func (runner *fakeRunner) Run(
 	_ context.Context,
 	_ string,
 	args []string,
-	_ io.Reader,
+	stdin io.Reader,
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
 	runner.runCalled = true
 	runner.runArgs = append([]string(nil), args...)
+	runner.runStdin = stdin
 	_, _ = io.WriteString(stdout, runner.runStdout)
 	_, _ = io.WriteString(stderr, runner.runStderr)
 	return nil

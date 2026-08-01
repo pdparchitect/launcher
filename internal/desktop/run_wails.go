@@ -11,6 +11,7 @@ import (
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	"github.com/pdparchitect/launcher/internal/webapp"
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -209,9 +210,22 @@ func run(
 	return nil
 }
 
-func runViewer(ctx context.Context, name string, target string, kind string) error {
+func runViewer(
+	ctx context.Context,
+	service ViewerService,
+	reference string,
+	name string,
+	target string,
+	kind string,
+	viewerOptions ViewerOptions,
+) error {
+	actions := newViewerActions(ctx, service, reference, name, viewerOptions)
 	finished := make(chan struct{})
 	defer close(finished)
+	var applicationMenu *menu.Menu
+	if runtime.GOOS == "darwin" && reference != "" {
+		applicationMenu = viewerApplicationMenu(actions)
+	}
 
 	err := wails.Run(&options.App{
 		Title:                    fmt.Sprintf("%s - Agent Launcher", name),
@@ -221,6 +235,7 @@ func runViewer(ctx context.Context, name string, target string, kind string) err
 		MinHeight:                480,
 		Frameless:                false,
 		Mac:                      viewerWindowChrome(),
+		Menu:                     applicationMenu,
 		DisableResize:            false,
 		EnableDefaultContextMenu: false,
 		BackgroundColour: options.NewRGB(
@@ -232,6 +247,39 @@ func runViewer(ctx context.Context, name string, target string, kind string) err
 			Handler: viewerHandler(name, target, kind),
 		},
 		OnStartup: func(wailsContext context.Context) {
+			actions.setRenameHost(
+				nativehost.PromptText,
+				func(name string) {
+					wailsruntime.WindowSetTitle(
+						wailsContext,
+						fmt.Sprintf("%s - Agent Launcher", name),
+					)
+				},
+			)
+			actions.setHost(
+				func() { wailsruntime.Quit(wailsContext) },
+				func(title string, actionErr error) {
+					_, dialogErr := wailsruntime.MessageDialog(
+						wailsContext,
+						wailsruntime.MessageDialogOptions{
+							Type:  wailsruntime.ErrorDialog,
+							Title: title, Message: actionErr.Error(),
+						},
+					)
+					if dialogErr != nil && viewerOptions.Stdout != nil {
+						fmt.Fprintf(
+							viewerOptions.Stdout,
+							"%s: %v (show dialog: %v)\n",
+							title,
+							actionErr,
+							dialogErr,
+						)
+					}
+				},
+				func() {
+					wailsruntime.MenuUpdateApplicationMenu(wailsContext)
+				},
+			)
 			nativehost.BadgeDockIcon()
 			// Before Wails navigates: the viewer page replaces itself with the
 			// agent's interface immediately, and the fix has to be installed

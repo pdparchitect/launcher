@@ -35,6 +35,7 @@ RUN mkdir -p /home/agent/.codex && \
 # Product entry points, terminal palette, wallpaper, browser page, and branding.
 COPY overlay /
 RUN chmod 0755 \
+        /etc/desktop/startup.d/05-codex-runtime \
         /usr/local/bin/desktop-harness \
         /usr/local/bin/desktop-panel-status \
         /usr/local/bin/desktop-selftest \

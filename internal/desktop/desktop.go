@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/pdparchitect/launcher/internal/agent"
+	"github.com/pdparchitect/launcher/internal/domain"
 	"github.com/pdparchitect/launcher/internal/httpapi"
 	launchruntime "github.com/pdparchitect/launcher/internal/runtime"
 	"github.com/pdparchitect/launcher/internal/updatecheck"
@@ -26,6 +28,22 @@ type Options struct {
 	UpdateRefresh func(context.Context) (updatecheck.Status, error)
 }
 
+// ViewerOptions provides the host operations exposed by a dedicated agent
+// window. The container operations themselves remain on ViewerService so the
+// menu follows the same service rules as the CLI and HTTP API.
+type ViewerOptions struct {
+	Stdout   io.Writer
+	OpenPath func(string) error
+}
+
+// ViewerService is the subset of agent operations a dedicated viewer needs.
+type ViewerService interface {
+	Get(context.Context, string) (agent.View, error)
+	Stop(context.Context, string) (domain.Instance, error)
+	Rename(context.Context, string, string) (domain.Instance, error)
+	AgentFiles(context.Context, string) (string, error)
+}
+
 func Run(
 	ctx context.Context,
 	service httpapi.Service,
@@ -38,8 +56,9 @@ func Run(
 // Used by "launcher viewer NAME" from a terminal, where nothing is resolved yet.
 func RunViewer(
 	ctx context.Context,
-	service httpapi.Service,
+	service ViewerService,
 	reference string,
+	options ViewerOptions,
 ) error {
 	view, err := service.Get(ctx, reference)
 	if err != nil {
@@ -52,20 +71,47 @@ func RunViewer(
 	if !exists {
 		return fmt.Errorf("%s has no display interface", view.Name)
 	}
-	return runViewer(ctx, view.Name, resolved.URL(), resolved.Kind)
+	return runViewer(
+		ctx,
+		service,
+		view.ID,
+		view.Name,
+		resolved.URL(),
+		resolved.Kind,
+		options,
+	)
 }
 
 // RunViewerTarget opens an already-resolved agent. The launcher process has
 // just inspected the container to serve the request, so repeating that here
 // would add seconds of container-runtime latency before the window appears.
-func RunViewerTarget(ctx context.Context, target httpapi.ViewerTarget) error {
+func RunViewerTarget(
+	ctx context.Context,
+	service ViewerService,
+	target httpapi.ViewerTarget,
+	options ViewerOptions,
+) error {
 	if target.URL == "" {
 		return errors.New("agent window needs a resolved agent URL")
 	}
 	if target.Kind == "" {
 		return errors.New("agent window needs an interface kind")
 	}
-	return runViewer(ctx, target.Name, target.URL, target.Kind)
+	reference := target.ID
+	if reference == "" {
+		// Keep manually launched and older resolved viewer commands useful. New
+		// launcher processes always pass the immutable agent ID.
+		reference = target.Name
+	}
+	return runViewer(
+		ctx,
+		service,
+		reference,
+		target.Name,
+		target.URL,
+		target.Kind,
+		options,
+	)
 }
 
 // One window per agent. Both windows would be the same view of the same
@@ -73,7 +119,7 @@ func RunViewerTarget(ctx context.Context, target httpapi.ViewerTarget) error {
 // already open brings its window forward instead.
 type viewerWindows struct {
 	mutex sync.Mutex
-	// Agent name to process identifier. Zero means a viewer that has been
+	// Agent ID to process identifier. Zero means a viewer that has been
 	// claimed but has not started yet.
 	open  map[string]int
 	focus func(pid int) bool
@@ -87,11 +133,11 @@ var viewers = &viewerWindows{
 // focusOrClaim reports whether the agent's window has been dealt with. False
 // means the caller now owns the claim and must either track a process against
 // it or release it.
-func (windows *viewerWindows) focusOrClaim(name string) bool {
+func (windows *viewerWindows) focusOrClaim(key string) bool {
 	windows.mutex.Lock()
 	defer windows.mutex.Unlock()
 
-	if pid, opening := windows.open[name]; opening {
+	if pid, opening := windows.open[key]; opening {
 		/*
 		 A window still on its way is as good as focused - the click that
 		 started it is what is being repeated. A window that cannot be brought
@@ -100,52 +146,60 @@ func (windows *viewerWindows) focusOrClaim(name string) bool {
 		*/
 		return pid == 0 || windows.focus(pid)
 	}
-	windows.open[name] = 0
+	windows.open[key] = 0
 
 	return false
 }
 
-func (windows *viewerWindows) track(name string, pid int) {
+func (windows *viewerWindows) track(key string, pid int) {
 	windows.mutex.Lock()
 	defer windows.mutex.Unlock()
-	windows.open[name] = pid
+	windows.open[key] = pid
 }
 
-func (windows *viewerWindows) release(name string) {
+func (windows *viewerWindows) release(key string) {
 	windows.mutex.Lock()
 	defer windows.mutex.Unlock()
-	delete(windows.open, name)
+	delete(windows.open, key)
 }
 
 // SpawnViewer starts the viewer as a separate process, passing the resolved
 // target so the child skips catalogue and container-runtime lookups entirely.
 // An agent already showing a window is focused rather than opened twice.
 func SpawnViewer(target httpapi.ViewerTarget) error {
-	if viewers.focusOrClaim(target.Name) {
+	key := target.ID
+	if key == "" {
+		key = target.Name
+	}
+	if viewers.focusOrClaim(key) {
 		return nil
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		viewers.release(target.Name)
+		viewers.release(key)
 		return fmt.Errorf("locate Launcher executable: %w", err)
 	}
-	command := exec.Command(
-		executable,
+	command := exec.Command(executable, viewerCommandArguments(target)...)
+	if err := command.Start(); err != nil {
+		viewers.release(key)
+		return fmt.Errorf("start agent window: %w", err)
+	}
+	viewers.track(key, command.Process.Pid)
+	go func() {
+		_ = command.Wait()
+		// Closing the window ends the process, which frees the agent for the
+		// next time it is opened.
+		viewers.release(key)
+	}()
+	return nil
+}
+
+func viewerCommandArguments(target httpapi.ViewerTarget) []string {
+	return []string{
 		"viewer",
+		"--id", target.ID,
 		"--url", target.URL,
 		"--name", target.Name,
 		"--kind", target.Kind,
-	)
-	if err := command.Start(); err != nil {
-		viewers.release(target.Name)
-		return fmt.Errorf("start agent window: %w", err)
 	}
-	viewers.track(target.Name, command.Process.Pid)
-	go func() {
-		_ = command.Wait()
-		// Closing the window ends the process, which frees the name for the
-		// next time the agent is opened.
-		viewers.release(target.Name)
-	}()
-	return nil
 }

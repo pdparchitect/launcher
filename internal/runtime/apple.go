@@ -516,6 +516,39 @@ func (apple *Apple) Logs(
 	return nil
 }
 
+func (apple *Apple) Exec(
+	ctx context.Context,
+	name string,
+	options ExecOptions,
+) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("container name is required")
+	}
+	if len(options.Command) == 0 || strings.TrimSpace(options.Command[0]) == "" {
+		return errors.New("container command is required")
+	}
+	args := []string{"exec"}
+	if options.Stdin != nil {
+		args = append(args, "--interactive")
+	}
+	if options.TTY {
+		args = append(args, "--tty")
+	}
+	args = append(args, name)
+	args = append(args, options.Command...)
+	if err := apple.runner.Run(
+		ctx,
+		apple.command,
+		args,
+		options.Stdin,
+		apple.stdout,
+		apple.stderr,
+	); err != nil {
+		return fmt.Errorf("execute command in Apple container %q: %w", name, err)
+	}
+	return nil
+}
+
 func (apple *Apple) RecentLogs(
 	ctx context.Context,
 	name string,

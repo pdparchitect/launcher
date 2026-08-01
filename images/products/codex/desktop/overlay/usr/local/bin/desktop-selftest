@@ -25,6 +25,13 @@ check "the state directory is writable" test -w "${CODEX_HOME:-$HOME/.codex}"
 check "the state directory is the declared volume" \
     test "${CODEX_HOME:-}" = /home/agent/.codex
 check "the workspace is writable" test -w /workspace
+# Written by the startup hook before the session, into the persistent volume.
+check "the sandbox is declared off" \
+    grep -Eq '^sandbox_mode = "danger-full-access"' \
+    "${CODEX_HOME:-$HOME/.codex}/config.toml"
+check "the workspace is trusted" \
+    grep -Fq '[projects."/workspace"]' \
+    "${CODEX_HOME:-$HOME/.codex}/config.toml"
 
 if [ "$failures" -gt 0 ]; then
     echo "codex selftest: $failures failed" >&2

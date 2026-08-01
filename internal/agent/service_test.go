@@ -23,13 +23,32 @@ const (
 	testBuzzCatalogID  = "4398d440-4e4f-4137-b25e-303bfeb2a276"
 )
 
+func testCreateOptions(name string) CreateOptions {
+	return CreateOptions{CatalogID: testGhostCatalogID, Name: name}
+}
+
+func TestCreateRequiresCatalogueApplication(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+
+	_, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+
+	if err == nil || !strings.Contains(err.Error(), "catalogue application is required") {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if containerRuntime.pullCalled || containerRuntime.createCalled {
+		t.Fatalf("runtime calls = %#v", containerRuntime)
+	}
+}
+
 func TestCreateStartStopAndDelete(t *testing.T) {
 	containerRuntime := &fakeRuntime{status: launchruntime.StatusCreated}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:test",
-		Start: true,
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:test",
+		Start:     true,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -75,7 +94,7 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 func TestStartMigratesLegacyContainerToManagedNetwork(t *testing.T) {
 	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
 	service := newTestService(t, containerRuntime)
-	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -106,7 +125,7 @@ func TestCreateRollsBackWhenRuntimeCreateFails(t *testing.T) {
 		createErr: errors.New("create failed"),
 	}
 	service := newTestService(t, containerRuntime)
-	if _, err := service.Create(t.Context(), CreateOptions{Name: "Ada"}); err == nil {
+	if _, err := service.Create(t.Context(), testCreateOptions("Ada")); err == nil {
 		t.Fatal("Create() error = nil")
 	}
 	instances, err := service.store.List()
@@ -133,7 +152,7 @@ func TestCreateResolvesEveryInterfaceAndSharesPublishedPorts(t *testing.T) {
 	service.ReplaceCatalog([]catalog.Manifest{manifest})
 	service.options.Ports = &sequencePortAllocator{next: 16902}
 
-	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
 
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -159,8 +178,9 @@ func TestCreateReportsLifecycleProgress(t *testing.T) {
 	var stages []CreateStage
 
 	_, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Start: true,
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Start:     true,
 		Progress: func(progress CreateProgress) {
 			stages = append(stages, progress.Stage)
 		},
@@ -196,7 +216,8 @@ func TestCreateReportsRuntimePullOutput(t *testing.T) {
 	var messages []string
 
 	_, err := service.Create(t.Context(), CreateOptions{
-		Name: "Ada",
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
 		Progress: func(progress CreateProgress) {
 			if progress.Stage == CreateStagePulling {
 				messages = append(messages, progress.Message)
@@ -232,7 +253,7 @@ func TestCatalogKeepsRegistryOrderAndPresentationMetadata(t *testing.T) {
 		store.New(t.TempDir()),
 		containerRuntime,
 		[]catalog.Manifest{ghost, buzz},
-		Options{DefaultCatalogID: testGhostCatalogID},
+		Options{},
 	)
 
 	entries := service.Catalog()
@@ -305,7 +326,7 @@ func TestListIncludesLiveRuntimeMetrics(t *testing.T) {
 	service := newTestService(t, containerRuntime)
 	if _, err := service.Create(
 		t.Context(),
-		CreateOptions{Name: "Ada"},
+		testCreateOptions("Ada"),
 	); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -326,8 +347,9 @@ func TestListIncludesLiveRuntimeMetrics(t *testing.T) {
 func TestGetReportsCatalogueImageUpdate(t *testing.T) {
 	service := newTestService(t, &fakeRuntime{})
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:old",
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -348,9 +370,10 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:old",
-		Start: true,
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -395,8 +418,9 @@ func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
 	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:old",
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -428,9 +452,10 @@ func TestUpdateReportsLifecycleAndPullProgress(t *testing.T) {
 	}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:old",
-		Start: true,
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -476,7 +501,7 @@ func TestAgentFilesReturnsManagedAgentRoot(t *testing.T) {
 	service := newTestService(t, &fakeRuntime{})
 	instance, err := service.Create(
 		t.Context(),
-		CreateOptions{Name: "Ada"},
+		testCreateOptions("Ada"),
 	)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -502,9 +527,10 @@ func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name:  "Ada",
-		Image: "pantalk/ghost:old",
-		Start: true,
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -551,7 +577,7 @@ func TestListBoundsSlowRuntimeProbes(t *testing.T) {
 	service.options.RuntimeProbeTimeout = 20 * time.Millisecond
 	if _, err := service.Create(
 		t.Context(),
-		CreateOptions{Name: "Ada"},
+		testCreateOptions("Ada"),
 	); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -647,7 +673,7 @@ func testStoredInstance(
 
 func TestRenameChangesOnlyTheDisplayName(t *testing.T) {
 	service := newTestService(t, &fakeRuntime{})
-	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -671,7 +697,7 @@ func TestRenameChangesOnlyTheDisplayName(t *testing.T) {
 func TestRecentLogsReadsFromTheAgentRuntime(t *testing.T) {
 	containerRuntime := &fakeRuntime{recentLogs: "agent ready\n"}
 	service := newTestService(t, containerRuntime)
-	instance, err := service.Create(t.Context(), CreateOptions{Name: "Ada"})
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -690,6 +716,47 @@ func TestRecentLogsReadsFromTheAgentRuntime(t *testing.T) {
 	}
 }
 
+func TestExecRunsCommandOnlyInRunningOwnedAgent(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusRunning}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID, Name: "Ada", Start: false,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	input := strings.NewReader("input")
+	options := ExecOptions{
+		Command: []string{"sh", "-c", "printf hello"},
+		Stdin:   input,
+		TTY:     true,
+	}
+
+	if err := service.Exec(t.Context(), instance.ID, options); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	if containerRuntime.execName != instance.ContainerName ||
+		!reflect.DeepEqual(containerRuntime.execOptions.Command, options.Command) ||
+		containerRuntime.execOptions.Stdin != input ||
+		!containerRuntime.execOptions.TTY {
+		t.Fatalf(
+			"runtime Exec() = (%q, %#v)",
+			containerRuntime.execName,
+			containerRuntime.execOptions,
+		)
+	}
+
+	containerRuntime.status = launchruntime.StatusStopped
+	containerRuntime.execName = ""
+	err = service.Exec(t.Context(), instance.ID, options)
+	if err == nil || !strings.Contains(err.Error(), "requires a running agent") {
+		t.Fatalf("Exec() stopped error = %v", err)
+	}
+	if containerRuntime.execName != "" {
+		t.Fatal("Exec() reached the runtime for a stopped agent")
+	}
+}
+
 func TestCleanupImagesDeletesOnlyExpiredUnreferencedTrackedImages(t *testing.T) {
 	containerRuntime := &fakeRuntime{resolvedImages: map[string]string{
 		"pantalk/ghost:old":     "old-image-id",
@@ -697,7 +764,7 @@ func TestCleanupImagesDeletesOnlyExpiredUnreferencedTrackedImages(t *testing.T) 
 	}}
 	service := newTestService(t, containerRuntime)
 	instance, err := service.Create(t.Context(), CreateOptions{
-		Name: "Ada", Image: "pantalk/ghost:old",
+		CatalogID: testGhostCatalogID, Name: "Ada", Image: "pantalk/ghost:old",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -733,7 +800,7 @@ func TestCleanupImagesAbortsBeforeDeletionWhenActiveImageCannotResolve(t *testin
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
 	if _, err := service.Create(t.Context(), CreateOptions{
-		Name: "Ada", Image: "pantalk/ghost:old",
+		CatalogID: testGhostCatalogID, Name: "Ada", Image: "pantalk/ghost:old",
 	}); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -874,6 +941,8 @@ type fakeRuntime struct {
 	resolveImageErr       error
 	deletedImageIDs       []string
 	deleteImageErr        error
+	execName              string
+	execOptions           launchruntime.ExecOptions
 	calls                 []string
 }
 
@@ -1012,6 +1081,15 @@ func (runtime *fakeRuntime) Stats(
 	return runtime.metrics, runtime.statsErr
 }
 func (*fakeRuntime) Logs(context.Context, string, bool) error { return nil }
+func (runtime *fakeRuntime) Exec(
+	_ context.Context,
+	name string,
+	options launchruntime.ExecOptions,
+) error {
+	runtime.execName = name
+	runtime.execOptions = options
+	return nil
+}
 func (runtime *fakeRuntime) RecentLogs(
 	_ context.Context,
 	name string,

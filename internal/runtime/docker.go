@@ -467,6 +467,39 @@ func (docker *Docker) Logs(
 	return nil
 }
 
+func (docker *Docker) Exec(
+	ctx context.Context,
+	name string,
+	options ExecOptions,
+) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("container name is required")
+	}
+	if len(options.Command) == 0 || strings.TrimSpace(options.Command[0]) == "" {
+		return errors.New("container command is required")
+	}
+	args := []string{"exec"}
+	if options.Stdin != nil {
+		args = append(args, "--interactive")
+	}
+	if options.TTY {
+		args = append(args, "--tty")
+	}
+	args = append(args, name)
+	args = append(args, options.Command...)
+	if err := docker.runner.Run(
+		ctx,
+		docker.command,
+		args,
+		options.Stdin,
+		docker.stdout,
+		docker.stderr,
+	); err != nil {
+		return fmt.Errorf("execute command in container %q: %w", name, err)
+	}
+	return nil
+}
+
 func (docker *Docker) RecentLogs(
 	ctx context.Context,
 	name string,

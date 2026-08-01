@@ -378,6 +378,30 @@ func TestCreateInstanceStartsByDefault(t *testing.T) {
 	}
 }
 
+func TestCreateInstanceRequiresCatalogID(t *testing.T) {
+	service := &fakeService{created: testInstance()}
+	request := apiRequest(
+		http.MethodPost,
+		"/api/instances",
+		[]byte(`{"name":"Ada"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	New(service, "test-token").ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest ||
+		service.createCalled ||
+		!strings.Contains(response.Body.String(), "catalogId is required") {
+		t.Fatalf(
+			"status = %d, CreateOptions = %#v, body = %q",
+			response.Code,
+			service.createOptions,
+			response.Body.String(),
+		)
+	}
+}
+
 func TestInstallInstanceStreamsProgress(t *testing.T) {
 	service := &fakeService{created: testInstance()}
 	request := apiRequest(
@@ -687,6 +711,7 @@ type fakeService struct {
 	issues           []store.Issue
 	view             agent.View
 	created          domain.Instance
+	createCalled     bool
 	createOptions    agent.CreateOptions
 	started          string
 	updated          string
@@ -704,7 +729,6 @@ func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) 
 	}
 	return agent.DoctorReport{
 		Runtime: "docker", Version: "test", DataRoot: "/tmp/launcher",
-		DefaultImage: "pantalk/ghost:test",
 	}, nil
 }
 func (*fakeService) Catalog() []agent.CatalogEntry {
@@ -718,6 +742,7 @@ func (service *fakeService) Create(
 	_ context.Context,
 	options agent.CreateOptions,
 ) (domain.Instance, error) {
+	service.createCalled = true
 	service.createOptions = options
 	if options.Progress != nil {
 		options.Progress(agent.CreateProgress{

@@ -37,7 +37,7 @@ RUN mkdir -p /home/agent/.claude && \
 # Product entry points, terminal palette, wallpaper, browser page, and branding.
 COPY overlay /
 RUN chmod 0755 \
-        /usr/local/bin/claude \
+        /etc/desktop/startup.d/05-claude-runtime \
         /usr/local/bin/desktop-harness \
         /usr/local/bin/desktop-panel-status \
         /usr/local/bin/desktop-selftest \
