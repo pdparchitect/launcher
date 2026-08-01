@@ -9,6 +9,23 @@ include the substrate version they embed. See each product's own CHANGELOG.
 Pinned component versions live in the Dockerfiles and are recorded on the
 images as labels. They are not repeated here.
 
+## [0.1.9]
+
+- Provide a Secret Service for the desktop session. Ubuntu implements
+  `org.freedesktop.secrets` nowhere, so every libsecret client in every product
+  either failed - Buzz Desktop reports `Platform secure storage failure` and
+  loses its identity - or fell back to a plaintext store, as Chrome did.
+  `desktop-keyring` starts `gnome-keyring` with an unlocked default collection
+  before any session program runs, which is also what keeps an activated
+  password-less daemon from blocking the first caller on an unlock dialog.
+- Give shells started outside the session the desktop's D-Bus address, so
+  `secret-tool`, agent CLIs, and any other libsecret or libnotify client reach
+  the session's services rather than autolaunching a private bus. `notify-send`
+  needed its own adapter for this; nothing else does now.
+- Assert the keyring in the live desktop smoke test: a secret stored, read
+  back, and cleared from a login shell holding no bus address, under a timeout
+  that fails on a prompt instead of hanging on one.
+
 ## [0.1.8]
 
 - Route `notify-send` from container-exec shells and privilege-dropped agent

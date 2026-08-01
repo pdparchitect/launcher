@@ -168,6 +168,39 @@ curl -fsS "http://127.0.0.1:${preview_port}/notifications" |
         )
     ' >/dev/null || fail "the desktop bridge did not expose the notification"
 
+# The Secret Service is the other session-wide service this base owns. A
+# running daemon is not the assertion: an activated daemon also runs, and then
+# blocks the first caller on an unlock dialog nobody can answer. Store, read
+# back, and delete a secret from a login shell that was given no bus address,
+# which is how command-line callers actually arrive, and hold the whole round
+# trip to a timeout so a prompt fails the test instead of hanging it.
+#
+# The keyring belongs to the account the session runs as, and that account is
+# root in a fixed-mount session. Unlike notifications, which reach the bridge
+# from any account through the notify-send adapter, a secret has no adapter to
+# delegate through: libsecret is linked into the application. So this asks the
+# bus owner, the same way the adapter finds one.
+in_container 'pgrep -x gnome-keyring-d >/dev/null' ||
+    fail "the session keyring is not running"
+
+bus_user="$(in_container 'stat -c %U /run/launcher-desktop/dbus-session-address')"
+secret_daemons_before="$(in_container 'pgrep -cx dbus-daemon')"
+docker exec "$container" sudo -u "$bus_user" env -u DBUS_SESSION_BUS_ADDRESS \
+    HOME=/home/agent bash -lc '
+        printf %s launcher-smoke-secret |
+            timeout 20 secret-tool store --label=smoke launcher smoke &&
+        test "$(timeout 20 secret-tool lookup launcher smoke)" = launcher-smoke-secret &&
+        timeout 20 secret-tool clear launcher smoke
+    ' >/dev/null 2>&1 ||
+    fail "a secret did not survive a store and lookup through the session keyring as $bus_user"
+secret_daemons_after="$(in_container 'pgrep -cx dbus-daemon')"
+[ "$secret_daemons_after" = "$secret_daemons_before" ] ||
+    fail "secret-tool autolaunched a disconnected D-Bus session"
+
+if in_container 'pgrep -x gcr-prompter >/dev/null'; then
+    fail "the keyring raised an unlock prompt no session can answer"
+fi
+
 # Products can deliberately run as the unprivileged agent even when an Apple
 # fixed-ownership mount makes the desktop session itself run as root. The base
 # must grant that account access to the display instead of making every product

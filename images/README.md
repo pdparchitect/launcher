@@ -109,6 +109,27 @@ normalises, and `kasm-patch "<brand>"` rebrands the KasmVNC client. The patch is
 re-runnable: a second call rebrands in place rather than injecting its assets
 again.
 
+The session owns three shared services a product uses rather than provides: the
+D-Bus session itself, notifications through the desktop bridge, and the Secret
+Service through `desktop-keyring`. All three are up before any `session.d`
+program runs, and shells started outside the session inherit the bus address
+from `/etc/profile.d/desktop-session-bus.sh` instead of autolaunching a private
+bus that owns none of them.
+
+The keyring belongs to the account the session runs as, which is `root` in an
+Apple fixed-mount session. A product process that deliberately drops to `agent`
+there reaches the display and, through the `notify-send` adapter, the bridge —
+but not the keyring, because libsecret is linked into the application and has
+nothing to delegate through. Such a product stores its secrets from the session
+account.
+
+The keyring lives in `$XDG_DATA_HOME/keyrings`, which the base deliberately
+does not persist: only the product knows whether its secrets are worth keeping,
+and a base-declared volume there would nest inside whatever the product mounts
+over `~/.local/share`. A product whose stored secrets must survive a container
+replacement — anything storing an identity or a login rather than a cache —
+declares that directory, or the `~/.local/share` above it, as its own volume.
+
 Hermes is pinned to a tag and its resolved commit, both declared as build
 arguments in `products/hermes/desktop/Dockerfile` and verified after cloning.
 The values are not repeated here or in the changelog: every built image records
