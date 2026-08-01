@@ -4,6 +4,29 @@ Claude Code versions independently of the substrate. Its published image
 version includes both versions because the image embeds both, and the
 substrate version is also recorded on the image itself.
 
+## [0.2.0]
+
+- Answer the questions this desktop has already answered, from a startup hook
+  that runs before the session: onboarding and appearance, the trust prompt for
+  `/workspace` - the only directory this agent can reach - and a default
+  permission mode of `acceptEdits`, so an agent installed to work unattended is
+  not stopped on every edit. Each value is written only when absent, and
+  `CLAUDE_PERMISSION_MODE`, `CLAUDE_THEME` and `CLAUDE_TRUST_WORKSPACE`
+  override them.
+- Stop short of `bypassPermissions`. Claude Code refuses that mode when it runs
+  with root privileges, and an Apple fixed-mount session runs the whole desktop
+  as root, so it would work under Docker and fail on the platform Launcher
+  targets first.
+- Retire the `claude` wrapper that seeded appearance and onboarding. The
+  startup hook does that work before the session, with the ownership handling
+  a fixed-mount session needs, so the wrapper was a second place doing one job.
+- Assert the running container's own configuration in the product selftest
+  rather than only its sources, so a hook that silently stops writing fails the
+  smoke test.
+
+  Existing agents keep the configuration on their state volume; these defaults
+  apply to a new one.
+
 ## [0.1.0]
 
 - Pin Claude Code 2.1.220 and open its terminal interface in the persistent

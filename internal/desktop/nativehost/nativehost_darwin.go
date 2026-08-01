@@ -7,9 +7,12 @@ package nativehost
 #cgo LDFLAGS: -framework Cocoa -framework QuartzCore -framework WebKit -framework SwiftUI
 #cgo LDFLAGS: -L${SRCDIR}/../../../macos/.build/arm64-apple-macosx/release
 #cgo LDFLAGS: -lLauncherNative
+#include <stdlib.h>
 #include "nativehost_darwin.h"
 */
 import "C"
+
+import "unsafe"
 
 // Install replaces Wails' content view with the SwiftUI native shell while
 // preserving the WKWebView instance Wails configured.
@@ -38,4 +41,28 @@ func InstallArrowKeyFix() bool {
 // reports whether that process was still running to be activated.
 func ActivateProcess(pid int) bool {
 	return bool(C.LauncherNativeHostActivateProcess(C.int(pid)))
+}
+
+// PromptText presents a native macOS text field and reports whether the user
+// accepted it.
+func PromptText(title string, message string, defaultValue string) (string, bool) {
+	titleValue := C.CString(title)
+	defer C.free(unsafe.Pointer(titleValue))
+	messageValue := C.CString(message)
+	defer C.free(unsafe.Pointer(messageValue))
+	defaultText := C.CString(defaultValue)
+	defer C.free(unsafe.Pointer(defaultText))
+
+	var accepted C.bool
+	result := C.LauncherNativeHostPromptText(
+		titleValue,
+		messageValue,
+		defaultText,
+		&accepted,
+	)
+	if result == nil {
+		return "", false
+	}
+	defer C.free(unsafe.Pointer(result))
+	return C.GoString(result), bool(accepted)
 }

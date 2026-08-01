@@ -62,6 +62,15 @@ self-update would replace the version the image labels record. The product
 directory is named `claude-code` rather than `claude`: "Claude Desktop" is a
 different Anthropic application and this image is not it.
 
+A startup hook answers what this desktop has already decided: onboarding,
+appearance, trust for `/workspace`, and a default permission mode of
+`acceptEdits`. It stops short of `bypassPermissions` on purpose - Claude Code
+refuses that mode under root privileges, and an Apple fixed-mount session runs
+the desktop as root, so it would work on Docker and fail on the platform
+Launcher targets first. `CLAUDE_PERMISSION_MODE`, `CLAUDE_THEME` and
+`CLAUDE_TRUST_WORKSPACE` override the defaults, and nothing already present in
+the user's config is rewritten.
+
 It is also the one **light** desktop here. Anthropic's surface is paper, so
 this product's `theme/apply-theme.sh` maps the base's dark colour vocabulary
 onto cream, ink and clay, role by role - window decorations, panel, root menu
@@ -77,10 +86,32 @@ runs as root still signs in onto the declared volume. First-run sign-in is left
 to Codex's own onboarding, which already offers the device-code path this
 desktop needs - the browser-callback flow returns to a loopback port inside the
 container and cannot complete from a browser on another machine.
+A startup hook declares `sandbox_mode = "danger-full-access"`,
+`approval_policy = "never"`, and `/workspace` as a trusted project. Codex
+sandboxes the commands it runs using kernel isolation an unprivileged container
+cannot obtain, so no sandbox mode is enforceable inside this image whatever the
+configuration says; the setting states what is actually true rather than
+implying a boundary that is not there. The boundary is the container.
+`CODEX_SANDBOX_MODE`, `CODEX_APPROVAL_POLICY` and `CODEX_TRUST_WORKSPACE`
+override the defaults, and an existing value is never rewritten.
+
 `products/petbox/desktop` packages the same CLI, but as the engine behind its
 pets rather than as Codex itself. Its `theme/apply-theme.sh` takes its palette
 from OpenAI's Codex artwork - a slate-navy terminal on a periwinkle field, one
 orchid accent, and the base's white window outline left exactly as it is.
+
+Backspace and Enter act twice in Codex here, and that is
+[upstream's bug](https://github.com/openai/codex/issues/17793), not this
+image's. Codex negotiates the kitty keyboard protocol, which reports key
+presses and releases as separate events, and then acts on both - the same
+mistake that produced the identical symptom in the Rio terminal. kitty is
+sending correct events; a crossterm application is expected to filter for
+`KeyEventKind::Press`. It reproduces in any kitty terminal with no Launcher,
+no VNC and no browser involved, and it does not happen inside `tmux`, which
+does not pass the protocol through. There is no version to pin forward to yet.
+Do not work around it in the substrate: the only levers here are dropping the
+terminal's advertised type, which disables the protocol for every application
+to fix one, or wrapping Codex in `tmux`. Both cost more than the bug.
 
 `products/cursor/desktop` installs only the pinned, checksummed Cursor Agent
 CLI packages for AMD64 and ARM64. It opens `cursor-agent` in a persistent

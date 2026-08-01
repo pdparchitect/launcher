@@ -27,6 +27,7 @@ type Service interface {
 	Delete(context.Context, string) error
 	CleanupImages(context.Context, time.Duration) (agent.ImageCleanupReport, error)
 	Logs(context.Context, string, bool) error
+	Exec(context.Context, string, agent.ExecOptions) error
 }
 
 type App struct {
@@ -41,6 +42,7 @@ type App struct {
 	viewer       ViewerFunc
 	viewerTarget ViewerTargetFunc
 	refresh      CatalogRefreshFunc
+	terminal     bool
 }
 
 type Option func(*App)
@@ -53,7 +55,7 @@ type ServeOptions struct {
 type ServeFunc func(context.Context, ServeOptions) error
 type DesktopFunc func(context.Context) error
 type ViewerFunc func(context.Context, string) error
-type ViewerTargetFunc func(context.Context, string, string, string) error
+type ViewerTargetFunc func(context.Context, string, string, string, string) error
 type CatalogRefreshFunc func(context.Context) (bool, error)
 
 func WithInput(input io.Reader) Option {
@@ -80,6 +82,10 @@ func WithCatalogRefresh(refresh CatalogRefreshFunc) Option {
 	return func(app *App) { app.refresh = refresh }
 }
 
+func WithTerminalAttached(attached bool) Option {
+	return func(app *App) { app.terminal = attached }
+}
+
 func New(
 	service Service,
 	opener Opener,
@@ -100,7 +106,7 @@ func New(
 
 func (app *App) Run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		if app.desktop == nil {
+		if app.desktop == nil || app.terminal {
 			app.printHelp()
 			return 0
 		}
@@ -112,6 +118,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		app.printHelp()
 	case "version", "--version":
 		fmt.Fprintf(app.stdout, "launcher %s\n", app.version)
+	case "guide":
+		err = app.guide(args[1:])
 	case "doctor":
 		err = app.doctor(ctx, args[1:])
 	case "serve":
@@ -136,6 +144,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		err = app.open(ctx, args[1:])
 	case "logs":
 		err = app.logs(ctx, args[1:])
+	case "exec":
+		err = app.exec(ctx, args[1:])
 	case "delete", "rm":
 		err = app.delete(ctx, args[1:])
 	case "cleanup":
@@ -174,6 +184,7 @@ func (app *App) desktopUI(ctx context.Context, args []string) error {
 func (app *App) viewerUI(ctx context.Context, args []string) error {
 	flags := app.flags("viewer", "Open an agent in a framed desktop window.")
 	url := flags.String("url", "", "open an already-resolved agent URL")
+	id := flags.String("id", "", "agent ID, with -url")
 	name := flags.String("name", "", "window title, with -url")
 	kind := flags.String("kind", "", "interface kind, with -url")
 	if err := flags.Parse(args); err != nil {
@@ -189,7 +200,7 @@ func (app *App) viewerUI(ctx context.Context, args []string) error {
 		if app.viewerTarget == nil {
 			return errors.New("desktop agent viewer is not available in this build")
 		}
-		return app.viewerTarget(ctx, *name, *url, *kind)
+		return app.viewerTarget(ctx, *id, *name, *url, *kind)
 	}
 	if flags.NArg() != 1 || strings.TrimSpace(flags.Arg(0)) == "" {
 		return errors.New("usage: launcher viewer NAME")
@@ -259,7 +270,6 @@ func (app *App) doctor(ctx context.Context, args []string) error {
 	fmt.Fprintf(app.stdout, "Runtime:       %s %s\n", report.Runtime, report.Version)
 	fmt.Fprintf(app.stdout, "Executable:    %s\n", report.Executable)
 	fmt.Fprintf(app.stdout, "Data root:     %s\n", report.DataRoot)
-	fmt.Fprintf(app.stdout, "Default image: %s\n", report.DefaultImage)
 	fmt.Fprintln(app.stdout, "Status:        ready")
 	return nil
 }
@@ -308,9 +318,16 @@ func (app *App) catalog(ctx context.Context, args []string) error {
 		}
 	}
 	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "SLUG\tAPPLICATION\tPUBLISHER")
+	fmt.Fprintln(table, "SLUG\tAPPLICATION\tPUBLISHER\tIMAGE")
 	for _, entry := range app.service.Catalog() {
-		fmt.Fprintf(table, "%s\t%s\t%s\n", entry.Slug, entry.Name, entry.Publisher)
+		fmt.Fprintf(
+			table,
+			"%s\t%s\t%s\t%s\n",
+			entry.Slug,
+			entry.Name,
+			entry.Publisher,
+			entry.Image,
+		)
 	}
 	return table.Flush()
 }
@@ -320,7 +337,7 @@ func (app *App) create(ctx context.Context, args []string) error {
 	name := flags.String("name", "", "agent name")
 	appID := flags.String(
 		"app",
-		"pantalk-ghost",
+		"",
 		"application slug or ID",
 	)
 	image := flags.String("image", "", "container image override")
@@ -332,6 +349,10 @@ func (app *App) create(ctx context.Context, args []string) error {
 		*name = flags.Arg(0)
 	} else if flags.NArg() != 0 {
 		return errors.New("create accepts one name, positional or with --name")
+	}
+	*appID = strings.TrimSpace(*appID)
+	if *appID == "" {
+		return errors.New("create requires --app with a catalogue slug or ID")
 	}
 	instance, err := app.service.Create(ctx, agent.CreateOptions{
 		CatalogID: *appID, Name: *name, Image: *image,
@@ -364,7 +385,10 @@ func (app *App) list(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(views) == 0 {
-		fmt.Fprintln(app.stdout, "Library is empty. Create one with: launcher create NAME")
+		fmt.Fprintln(
+			app.stdout,
+			"Library is empty. Run launcher catalog, then launcher create --app SLUG NAME.",
+		)
 		return nil
 	}
 	table := tabwriter.NewWriter(app.stdout, 0, 4, 2, ' ', 0)
@@ -477,6 +501,26 @@ func (app *App) logs(ctx context.Context, args []string) error {
 	return app.service.Logs(ctx, flags.Arg(0), *follow)
 }
 
+func (app *App) exec(ctx context.Context, args []string) error {
+	flags := app.flags("exec", "Execute a command inside a running agent.")
+	var tty bool
+	flags.BoolVar(&tty, "tty", false, "allocate a pseudo-terminal")
+	flags.BoolVar(&tty, "t", false, "allocate a pseudo-terminal")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() < 2 ||
+		strings.TrimSpace(flags.Arg(0)) == "" ||
+		strings.TrimSpace(flags.Arg(1)) == "" {
+		return errors.New("usage: launcher exec [--tty] NAME COMMAND [ARG...]")
+	}
+	return app.service.Exec(ctx, flags.Arg(0), agent.ExecOptions{
+		Command: append([]string(nil), flags.Args()[1:]...),
+		Stdin:   app.input,
+		TTY:     tty,
+	})
+}
+
 func (app *App) delete(ctx context.Context, args []string) error {
 	flags := app.flags("delete", "Delete an agent and all of its local files.")
 	force := flags.Bool("force", false, "confirm permanent deletion")
@@ -571,16 +615,19 @@ Commands:
   viewer NAME         Open an agent in a framed desktop window
   serve               Open the local graphical interface
   catalog             Browse available applications
-  create NAME         Create and start an agent
+  create --app SLUG NAME
+                       Create and start a catalogue application
   list                Show the agent library
   status NAME         Show one agent
   start NAME          Start an agent
   stop NAME           Stop an agent
   open NAME           Open its desktop or dashboard
   logs NAME           Show its logs
+  exec NAME COMMAND   Execute a command inside a running agent
   delete --force NAME Permanently delete an agent
   cleanup             Remove old Launcher images
   doctor              Check the local runtime
+  guide               Print the built-in agent usage guide
   version             Print the version
 
 Set PDPARCHITECT_LAUNCHER_HOME to override the data folder.

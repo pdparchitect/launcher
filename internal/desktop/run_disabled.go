@@ -17,7 +17,15 @@ func run(context.Context, httpapi.Service, Options) error {
 	return errors.New("desktop interface is not available in this build")
 }
 
-func runViewer(context.Context, string, string, string) error {
+func runViewer(
+	context.Context,
+	ViewerService,
+	string,
+	string,
+	string,
+	string,
+	ViewerOptions,
+) error {
 	return errors.New("desktop agent viewer is not available in this build")
 }
 

@@ -849,6 +849,11 @@ func decodeCreateRequest(
 		writeError(response, http.StatusBadRequest, "invalid request body")
 		return createRequest{}, false, false
 	}
+	body.CatalogID = strings.TrimSpace(body.CatalogID)
+	if body.CatalogID == "" {
+		writeError(response, http.StatusBadRequest, "catalogId is required")
+		return createRequest{}, false, false
+	}
 	start := true
 	if body.Start != nil {
 		start = *body.Start

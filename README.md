@@ -85,10 +85,14 @@ Managing them is the ordinary part:
 - Start, stop, update, rename, and delete agents
 - Open an agent's local interface
 - Inspect logs and runtime health
+- Execute commands inside running agents
 - Clean up old local images previously pulled by Launcher
 
 Each application controls its own experience and capabilities. Launcher
 provides the consistent local installation and management layer around it.
+
+Run `launcher guide` for the self-contained, agent-readable tutorial embedded
+in the installed binary.
 
 ## Supported platforms
 

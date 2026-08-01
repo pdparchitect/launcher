@@ -22,4 +22,9 @@ grep -Fq 'CODEX_HOME="/home/agent/.codex"' "$dockerfile"
 
 bash -n "$project_dir/theme/apply-theme.sh"
 
+# No sandbox mode is enforceable in an unprivileged container, so the config
+# says what is actually true rather than implying a boundary that is not there.
+grep -Fq 'sandbox_mode="${CODEX_SANDBOX_MODE-danger-full-access}"' \
+    "$project_dir/overlay/etc/desktop/startup.d/05-codex-runtime"
+
 echo "Codex image checks passed."

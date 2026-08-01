@@ -19,17 +19,19 @@ grep -Eq '^ARG CLAUDE_CODE_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$dockerfile"
 # only holds the whole of its state while CLAUDE_CONFIG_DIR names it.
 grep -Fq 'CLAUDE_CONFIG_DIR="/home/agent/.claude"' "$dockerfile"
 
-# The product wrapper must reach the packaged CLI directly. Calling it by name
-# would re-enter the wrapper, because /usr/local/bin precedes /usr/bin.
-grep -Fq 'exec /usr/bin/claude "$@"' \
-    "$project_dir/overlay/usr/local/bin/claude"
+# bypassPermissions is refused when Claude Code runs with root privileges, and
+# an Apple fixed-mount session runs the desktop as root. Defaulting to it would
+# work under Docker and fail on the platform Launcher targets first.
+runtime="$project_dir/overlay/etc/desktop/startup.d/05-claude-runtime"
+grep -Fq 'permission_mode="${CLAUDE_PERMISSION_MODE-acceptEdits}"' "$runtime"
+if grep -v '^#' "$runtime" | grep -Fq 'bypassPermissions'; then
+    echo "$runtime sets bypassPermissions, which a root session refuses." >&2
+    exit 1
+fi
 
 # The desktop is light, so the seeded appearance has to be light too: a dark
 # Claude Code inside a paper terminal is the one combination that looks broken.
-jq -e '.theme == "light"' \
-    "$project_dir/overlay/usr/share/claude-code/settings.json" >/dev/null
-jq -e '.theme == "light" and .hasCompletedOnboarding == true' \
-    "$project_dir/overlay/usr/share/claude-code/.claude.json" >/dev/null
+grep -Fq 'theme="${CLAUDE_THEME-light}"' "$runtime"
 
 bash -n "$project_dir/theme/apply-theme.sh"
 

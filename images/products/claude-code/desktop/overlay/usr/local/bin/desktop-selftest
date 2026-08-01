@@ -28,6 +28,13 @@ check "the state directory is the declared volume" \
     test "${CLAUDE_CONFIG_DIR:-}" = /home/agent/.claude
 check "the pinned version is not self-updated" test "${DISABLE_AUTOUPDATER:-}" = 1
 check "the workspace is writable" test -w /workspace
+# Written by the startup hook before the session, into the persistent volume.
+config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+check "edits are pre-approved" \
+    jq -e '.permissions.defaultMode == "acceptEdits"' "$config/settings.json"
+check "the workspace is trusted" \
+    jq -e '.projects."/workspace".hasTrustDialogAccepted == true' \
+    "$config/.claude.json"
 
 if [ "$failures" -gt 0 ]; then
     echo "claude code selftest: $failures failed" >&2

@@ -17,3 +17,6 @@ func InstallArrowKeyFix() bool { return false }
 
 // ActivateProcess is a no-op outside a cgo-enabled macOS build.
 func ActivateProcess(int) bool { return false }
+
+// PromptText is unavailable outside a cgo-enabled macOS build.
+func PromptText(string, string, string) (string, bool) { return "", false }

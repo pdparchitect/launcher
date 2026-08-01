@@ -1,0 +1,89 @@
+#!/bin/bash
+# Answer the questions this desktop has already answered for Claude Code.
+#
+# Three of them, all written only when absent so a config the user has edited
+# is never overwritten:
+#
+#   - the onboarding and appearance questions, which the fixed terminal palette
+#     settles;
+#   - the per-directory trust prompt for /workspace, which is the only
+#     directory this agent can reach;
+#   - the permission mode, so an agent installed to work unattended is not
+#     stopped on every edit.
+#
+# The mode is acceptEdits rather than bypassPermissions deliberately. Claude
+# Code refuses bypassPermissions when it is running with root privileges, and
+# an Apple fixed-mount session runs the whole desktop as root - so the stronger
+# setting would work on Docker and fail on exactly the platform Launcher
+# targets first. Override with CLAUDE_PERMISSION_MODE if you accept that.
+#
+# Runs from the desktop base entrypoint before the session starts. The base
+# passes the account the desktop will run as in DESKTOP_RUNTIME_USER.
+
+set -euo pipefail
+
+runtime_user="${DESKTOP_RUNTIME_USER:-agent}"
+config_dir="${CLAUDE_CONFIG_DIR:-/home/agent/.claude}"
+state="$config_dir/.claude.json"
+settings="$config_dir/settings.json"
+workspace=/workspace
+
+permission_mode="${CLAUDE_PERMISSION_MODE-acceptEdits}"
+theme="${CLAUDE_THEME-light}"
+
+mkdir -p "$config_dir"
+
+own() {
+    if [ "$runtime_user" != root ]; then
+        chown "$runtime_user:$runtime_user" "$1" 2>/dev/null || true
+    fi
+}
+
+# Apply a jq program in place, leaving the file untouched if it is not valid
+# JSON: a hand-edited config is worth more than these defaults. Everything
+# after the path is handed to jq, so callers can pass --arg alongside the
+# filter.
+update_json() {
+    local file="$1"
+    shift
+
+    if [ ! -s "$file" ]; then
+        echo '{}' > "$file"
+    fi
+
+    local scratch
+    scratch="$(mktemp)"
+    if jq "$@" "$file" > "$scratch" 2>/dev/null; then
+        cat "$scratch" > "$file"
+        own "$file"
+    else
+        echo "[claude] left $file alone; it is not valid JSON" >&2
+    fi
+    rm -f "$scratch"
+}
+
+update_json "$state" \
+    'if has("hasCompletedOnboarding") then . else .hasCompletedOnboarding = true end'
+
+if [ -n "$theme" ]; then
+    update_json "$state" --arg theme "$theme" \
+        'if has("theme") then . else .theme = $theme end'
+    update_json "$settings" --arg theme "$theme" \
+        'if has("theme") then . else .theme = $theme end'
+fi
+
+if [ "${CLAUDE_TRUST_WORKSPACE:-true}" = true ]; then
+    update_json "$state" --arg dir "$workspace" '
+        if (.projects[$dir].hasTrustDialogAccepted // false)
+        then . else .projects[$dir].hasTrustDialogAccepted = true end
+    '
+    echo "[claude] recorded $workspace as trusted"
+fi
+
+if [ -n "$permission_mode" ]; then
+    update_json "$settings" --arg mode "$permission_mode" '
+        if (.permissions.defaultMode // "") != ""
+        then . else .permissions.defaultMode = $mode end
+    '
+    echo "[claude] permission mode $permission_mode"
+fi

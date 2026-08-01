@@ -4,6 +4,29 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-08-01
+
+### Changed
+
+- Require every agent creation request to explicitly select a catalogue
+  application; `launcher create` no longer silently defaults to Pantalk Ghost.
+- Include each application's resolved container image in `launcher catalog`
+  output.
+- Print CLI help when Launcher is invoked without arguments from a terminal,
+  while continuing to open the desktop when launched graphically. Use
+  `launcher desktop` to open it explicitly from a terminal.
+
+### Added
+
+- Add `launcher guide`, an embedded Markdown tutorial that gives automated
+  agents a self-contained reference for safely using the installed Launcher.
+- Add native macOS File-menu actions to agent viewer windows for opening the
+  agent's host-mounted files, renaming the agent, stopping the agent and
+  closing its window, or closing the window without stopping the agent.
+- Add `launcher exec [--tty] NAME COMMAND [ARG...]` to execute commands inside
+  running agents through Docker or Apple `container`, with streaming standard
+  input, output, and error.
+
 ## [0.5.1] - 2026-08-01
 
 ### Fixed

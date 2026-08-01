@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"runtime"
 	"sort"
@@ -22,7 +23,6 @@ import (
 
 const (
 	defaultPort                = 16902
-	defaultCatalogID           = "370a2228-322d-4089-846b-62fb8c15d154"
 	defaultRuntimeProbeTimeout = 3 * time.Second
 )
 
@@ -42,6 +42,7 @@ type Runtime interface {
 	Stats(context.Context, string) (launchruntime.Metrics, error)
 	RecentLogs(context.Context, string, int) (string, error)
 	Logs(context.Context, string, bool) error
+	Exec(context.Context, string, launchruntime.ExecOptions) error
 }
 
 type pullProgressRuntime interface {
@@ -63,7 +64,6 @@ type Options struct {
 	Platform            string
 	RuntimeName         string
 	RuntimePath         string
-	DefaultCatalogID    string
 	RuntimeProbeTimeout time.Duration
 	ImageCache          *imagecache.Store
 }
@@ -74,6 +74,12 @@ type CreateOptions struct {
 	Image     string
 	Start     bool
 	Progress  func(CreateProgress)
+}
+
+type ExecOptions struct {
+	Command []string
+	Stdin   io.Reader
+	TTY     bool
 }
 
 type CreateStage string
@@ -133,11 +139,10 @@ type CatalogEntry struct {
 }
 
 type DoctorReport struct {
-	Runtime      string `json:"runtime"`
-	Version      string `json:"version"`
-	Executable   string `json:"executable"`
-	DataRoot     string `json:"dataRoot"`
-	DefaultImage string `json:"defaultImage"`
+	Runtime    string `json:"runtime"`
+	Version    string `json:"version"`
+	Executable string `json:"executable"`
+	DataRoot   string `json:"dataRoot"`
 }
 
 type Service struct {
@@ -177,9 +182,6 @@ func New(
 	}
 	if options.RuntimeProbeTimeout <= 0 {
 		options.RuntimeProbeTimeout = defaultRuntimeProbeTimeout
-	}
-	if options.DefaultCatalogID == "" {
-		options.DefaultCatalogID = defaultCatalogID
 	}
 	if options.ImageCache == nil {
 		options.ImageCache = imagecache.New(dataStore.Root())
@@ -239,9 +241,6 @@ func (service *Service) Doctor(ctx context.Context) (DoctorReport, error) {
 		Executable: runtimePath,
 		DataRoot:   service.store.Root(),
 	}
-	if manifest, exists := service.manifest(service.options.DefaultCatalogID); exists {
-		report.DefaultImage = manifest.Image
-	}
 	return report, nil
 }
 
@@ -253,8 +252,9 @@ func (service *Service) Create(
 	if err := domain.ValidateName(options.Name); err != nil {
 		return domain.Instance{}, err
 	}
+	options.CatalogID = strings.TrimSpace(options.CatalogID)
 	if options.CatalogID == "" {
-		options.CatalogID = service.options.DefaultCatalogID
+		return domain.Instance{}, errors.New("catalogue application is required")
 	}
 	manifest, exists := service.manifest(options.CatalogID)
 	if !exists {
@@ -917,6 +917,40 @@ func (service *Service) Logs(
 		return err
 	}
 	return service.runtime.Logs(ctx, instance.ContainerName, follow)
+}
+
+func (service *Service) Exec(
+	ctx context.Context,
+	reference string,
+	options ExecOptions,
+) error {
+	if len(options.Command) == 0 || strings.TrimSpace(options.Command[0]) == "" {
+		return errors.New("agent command is required")
+	}
+	instance, err := service.store.Get(reference)
+	if err != nil {
+		return err
+	}
+	status, err := service.runtime.Status(ctx, instance.ContainerName)
+	if err != nil {
+		return fmt.Errorf("inspect agent before exec: %w", err)
+	}
+	if status != launchruntime.StatusRunning {
+		return fmt.Errorf(
+			"%s is %s; exec requires a running agent",
+			instance.Name,
+			status,
+		)
+	}
+	return service.runtime.Exec(
+		ctx,
+		instance.ContainerName,
+		launchruntime.ExecOptions{
+			Command: options.Command,
+			Stdin:   options.Stdin,
+			TTY:     options.TTY,
+		},
+	)
 }
 
 type NetworkPortAllocator struct{}

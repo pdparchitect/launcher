@@ -1,0 +1,72 @@
+#!/bin/bash
+# Declare the sandboxing and approval Codex actually operates under here.
+#
+# Codex sandboxes the commands it runs using kernel isolation primitives that
+# an unprivileged container cannot obtain - it cannot create the user namespace
+# its sandbox needs - so no sandbox mode is enforceable inside this image
+# whatever the configuration says. Leaving the default in place does not buy a
+# boundary; it buys a warning on every start and an agent that stops to ask
+# about work it was installed to do.
+#
+# The boundary is the container. Launcher gives this agent its own workspace,
+# its own network and nothing else of the host, which is precisely the
+# "externally sandboxed" environment Codex's own help text describes as the
+# case for turning its sandbox off.
+#
+# Both settings are written only when absent, so a config the user has edited
+# is never overwritten. CODEX_SANDBOX_MODE and CODEX_APPROVAL_POLICY override
+# them; an empty value leaves that key out entirely.
+#
+# Runs from the desktop base entrypoint before the session starts. The base
+# passes the account the desktop will run as in DESKTOP_RUNTIME_USER.
+
+set -euo pipefail
+
+runtime_user="${DESKTOP_RUNTIME_USER:-agent}"
+home="${CODEX_HOME:-/home/agent/.codex}"
+config="$home/config.toml"
+workspace=/workspace
+
+sandbox_mode="${CODEX_SANDBOX_MODE-danger-full-access}"
+approval_policy="${CODEX_APPROVAL_POLICY-never}"
+
+mkdir -p "$home"
+
+own() {
+    [ "$runtime_user" = root ] && return 0
+    chown "$runtime_user:$runtime_user" "$1" 2>/dev/null || true
+}
+
+# Prepended, not appended: these are top-level keys, and TOML assigns any key
+# following a [table] header to that table. The project block below writes a
+# [projects."..."] table, so appending would quietly demote a global setting
+# into a per-project one.
+prepend_key() {
+    local key="$1" value="$2" scratch
+    [ -n "$value" ] || return 0
+    grep -Eq "^${key} *=" "$config" 2>/dev/null && return 0
+
+    scratch="$(mktemp)"
+    {
+        printf '%s = "%s"\n' "$key" "$value"
+        [ -s "$config" ] && cat "$config"
+    } > "$scratch"
+    cat "$scratch" > "$config"
+    rm -f "$scratch"
+    own "$config"
+    echo "[codex] set $key=$value"
+}
+
+prepend_key sandbox_mode "$sandbox_mode"
+prepend_key approval_policy "$approval_policy"
+
+# Codex asks once per directory before working in it. The desktop opens in the
+# workspace and has just been told not to ask for approval, so leaving this
+# prompt in place would contradict the settings above on the very first turn.
+if [ "${CODEX_TRUST_WORKSPACE:-true}" = true ] &&
+    ! grep -Fq "[projects.\"$workspace\"]" "$config" 2>/dev/null; then
+    printf '\n[projects."%s"]\ntrust_level = "trusted"\n' \
+        "$workspace" >> "$config"
+    own "$config"
+    echo "[codex] recorded $workspace as trusted"
+fi

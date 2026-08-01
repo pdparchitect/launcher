@@ -4,6 +4,24 @@ Codex versions independently of the substrate. Its published image version
 includes both versions because the image embeds both, and the substrate
 version is also recorded on the image itself.
 
+## [0.2.0]
+
+- Declare `sandbox_mode = "danger-full-access"` and `approval_policy = "never"`
+  at boot, and record `/workspace` as a trusted project. Codex's sandbox needs
+  kernel isolation an unprivileged container cannot obtain, so no sandbox mode
+  is enforceable here whatever is configured - the setting states what is
+  actually true instead of implying a boundary that is not there. The boundary
+  is the container: Launcher gives this agent its own workspace and network and
+  nothing else of the host. Each value is written only when absent, and
+  `CODEX_SANDBOX_MODE`, `CODEX_APPROVAL_POLICY` and `CODEX_TRUST_WORKSPACE`
+  override them.
+- Assert the running container's own configuration in the product selftest
+  rather than only its sources, so a hook that silently stops writing fails the
+  smoke test.
+
+  Existing agents keep the configuration on their state volume; these defaults
+  apply to a new one.
+
 ## [0.1.0]
 
 - Pin Codex CLI 0.146.0 and open its terminal interface in the persistent

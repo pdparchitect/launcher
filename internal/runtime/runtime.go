@@ -47,6 +47,12 @@ type LocalImage struct {
 	ID string
 }
 
+type ExecOptions struct {
+	Command []string
+	Stdin   io.Reader
+	TTY     bool
+}
+
 type Lifecycle interface {
 	Doctor(context.Context) (string, error)
 	Pull(context.Context, string, string) error
@@ -63,6 +69,7 @@ type Lifecycle interface {
 	Stats(context.Context, string) (Metrics, error)
 	RecentLogs(context.Context, string, int) (string, error)
 	Logs(context.Context, string, bool) error
+	Exec(context.Context, string, ExecOptions) error
 }
 
 func ManagedNetworkName(instanceID string) string {
