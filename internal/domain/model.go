@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/pdparchitect/launcher/internal/catalog"
 )
 
 type DesiredState string
@@ -18,14 +20,15 @@ const (
 )
 
 type Instance struct {
-	ID            string               `json:"id"`
-	CatalogID     string               `json:"catalogId"`
-	Name          string               `json:"name"`
-	Image         string               `json:"image"`
-	ContainerName string               `json:"containerName"`
-	Interfaces    map[string]Interface `json:"interfaces"`
-	DesiredState  DesiredState         `json:"desiredState"`
-	CreatedAt     time.Time            `json:"createdAt"`
+	ID              string               `json:"id"`
+	CatalogID       string               `json:"catalogId"`
+	Name            string               `json:"name"`
+	Image           string               `json:"image"`
+	ContainerName   string               `json:"containerName"`
+	Interfaces      map[string]Interface `json:"interfaces"`
+	DesiredState    DesiredState         `json:"desiredState"`
+	CreatedAt       time.Time            `json:"createdAt"`
+	RuntimeManifest *catalog.Manifest    `json:"runtimeManifest,omitempty"`
 }
 
 type Interface struct {
@@ -74,6 +77,14 @@ func (instance Instance) Validate() error {
 	}
 	if instance.CreatedAt.IsZero() {
 		return errors.New("creation time is required")
+	}
+	if instance.RuntimeManifest != nil {
+		if instance.RuntimeManifest.ID != instance.CatalogID {
+			return errors.New("runtime manifest catalogue ID does not match instance")
+		}
+		if instance.RuntimeManifest.Image != instance.Image {
+			return errors.New("runtime manifest image does not match instance")
+		}
 	}
 	return nil
 }

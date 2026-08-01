@@ -4,6 +4,32 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-08-01
+
+### Added
+
+- Add `launcher duplicate [--start] SOURCE NEW_NAME` to copy an installed
+  agent using the same catalogue application and exact image, a new isolated
+  identity, network, and ports, and independent copies of its persistent host
+  files. Duplicates remain stopped unless `--start` is specified; active source
+  agents are temporarily stopped for a consistent copy and restored afterward.
+- Add `launcher preview --output PATH [--force] NAME` to save the current image
+  from a running agent's declared preview interface, with readiness retries,
+  image validation, bounded downloads, and atomic destination writes.
+- Expand `launcher status NAME` with desired and actual state, creation time,
+  managed file and mount locations, every local interface, managed network and
+  provider-reported IP addresses, and available CPU, memory, and uptime data.
+
+### Fixed
+
+- Make application updates recoverable. Launcher now persists the exact
+  installed runtime manifest, retains the stopped previous container until an
+  updated candidate is created, started, and passes its declared health check,
+  and restores the previous container after any pre-commit failure. Missing
+  runtime containers can be recreated from the stored manifest, Apple and
+  Docker runtime errors retain their underlying output, and unsafe mount
+  storage changes or duplicate sources are rejected before replacement.
+
 ## [0.6.0] - 2026-08-01
 
 ### Changed

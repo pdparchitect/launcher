@@ -34,6 +34,11 @@ type Runtime interface {
 	EnsureNetwork(context.Context, string) error
 	DeleteNetwork(context.Context, string) error
 	NetworkAttached(context.Context, string, string) (bool, error)
+	NetworkInfo(
+		context.Context,
+		string,
+		string,
+	) (launchruntime.NetworkInfo, error)
 	Create(context.Context, launchruntime.CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
@@ -60,12 +65,14 @@ type PortAllocator interface {
 type Options struct {
 	ID                  func() (string, error)
 	Now                 func() time.Time
+	CopyFiles           func(string, string) error
 	Ports               PortAllocator
 	Platform            string
 	RuntimeName         string
 	RuntimePath         string
 	RuntimeProbeTimeout time.Duration
 	ImageCache          *imagecache.Store
+	HealthCheck         func(context.Context, string) error
 }
 
 type CreateOptions struct {
@@ -74,6 +81,11 @@ type CreateOptions struct {
 	Image     string
 	Start     bool
 	Progress  func(CreateProgress)
+}
+
+type DuplicateOptions struct {
+	Name  string
+	Start bool
 }
 
 type ExecOptions struct {
@@ -125,6 +137,21 @@ type View struct {
 	Uptime          time.Duration
 }
 
+type MountDetails struct {
+	Name    string
+	Target  string
+	Storage string
+	Source  string
+}
+
+type Details struct {
+	View
+	Files        string
+	Mounts       []MountDetails
+	Network      launchruntime.NetworkInfo
+	NetworkError string
+}
+
 type CatalogEntry struct {
 	ID          string                       `json:"id"`
 	Slug        string                       `json:"slug"`
@@ -174,6 +201,9 @@ func New(
 	if options.Ports == nil {
 		options.Ports = NetworkPortAllocator{}
 	}
+	if options.CopyFiles == nil {
+		options.CopyFiles = copyDirectory
+	}
 	if options.Platform == "" {
 		options.Platform = containerPlatform(runtime.GOARCH)
 	}
@@ -185,6 +215,9 @@ func New(
 	}
 	if options.ImageCache == nil {
 		options.ImageCache = imagecache.New(dataStore.Root())
+	}
+	if options.HealthCheck == nil {
+		options.HealthCheck = waitForHealth
 	}
 	service := &Service{
 		store: dataStore, runtime: containerRuntime,
@@ -295,6 +328,9 @@ func (service *Service) Create(
 		DesiredState:  desiredState,
 		CreatedAt:     service.options.Now().UTC(),
 	}
+	runtimeManifest := manifest
+	runtimeManifest.Image = image
+	instance.RuntimeManifest = &runtimeManifest
 	options.report(CreateStagePreparing, "Preparing local agent storage")
 	paths, err := service.store.Create(instance, manifest)
 	if err != nil {
@@ -362,6 +398,9 @@ func (service *Service) Create(
 			instance.DesiredState = domain.DesiredStopped
 			_ = service.store.Save(instance)
 			return instance, err
+		}
+		if err := service.checkDeclaredHealth(ctx, instance, manifest); err != nil {
+			return instance, fmt.Errorf("check created agent: %w", err)
 		}
 	}
 	options.report(CreateStageReady, "Agent is ready")
@@ -435,6 +474,87 @@ func (service *Service) Get(ctx context.Context, reference string) (View, error)
 	return service.probeView(ctx, instance), nil
 }
 
+func (service *Service) Details(
+	ctx context.Context,
+	reference string,
+) (Details, error) {
+	view, err := service.Get(ctx, reference)
+	if err != nil {
+		return Details{}, err
+	}
+	root, err := service.store.AgentRoot(view.ID)
+	if err != nil {
+		return Details{}, err
+	}
+	details := Details{View: view, Files: root}
+	if manifest, manifestErr := service.runtimeManifest(view.Instance); manifestErr == nil {
+		paths := service.store.Paths(view.ID, manifest)
+		for _, mount := range manifest.Mounts {
+			storage := mount.Storage
+			if storage == "" {
+				storage = catalog.MountStorageHost
+			}
+			details.Mounts = append(details.Mounts, MountDetails{
+				Name: mount.Name, Target: mount.Target, Storage: storage,
+				Source: paths.Mounts[mount.Name],
+			})
+		}
+	}
+	networkCtx, cancel := context.WithTimeout(
+		ctx,
+		service.options.RuntimeProbeTimeout,
+	)
+	defer cancel()
+	details.Network, err = service.runtime.NetworkInfo(
+		networkCtx,
+		view.ContainerName,
+		view.ID,
+	)
+	if err != nil {
+		details.Network.Name = launchruntime.ManagedNetworkName(view.ID)
+		details.NetworkError = err.Error()
+	}
+	return details, nil
+}
+
+func (service *Service) replacementContainerName(
+	instance domain.Instance,
+	slug string,
+) (string, error) {
+	updateID, err := service.options.ID()
+	if err != nil {
+		return "", fmt.Errorf("generate replacement ID: %w", err)
+	}
+	if !domain.ValidID(updateID) {
+		return "", errors.New(
+			"generated replacement ID must contain 32 lowercase hexadecimal characters",
+		)
+	}
+	return fmt.Sprintf(
+		"launcher-%s-%s-update-%s",
+		slug,
+		instance.ID[:12],
+		updateID[:12],
+	), nil
+}
+
+func (service *Service) runtimeManifest(
+	instance domain.Instance,
+) (catalog.Manifest, error) {
+	if instance.RuntimeManifest != nil {
+		return *instance.RuntimeManifest, nil
+	}
+	current, exists := service.manifest(instance.CatalogID)
+	if !exists {
+		return catalog.Manifest{}, fmt.Errorf(
+			"catalogue entry %q is unavailable and the agent has no stored runtime manifest",
+			instance.CatalogID,
+		)
+	}
+	current.Image = instance.Image
+	return current, nil
+}
+
 func (service *Service) manifest(identity string) (catalog.Manifest, bool) {
 	service.catalogMutex.RLock()
 	defer service.catalogMutex.RUnlock()
@@ -489,6 +609,13 @@ func (service *Service) Start(
 	if err != nil {
 		return domain.Instance{}, err
 	}
+	status, err := service.runtime.Status(ctx, instance.ContainerName)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("inspect agent before start: %w", err)
+	}
+	if status == launchruntime.StatusMissing {
+		return service.recoverMissingRuntime(ctx, instance)
+	}
 	isolated, err := service.runtime.NetworkAttached(
 		ctx,
 		instance.ContainerName,
@@ -507,63 +634,129 @@ func (service *Service) Start(
 	return instance, service.store.Save(instance)
 }
 
+func (service *Service) recoverMissingRuntime(
+	ctx context.Context,
+	instance domain.Instance,
+) (domain.Instance, error) {
+	manifest, err := service.runtimeManifest(instance)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	if err := service.validateLegacyVolumeStorage(instance, manifest); err != nil {
+		return domain.Instance{}, err
+	}
+	paths, err := service.store.EnsurePaths(instance.ID, manifest)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent storage for recovery: %w", err)
+	}
+	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent network for recovery: %w", err)
+	}
+	if err := service.createRuntimeContainer(ctx, instance, manifest, paths); err != nil {
+		return domain.Instance{}, fmt.Errorf("recreate missing agent container: %w", err)
+	}
+	if err := service.runtime.Start(ctx, instance.ContainerName); err != nil {
+		return domain.Instance{}, fmt.Errorf("start recovered agent container: %w", err)
+	}
+	if err := service.checkDeclaredHealth(ctx, instance, manifest); err != nil {
+		return domain.Instance{}, fmt.Errorf("check recovered agent: %w", err)
+	}
+	instance.DesiredState = domain.DesiredRunning
+	if instance.RuntimeManifest == nil {
+		manifest.Image = instance.Image
+		instance.RuntimeManifest = &manifest
+	}
+	if err := service.store.Save(instance); err != nil {
+		return instance, fmt.Errorf("save recovered agent: %w", err)
+	}
+	return instance, nil
+}
+
 func (service *Service) migrateNetworkAndStart(
 	ctx context.Context,
 	instance domain.Instance,
 ) (domain.Instance, error) {
-	manifest, exists := service.manifest(instance.CatalogID)
-	if !exists {
-		return domain.Instance{}, fmt.Errorf(
-			"catalogue entry %q is not built in",
-			instance.CatalogID,
-		)
-	}
-	status, err := service.runtime.Status(ctx, instance.ContainerName)
+	manifest, err := service.runtimeManifest(instance)
 	if err != nil {
-		return domain.Instance{}, fmt.Errorf("inspect agent before network migration: %w", err)
+		return domain.Instance{}, err
 	}
-	wasRunning := status == launchruntime.StatusRunning ||
-		status == launchruntime.StatusRestarting ||
-		status == launchruntime.StatusPaused
+	if err := service.validateLegacyVolumeStorage(instance, manifest); err != nil {
+		return domain.Instance{}, err
+	}
+	paths, err := service.store.EnsurePaths(instance.ID, manifest)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare agent storage: %w", err)
+	}
+	candidateName, err := service.replacementContainerName(instance, manifest.Slug)
+	if err != nil {
+		return domain.Instance{}, err
+	}
 	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
 		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
 	}
 	if err := service.runtime.Stop(ctx, instance.ContainerName); err != nil {
 		return domain.Instance{}, fmt.Errorf("stop agent for network migration: %w", err)
 	}
+	candidate := instance
+	candidate.ContainerName = candidateName
+	candidate.DesiredState = domain.DesiredRunning
+	if candidate.RuntimeManifest == nil {
+		candidate.RuntimeManifest = &manifest
+	}
+	candidateAttempted := false
+	restore := func(action string, cause error) error {
+		recoveryCtx := context.WithoutCancel(ctx)
+		var recoveryErrors []error
+		if candidateAttempted {
+			if removeErr := service.runtime.Remove(
+				recoveryCtx,
+				candidate.ContainerName,
+				instance.ID,
+			); removeErr != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf(
+					"remove network migration candidate: %w",
+					removeErr,
+				))
+			}
+		}
+		if startErr := service.runtime.Start(
+			recoveryCtx,
+			instance.ContainerName,
+		); startErr != nil {
+			recoveryErrors = append(recoveryErrors, fmt.Errorf(
+				"restart previous container: %w",
+				startErr,
+			))
+		}
+		if len(recoveryErrors) == 0 {
+			return fmt.Errorf("%s: %w; previous container restored", action, cause)
+		}
+		return joinedUpdateError(action, cause, recoveryErrors...)
+	}
+	candidateAttempted = true
+	if err := service.createRuntimeContainer(ctx, candidate, manifest, paths); err != nil {
+		return domain.Instance{}, restore("migrate agent network", err)
+	}
+	if err := service.runtime.Start(ctx, candidate.ContainerName); err != nil {
+		return domain.Instance{}, restore("start migrated agent", err)
+	}
+	if err := service.checkDeclaredHealth(ctx, candidate, manifest); err != nil {
+		return domain.Instance{}, restore("check migrated agent", err)
+	}
+	if err := service.store.Save(candidate); err != nil {
+		return domain.Instance{}, restore("save migrated agent", err)
+	}
 	if err := service.runtime.Remove(
-		ctx,
+		context.WithoutCancel(ctx),
 		instance.ContainerName,
 		instance.ID,
 	); err != nil {
-		return domain.Instance{}, fmt.Errorf("replace agent network: %w", err)
-	}
-	paths := service.store.Paths(instance.ID, manifest)
-	if err := service.createRuntimeContainer(ctx, instance, manifest, paths); err != nil {
-		restoreErr := service.createRuntimeContainer(ctx, instance, manifest, paths)
-		if restoreErr == nil && wasRunning {
-			restoreErr = service.runtime.Start(ctx, instance.ContainerName)
-		}
-		if restoreErr != nil {
-			return domain.Instance{}, fmt.Errorf(
-				"migrate agent network: %w; restore container: %v",
-				err,
-				restoreErr,
-			)
-		}
-		return domain.Instance{}, fmt.Errorf(
-			"migrate agent network: %w; previous container restored",
+		return candidate, fmt.Errorf(
+			"agent network migrated, but remove previous container: %w",
 			err,
 		)
 	}
-	if err := service.runtime.Start(ctx, instance.ContainerName); err != nil {
-		return domain.Instance{}, fmt.Errorf(
-			"start agent after network migration: %w",
-			err,
-		)
-	}
-	instance.DesiredState = domain.DesiredRunning
-	return instance, service.store.Save(instance)
+	return candidate, nil
 }
 
 func (service *Service) Stop(
@@ -617,6 +810,13 @@ func (service *Service) UpdateWithProgress(
 		report(UpdateStageReady, "Agent is already up to date")
 		return instance, nil
 	}
+	if instance.RuntimeManifest != nil {
+		if err := validateRuntimeTransition(*instance.RuntimeManifest, manifest); err != nil {
+			return domain.Instance{}, err
+		}
+	} else if err := service.validateLegacyVolumeStorage(instance, manifest); err != nil {
+		return domain.Instance{}, err
+	}
 	// Agents installed before image tracking have no ledger entry. Recording
 	// the current image here lets the reconciler remove it after this update.
 	_ = service.trackImage(ctx, instance.Image)
@@ -650,6 +850,67 @@ func (service *Service) UpdateWithProgress(
 	if err := service.runtime.EnsureNetwork(ctx, instance.ID); err != nil {
 		return domain.Instance{}, fmt.Errorf("prepare agent network: %w", err)
 	}
+	paths, err := service.store.EnsurePaths(instance.ID, manifest)
+	if err != nil {
+		return domain.Instance{}, fmt.Errorf("prepare updated agent storage: %w", err)
+	}
+	instances, err := service.store.List()
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	updated := instance
+	updated.Image = targetImage
+	updated.ContainerName, err = service.replacementContainerName(
+		instance,
+		manifest.Slug,
+	)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	updatedManifest := manifest
+	updatedManifest.Image = targetImage
+	updated.RuntimeManifest = &updatedManifest
+	requestedPorts := make(map[string]int, len(instance.Interfaces))
+	for id, resolved := range instance.Interfaces {
+		requestedPorts[id] = resolved.Port
+	}
+	oldExists := status != launchruntime.StatusMissing
+	oldActive := status == launchruntime.StatusRunning ||
+		status == launchruntime.StatusRestarting ||
+		status == launchruntime.StatusPaused
+	candidateAttempted := false
+	restorePrevious := func(action string, cause error) error {
+		report(UpdateStageRestoring, "Update failed; restoring the previous runtime")
+		recoveryCtx := context.WithoutCancel(ctx)
+		var recoveryErrors []error
+		if candidateAttempted {
+			if removeErr := service.runtime.Remove(
+				recoveryCtx,
+				updated.ContainerName,
+				instance.ID,
+			); removeErr != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf(
+					"remove failed update candidate: %w",
+					removeErr,
+				))
+			}
+		}
+		if oldExists && shouldStart {
+			if startErr := service.runtime.Start(
+				recoveryCtx,
+				instance.ContainerName,
+			); startErr != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf(
+					"restart previous container: %w",
+					startErr,
+				))
+			}
+		}
+		if len(recoveryErrors) == 0 && oldExists {
+			return fmt.Errorf("%s: %w; previous container restored", action, cause)
+		}
+		return joinedUpdateError(action, cause, recoveryErrors...)
+	}
 	if status == launchruntime.StatusRunning ||
 		status == launchruntime.StatusRestarting ||
 		status == launchruntime.StatusPaused {
@@ -658,69 +919,87 @@ func (service *Service) UpdateWithProgress(
 			return domain.Instance{}, fmt.Errorf("stop agent for update: %w", err)
 		}
 	}
-	report(UpdateStageReplacing, "Replacing the runtime container")
-	if err := service.runtime.Remove(
-		ctx,
-		instance.ContainerName,
-		instance.ID,
-	); err != nil {
-		return domain.Instance{}, fmt.Errorf("remove old agent container: %w", err)
-	}
-	paths := service.store.Paths(instance.ID, manifest)
-	updated := instance
-	updated.Image = targetImage
-	instances, listErr := service.store.List()
-	if listErr != nil {
-		return domain.Instance{}, listErr
-	}
-	requestedPorts := make(map[string]int, len(instance.Interfaces))
-	for id, resolved := range instance.Interfaces {
-		requestedPorts[id] = resolved.Port
-	}
 	updated.Interfaces, err = service.resolveInterfaces(
 		manifest,
 		instancesExcept(instances, instance.ID),
 		requestedPorts,
 	)
 	if err != nil {
+		if oldExists && (oldActive || shouldStart) {
+			return domain.Instance{}, restorePrevious(
+				"resolve updated interfaces",
+				err,
+			)
+		}
 		return domain.Instance{}, fmt.Errorf("resolve updated interfaces: %w", err)
 	}
 	if shouldStart {
 		updated.DesiredState = domain.DesiredRunning
 	}
+	report(UpdateStageReplacing, "Creating the updated runtime candidate")
+	candidateAttempted = true
 	if err := service.createRuntimeContainer(ctx, updated, manifest, paths); err != nil {
-		report(
-			UpdateStageRestoring,
-			"Update failed; restoring the previous runtime container",
-		)
-		rollbackErr := service.restoreRuntimeContainer(
-			ctx,
-			instance,
-			manifest,
-			paths,
-			shouldStart,
-		)
-		if rollbackErr != nil {
-			return domain.Instance{}, fmt.Errorf(
-				"create updated agent container: %w; restoring previous container: %v",
-				err,
-				rollbackErr,
-			)
-		}
-		return domain.Instance{}, fmt.Errorf(
-			"create updated agent container: %w; previous container restored",
+		return domain.Instance{}, restorePrevious(
+			"create updated agent container",
 			err,
 		)
 	}
-	if err := service.store.Save(updated); err != nil {
-		return domain.Instance{}, fmt.Errorf("save updated agent image: %w", err)
-	}
 	if shouldStart {
-		report(UpdateStageStarting, "Starting the updated agent")
+		report(UpdateStageStarting, "Starting and checking the updated agent")
 		if err := service.runtime.Start(ctx, updated.ContainerName); err != nil {
-			updated.DesiredState = domain.DesiredStopped
-			_ = service.store.Save(updated)
-			return updated, fmt.Errorf("start updated agent: %w", err)
+			return domain.Instance{}, restorePrevious("start updated agent", err)
+		}
+		if err := service.checkDeclaredHealth(ctx, updated, manifest); err != nil {
+			return domain.Instance{}, restorePrevious("check updated agent", err)
+		}
+	}
+	if err := service.store.Save(updated); err != nil {
+		return domain.Instance{}, restorePrevious("save updated agent", err)
+	}
+	if oldExists {
+		if err := service.runtime.Remove(
+			context.WithoutCancel(ctx),
+			instance.ContainerName,
+			instance.ID,
+		); err != nil {
+			report(
+				UpdateStageRestoring,
+				"Update cleanup failed; restoring the previous runtime",
+			)
+			recoveryCtx := context.WithoutCancel(ctx)
+			if saveErr := service.store.Save(instance); saveErr != nil {
+				return updated, errors.Join(
+					fmt.Errorf("remove previous container after update: %w", err),
+					fmt.Errorf("restore previous agent metadata: %w", saveErr),
+				)
+			}
+			var recoveryErrors []error
+			if removeErr := service.runtime.Remove(
+				recoveryCtx,
+				updated.ContainerName,
+				instance.ID,
+			); removeErr != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf(
+					"remove committed update candidate: %w",
+					removeErr,
+				))
+			}
+			if shouldStart {
+				if startErr := service.runtime.Start(
+					recoveryCtx,
+					instance.ContainerName,
+				); startErr != nil {
+					recoveryErrors = append(recoveryErrors, fmt.Errorf(
+						"restart previous container: %w",
+						startErr,
+					))
+				}
+			}
+			return domain.Instance{}, joinedUpdateError(
+				"remove previous container after update",
+				err,
+				recoveryErrors...,
+			)
 		}
 	}
 	report(UpdateStageReady, "Agent update is ready")
@@ -757,7 +1036,14 @@ func (service *Service) resolveInterfaces(
 	for id := range manifest.Interfaces {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	sort.Slice(ids, func(left int, right int) bool {
+		leftRequested := requested != nil && requested[ids[left]] != 0
+		rightRequested := requested != nil && requested[ids[right]] != 0
+		if leftRequested != rightRequested {
+			return leftRequested
+		}
+		return ids[left] < ids[right]
+	})
 	hostPorts := make(map[int]int)
 	resolved := make(map[string]domain.Interface, len(ids))
 	for _, id := range ids {
@@ -799,6 +1085,62 @@ func runtimePorts(
 	return ports
 }
 
+func validateRuntimeTransition(
+	previous catalog.Manifest,
+	target catalog.Manifest,
+) error {
+	previousMounts := make(map[string]catalog.Mount, len(previous.Mounts))
+	for _, mount := range previous.Mounts {
+		previousMounts[mount.Name] = mount
+	}
+	for _, mount := range target.Mounts {
+		old, exists := previousMounts[mount.Name]
+		if !exists {
+			continue
+		}
+		oldStorage := old.Storage
+		if oldStorage == "" {
+			oldStorage = catalog.MountStorageHost
+		}
+		newStorage := mount.Storage
+		if newStorage == "" {
+			newStorage = catalog.MountStorageHost
+		}
+		if oldStorage != newStorage {
+			return fmt.Errorf(
+				"update changes mount %q storage from %s to %s; migrate its data before updating",
+				mount.Name,
+				oldStorage,
+				newStorage,
+			)
+		}
+	}
+	return nil
+}
+
+func (service *Service) validateLegacyVolumeStorage(
+	instance domain.Instance,
+	manifest catalog.Manifest,
+) error {
+	if instance.RuntimeManifest != nil {
+		return nil
+	}
+	conflicts, err := service.store.ExistingHostPathsForVolumes(
+		instance.ID,
+		manifest,
+	)
+	if err != nil {
+		return err
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"legacy agent has host data for mount(s) %s now declared as runtime volumes; migrate that data before replacing the runtime",
+		strings.Join(conflicts, ", "),
+	)
+}
+
 func instancesExcept(
 	instances []domain.Instance,
 	id string,
@@ -810,22 +1152,6 @@ func instancesExcept(
 		}
 	}
 	return filtered
-}
-
-func (service *Service) restoreRuntimeContainer(
-	ctx context.Context,
-	instance domain.Instance,
-	manifest catalog.Manifest,
-	paths store.Paths,
-	start bool,
-) error {
-	if err := service.createRuntimeContainer(ctx, instance, manifest, paths); err != nil {
-		return err
-	}
-	if start {
-		return service.runtime.Start(ctx, instance.ContainerName)
-	}
-	return nil
 }
 
 func (service *Service) Rename(
@@ -895,7 +1221,8 @@ func (service *Service) Delete(ctx context.Context, reference string) error {
 	if err := service.runtime.DeleteNetwork(ctx, instance.ID); err != nil {
 		return err
 	}
-	if manifest, exists := service.manifest(instance.CatalogID); exists {
+	manifest, manifestErr := service.runtimeManifest(instance)
+	if manifestErr == nil {
 		if dataRuntime, ok := service.runtime.(mountDataRuntime); ok {
 			if err := dataRuntime.DeleteMountData(
 				ctx, instance.ID, manifest,

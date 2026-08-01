@@ -214,6 +214,16 @@ func (docker *Docker) NetworkAttached(
 	containerName string,
 	instanceID string,
 ) (bool, error) {
+	info, err := docker.NetworkInfo(ctx, containerName, instanceID)
+	return info.Attached, err
+}
+
+func (docker *Docker) NetworkInfo(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (NetworkInfo, error) {
+	name := ManagedNetworkName(instanceID)
 	result, err := docker.runner.Capture(
 		ctx,
 		docker.command,
@@ -224,22 +234,37 @@ func (docker *Docker) NetworkAttached(
 		containerName,
 	)
 	if err != nil {
-		return false, commandError(
+		return NetworkInfo{Name: name}, commandError(
 			"inspect container networks for "+containerName,
 			result,
 			err,
 		)
 	}
-	var networks map[string]json.RawMessage
+	var networks map[string]struct {
+		IPAddress         string `json:"IPAddress"`
+		GlobalIPv6Address string `json:"GlobalIPv6Address"`
+	}
 	if err := json.Unmarshal(result.Stdout, &networks); err != nil {
-		return false, fmt.Errorf(
+		return NetworkInfo{Name: name}, fmt.Errorf(
 			"decode container networks for %q: %w",
 			containerName,
 			err,
 		)
 	}
-	_, exists := networks[ManagedNetworkName(instanceID)]
-	return exists, nil
+	network, exists := networks[name]
+	info := NetworkInfo{Name: name, Attached: exists}
+	if !exists {
+		return info, nil
+	}
+	for _, address := range []string{
+		network.IPAddress,
+		network.GlobalIPv6Address,
+	} {
+		if address = strings.TrimSpace(address); address != "" {
+			info.Addresses = append(info.Addresses, address)
+		}
+	}
+	return info, nil
 }
 
 func (docker *Docker) networkOwner(
@@ -275,12 +300,16 @@ func (docker *Docker) Create(ctx context.Context, request CreateRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := docker.runner.Run(
-		ctx, docker.command, args, nil, io.Discard, docker.stderr,
-	); err != nil {
-		return fmt.Errorf("create container %q: %w", request.ContainerName, err)
-	}
-	return nil
+	return runWithCapturedError(
+		ctx,
+		docker.runner,
+		docker.command,
+		args,
+		nil,
+		io.Discard,
+		docker.stderr,
+		"create container "+request.ContainerName,
+	)
 }
 
 func (docker *Docker) Start(ctx context.Context, name string) error {
@@ -572,17 +601,16 @@ func (docker *Docker) simple(
 	action string,
 	name string,
 ) error {
-	if err := docker.runner.Run(
+	return runWithCapturedError(
 		ctx,
+		docker.runner,
 		docker.command,
 		[]string{action, name},
 		nil,
 		io.Discard,
 		docker.stderr,
-	); err != nil {
-		return fmt.Errorf("%s container %q: %w", action, name, err)
-	}
-	return nil
+		action+" container "+name,
+	)
 }
 
 func createArguments(request CreateRequest, apple bool) ([]string, error) {
@@ -628,6 +656,7 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 	for _, key := range keys {
 		args = append(args, "--env", key+"="+environment[key])
 	}
+	mountedSources := make(map[string]string, len(request.Manifest.Mounts))
 	for _, mount := range request.Manifest.Mounts {
 		var source string
 		if mount.Storage == catalog.MountStorageVolume {
@@ -639,6 +668,16 @@ func createArguments(request CreateRequest, apple bool) ([]string, error) {
 				return nil, fmt.Errorf("mount path %q is missing", mount.Name)
 			}
 		}
+		if previousTarget, exists := mountedSources[source]; exists &&
+			previousTarget != mount.Target {
+			return nil, fmt.Errorf(
+				"mount source %q cannot be attached to both %q and %q",
+				source,
+				previousTarget,
+				mount.Target,
+			)
+		}
+		mountedSources[source] = mount.Target
 		args = append(args, "--volume", source+":"+mount.Target)
 	}
 	return append(args, request.Image), nil

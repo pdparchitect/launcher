@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,50 @@ func TestCreateDoesNotCreateHostPathForRuntimeVolume(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(paths.Root, "private/services")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runtime volume host path exists: %v", err)
+	}
+}
+
+func TestEnsurePathsCreatesNewHostMountWithoutRuntimeVolumeDirectory(t *testing.T) {
+	dataStore := New(t.TempDir())
+	manifest := testManifest()
+	instance := testInstance("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ada")
+	if _, err := dataStore.Create(instance, manifest); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	manifest.Mounts = append(manifest.Mounts,
+		catalog.Mount{Name: "new-host", Target: "/new-host"},
+		catalog.Mount{
+			Name: "new-volume", Target: "/new-volume",
+			Storage: catalog.MountStorageVolume,
+		},
+	)
+
+	paths, err := dataStore.EnsurePaths(instance.ID, manifest)
+
+	if err != nil {
+		t.Fatalf("EnsurePaths() error = %v", err)
+	}
+	if _, err := os.Stat(paths.Mounts["new-host"]); err != nil {
+		t.Fatalf("new host mount is unavailable: %v", err)
+	}
+	if _, exists := paths.Mounts["new-volume"]; exists {
+		t.Fatalf("runtime volume has host path: %#v", paths.Mounts)
+	}
+}
+
+func TestExistingHostPathsForVolumesDetectsLegacyStorage(t *testing.T) {
+	dataStore := New(t.TempDir())
+	manifest := testManifest()
+	instance := testInstance("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ada")
+	if _, err := dataStore.Create(instance, manifest); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	manifest.Mounts[0].Storage = catalog.MountStorageVolume
+
+	conflicts, err := dataStore.ExistingHostPathsForVolumes(instance.ID, manifest)
+
+	if err != nil || !slices.Equal(conflicts, []string{"workspace"}) {
+		t.Fatalf("ExistingHostPathsForVolumes() = %#v, %v", conflicts, err)
 	}
 }
 

@@ -82,8 +82,13 @@ Managing them is the ordinary part:
 
 - Browse available applications
 - Install multiple local agent instances
-- Start, stop, update, rename, and delete agents
+- Start, stop, update, duplicate, rename, and delete agents
+- Inspect an agent's files, mounts, local interfaces, isolated network, IP
+  addresses, and live resource usage from the CLI
+- Update through a health-checked candidate while retaining the previous
+  runtime for rollback, and recover a missing runtime from its stored manifest
 - Open an agent's local interface
+- Save a running agent's live preview image
 - Inspect logs and runtime health
 - Execute commands inside running agents
 - Clean up old local images previously pulled by Launcher

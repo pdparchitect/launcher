@@ -191,6 +191,50 @@ func (dataStore *Store) Paths(id string, manifest catalog.Manifest) Paths {
 	return Paths{Root: root, Mounts: mounts}
 }
 
+func (dataStore *Store) EnsurePaths(
+	id string,
+	manifest catalog.Manifest,
+) (Paths, error) {
+	if _, err := dataStore.AgentRoot(id); err != nil {
+		return Paths{}, err
+	}
+	paths := dataStore.Paths(id, manifest)
+	for name, mountPath := range paths.Mounts {
+		if err := os.MkdirAll(mountPath, 0o700); err != nil {
+			return Paths{}, fmt.Errorf("create mount directory %q: %w", name, err)
+		}
+	}
+	return paths, nil
+}
+
+func (dataStore *Store) ExistingHostPathsForVolumes(
+	id string,
+	manifest catalog.Manifest,
+) ([]string, error) {
+	root, err := dataStore.AgentRoot(id)
+	if err != nil {
+		return nil, err
+	}
+	var conflicts []string
+	for _, mount := range manifest.Mounts {
+		if mount.Storage != catalog.MountStorageVolume {
+			continue
+		}
+		mountPath := filepath.Join(root, filepath.FromSlash(mount.Name))
+		info, err := os.Stat(mountPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect legacy mount %q: %w", mount.Name, err)
+		}
+		if info.IsDir() {
+			conflicts = append(conflicts, mount.Name)
+		}
+	}
+	return conflicts, nil
+}
+
 func (dataStore *Store) AgentRoot(id string) (string, error) {
 	if !domain.ValidID(id) {
 		return "", errors.New("invalid agent ID")

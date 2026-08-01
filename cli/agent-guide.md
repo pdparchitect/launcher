@@ -59,9 +59,22 @@ launcher start NAME
 launcher stop NAME
 launcher open NAME
 launcher viewer NAME
+launcher preview --output PATH NAME
 launcher logs NAME
 launcher logs --follow NAME
 ```
+
+`status` is the complete read-only inspection command. It reports the agent's
+actual and desired state, image and container identity, creation time, managed
+files and declared mounts, every local interface URL, managed network and
+provider-reported IP addresses, and live CPU, memory, and uptime information
+when available. Runtime inspection errors are shown inline so the remaining
+stored details are still usable. Use `logs` separately for container output.
+
+`start` also repairs a missing runtime container when the agent has a stored
+runtime manifest. Launcher recreates the container with its installed image,
+interfaces, mounts, network, and persistent data, then waits for any declared
+health interface. It does not silently substitute a different catalogue image.
 
 `open` opens the application's primary local interface. When no graphical
 opener is available, it prints the local URL instead.
@@ -71,7 +84,39 @@ when the installed build supports the desktop interface. On macOS, this viewer
 also exposes native menus for opening the agent's files, renaming it, and
 stopping it while closing the window.
 
+`preview` saves one current image from a running agent's declared live-preview
+interface:
+
+```sh
+launcher preview --output ./agent-preview.jpg NAME
+launcher preview --output ./agent-preview.jpg --force NAME
+```
+
+The destination is never replaced unless `--force` is supplied. Launcher waits
+for a preview that is still initializing, but does not guess a preview URL for
+an application that has not declared one.
+
 Stopping preserves the agent and its files. Starting resumes the same agent.
+
+## Duplicate an agent
+
+Duplicate an installed agent when the task requires an independent copy of its
+persistent files and configuration:
+
+```sh
+launcher duplicate SOURCE NEW_NAME
+launcher duplicate --start SOURCE NEW_NAME
+```
+
+The duplicate uses the source's exact image and catalogue application, but gets
+a new identity, container, network, and ports. It is stopped by default. An
+active source is stopped only while its persistent files are copied and is then
+started again.
+
+Duplication copies credentials, login sessions, private configuration, and
+workspace contents stored in declared host mounts. Treat the duplicate as
+sensitive. Applications using runtime-managed volumes cannot currently be
+duplicated; Launcher rejects them instead of creating an incomplete copy.
 
 ## Execute commands inside an agent
 

@@ -3,7 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +56,8 @@ func TestGuidePrintsCurrentAgentInstructions(t *testing.T) {
 		"launcher create --app SLUG_OR_ID NAME",
 		"Never guess or silently choose an application.",
 		"launcher viewer NAME",
+		"launcher preview --output PATH NAME",
+		"launcher duplicate SOURCE NEW_NAME",
 		"launcher exec NAME COMMAND [ARG...]",
 		"launcher delete --force NAME",
 	} {
@@ -119,6 +129,59 @@ func TestListPrintsAgentTable(t *testing.T) {
 	}
 }
 
+func TestStatusPrintsFilesInterfacesNetworkAndMetrics(t *testing.T) {
+	instance := testInstance()
+	instance.Interfaces["preview"] = domain.Interface{
+		Kind: "preview", Port: 16903, Path: "/preview.jpg",
+	}
+	service := &fakeService{details: agent.Details{
+		View: agent.View{
+			Instance: instance,
+			State:    launchruntime.StatusRunning,
+			Metrics: launchruntime.Metrics{
+				CPUPercent: 1.25, CPUAvailable: true,
+				MemoryPercent: 12.5, MemoryAvailable: true,
+				MemoryUsageBytes: 128 * 1024 * 1024,
+				MemoryLimitBytes: 1024 * 1024 * 1024,
+			},
+			Uptime: 5 * time.Minute,
+		},
+		Files: "/tmp/launcher/agents/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Mounts: []agent.MountDetails{{
+			Name: "workspace", Target: "/workspace", Storage: "host",
+			Source: "/tmp/launcher/agents/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/workspace",
+		}},
+		Network: launchruntime.NetworkInfo{
+			Name:     "launcher-agent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Attached: true, Addresses: []string{"172.20.0.2"},
+		},
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := New(service, &fakeOpener{}, &stdout, &stderr, "test")
+
+	if code := app.Run(t.Context(), []string{"status", "Ada"}); code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
+	}
+
+	for _, expected := range []string{
+		"Files:         /tmp/launcher/agents/",
+		"Mount workspace:",
+		"Interface desktop: http://127.0.0.1:16902/ (kasmweb)",
+		"Interface preview: http://127.0.0.1:16903/preview.jpg (preview)",
+		"Network:       launcher-agent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"Attached:      true",
+		"IP address:    172.20.0.2",
+		"Uptime:        5m0s",
+		"CPU:           1.25%",
+		"Memory:        12.50% (128.0 MiB / 1.0 GiB)",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("stdout = %q, missing %q", stdout.String(), expected)
+		}
+	}
+}
+
 func TestCreateStartsByDefault(t *testing.T) {
 	service := &fakeService{created: testInstance()}
 	app := New(service, &fakeOpener{}, &bytes.Buffer{}, &bytes.Buffer{}, "test")
@@ -151,6 +214,56 @@ func TestCreateRequiresApplication(t *testing.T) {
 			service.createOptions,
 			stderr.String(),
 		)
+	}
+}
+
+func TestDuplicateCopiesAgentStoppedByDefault(t *testing.T) {
+	duplicate := testInstance()
+	duplicate.Name = "Ada Copy"
+	duplicate.DesiredState = domain.DesiredStopped
+	service := &fakeService{duplicated: duplicate}
+	var stdout bytes.Buffer
+	app := New(service, &fakeOpener{}, &stdout, &bytes.Buffer{}, "test")
+
+	if code := app.Run(
+		t.Context(),
+		[]string{"duplicate", "Ada", "Ada Copy"},
+	); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if service.duplicateReference != "Ada" ||
+		service.duplicateOptions.Name != "Ada Copy" ||
+		service.duplicateOptions.Start {
+		t.Fatalf(
+			"reference = %q, options = %#v",
+			service.duplicateReference,
+			service.duplicateOptions,
+		)
+	}
+	for _, expected := range []string{
+		"Duplicated Ada as Ada Copy",
+		`launcher start "Ada Copy"`,
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("stdout = %q, missing %q", stdout.String(), expected)
+		}
+	}
+}
+
+func TestDuplicateCanStartTheCopy(t *testing.T) {
+	duplicate := testInstance()
+	duplicate.Name = "Ada Copy"
+	service := &fakeService{duplicated: duplicate}
+	app := New(service, &fakeOpener{}, &bytes.Buffer{}, &bytes.Buffer{}, "test")
+
+	if code := app.Run(
+		t.Context(),
+		[]string{"duplicate", "--start", "Ada", "Ada Copy"},
+	); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	if !service.duplicateOptions.Start {
+		t.Fatalf("DuplicateOptions = %#v", service.duplicateOptions)
 	}
 }
 
@@ -198,6 +311,212 @@ func TestOpenPrintsDesktopURL(t *testing.T) {
 		!strings.Contains(stdout.String(), opener.url) {
 		t.Fatalf("opened = %q, stdout = %q", opener.url, stdout.String())
 	}
+}
+
+func TestPreviewSavesDeclaredImageAfterRetry(t *testing.T) {
+	image := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		requests++
+		if requests == 1 {
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		response.Header().Set("Content-Type", "image/jpeg")
+		_, _ = response.Write(image)
+	}))
+	defer server.Close()
+	service := &fakeService{view: testPreviewView(t, server.URL, launchruntime.StatusRunning)}
+	var stdout bytes.Buffer
+	app := New(service, &fakeOpener{}, &stdout, &bytes.Buffer{}, "test")
+	app.preview.client = server.Client()
+	app.preview.attempts = 2
+	app.preview.retryDelay = 0
+	destination := filepath.Join(t.TempDir(), "ada.jpg")
+
+	if code := app.Run(t.Context(), []string{
+		"preview", "--output", destination, "Ada",
+	}); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || !bytes.Equal(data, image) {
+		t.Fatalf("saved preview = %v, %v", data, err)
+	}
+	info, err := os.Stat(destination)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("saved preview mode = %v", info.Mode().Perm())
+	}
+	if requests != 2 || !strings.Contains(stdout.String(), destination) {
+		t.Fatalf("requests = %d, stdout = %q", requests, stdout.String())
+	}
+}
+
+func TestPreviewRefusesToOverwriteWithoutForce(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "ada.jpg")
+	if err := os.WriteFile(destination, []byte("original"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	var stderr bytes.Buffer
+	app := New(&fakeService{}, &fakeOpener{}, &bytes.Buffer{}, &stderr, "test")
+
+	if code := app.Run(t.Context(), []string{
+		"preview", "--output", destination, "Ada",
+	}); code == 0 {
+		t.Fatal("Run() code = 0")
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "original" ||
+		!strings.Contains(stderr.String(), "use --force") {
+		t.Fatalf("destination = %q, error = %v, stderr = %q", data, err, stderr.String())
+	}
+}
+
+func TestPreviewForceReplacesExistingFile(t *testing.T) {
+	image := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		_, _ = response.Write(image)
+	}))
+	defer server.Close()
+	destination := filepath.Join(t.TempDir(), "ada.jpg")
+	if err := os.WriteFile(destination, []byte("original"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	app := New(
+		&fakeService{view: testPreviewView(t, server.URL, launchruntime.StatusRunning)},
+		&fakeOpener{},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		"test",
+	)
+	app.preview.client = server.Client()
+
+	if code := app.Run(t.Context(), []string{
+		"preview", "--output", destination, "--force", "Ada",
+	}); code != 0 {
+		t.Fatalf("Run() code = %d", code)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || !bytes.Equal(data, image) {
+		t.Fatalf("saved preview = %v, %v", data, err)
+	}
+}
+
+func TestPreviewRejectsNonImageAndOversizedResponses(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		maxBytes int64
+		want     string
+	}{
+		{name: "non-image", data: []byte("not an image"), maxBytes: 1024, want: "instead of an image"},
+		{
+			name:     "oversized",
+			data:     []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00},
+			maxBytes: 4,
+			want:     "size limit",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "preview.jpg")
+
+			err := writePreviewAtomically(
+				destination,
+				bytes.NewReader(test.data),
+				false,
+				test.maxBytes,
+			)
+
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("writePreviewAtomically() error = %v", err)
+			}
+			if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("destination error = %v", statErr)
+			}
+		})
+	}
+}
+
+func TestPreviewRequiresRunningAgentWithDeclaredInterface(t *testing.T) {
+	tests := []struct {
+		name string
+		view agent.View
+		want string
+	}{
+		{
+			name: "stopped",
+			view: agent.View{
+				Instance: testInstance(),
+				State:    launchruntime.StatusStopped,
+			},
+			want: "must be running",
+		},
+		{
+			name: "missing preview",
+			view: agent.View{
+				Instance: testInstance(),
+				State:    launchruntime.StatusRunning,
+			},
+			want: "does not expose a preview interface",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			app := New(
+				&fakeService{view: test.view},
+				&fakeOpener{},
+				&bytes.Buffer{},
+				&stderr,
+				"test",
+			)
+			destination := filepath.Join(t.TempDir(), "ada.jpg")
+
+			if code := app.Run(t.Context(), []string{
+				"preview", "--output", destination, "Ada",
+			}); code == 0 {
+				t.Fatal("Run() code = 0")
+			}
+			if !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func testPreviewView(
+	t *testing.T,
+	serverURL string,
+	state launchruntime.Status,
+) agent.View {
+	t.Helper()
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("Atoi() error = %v", err)
+	}
+	instance := testInstance()
+	instance.Interfaces["preview"] = domain.Interface{
+		Kind: "preview", Port: port, Path: "/preview.jpg",
+	}
+	return agent.View{Instance: instance, State: state}
 }
 
 func TestDoctorOffersRuntimeInstaller(t *testing.T) {
@@ -453,18 +772,22 @@ func TestExecPassesCommandAndTerminalStreamsToService(t *testing.T) {
 }
 
 type fakeService struct {
-	catalog           []agent.CatalogEntry
-	created           domain.Instance
-	createCalled      bool
-	createOptions     agent.CreateOptions
-	views             []agent.View
-	view              agent.View
-	deleteCalled      bool
-	doctorErr         error
-	cleanupReport     agent.ImageCleanupReport
-	cleanupMinimumAge time.Duration
-	execReference     string
-	execOptions       agent.ExecOptions
+	catalog            []agent.CatalogEntry
+	created            domain.Instance
+	createCalled       bool
+	createOptions      agent.CreateOptions
+	duplicated         domain.Instance
+	duplicateReference string
+	duplicateOptions   agent.DuplicateOptions
+	views              []agent.View
+	view               agent.View
+	details            agent.Details
+	deleteCalled       bool
+	doctorErr          error
+	cleanupReport      agent.ImageCleanupReport
+	cleanupMinimumAge  time.Duration
+	execReference      string
+	execOptions        agent.ExecOptions
 }
 
 func (service *fakeService) Doctor(context.Context) (agent.DoctorReport, error) {
@@ -485,11 +808,23 @@ func (service *fakeService) Create(
 	service.createOptions = options
 	return service.created, nil
 }
+func (service *fakeService) Duplicate(
+	_ context.Context,
+	reference string,
+	options agent.DuplicateOptions,
+) (domain.Instance, error) {
+	service.duplicateReference = reference
+	service.duplicateOptions = options
+	return service.duplicated, nil
+}
 func (service *fakeService) List(context.Context) ([]agent.View, error) {
 	return service.views, nil
 }
 func (service *fakeService) Get(context.Context, string) (agent.View, error) {
 	return service.view, nil
+}
+func (service *fakeService) Details(context.Context, string) (agent.Details, error) {
+	return service.details, nil
 }
 func (*fakeService) Start(context.Context, string) (domain.Instance, error) {
 	return testInstance(), nil

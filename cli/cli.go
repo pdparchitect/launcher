@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -20,8 +21,14 @@ type Service interface {
 	Doctor(context.Context) (agent.DoctorReport, error)
 	Catalog() []agent.CatalogEntry
 	Create(context.Context, agent.CreateOptions) (domain.Instance, error)
+	Duplicate(
+		context.Context,
+		string,
+		agent.DuplicateOptions,
+	) (domain.Instance, error)
 	List(context.Context) ([]agent.View, error)
 	Get(context.Context, string) (agent.View, error)
+	Details(context.Context, string) (agent.Details, error)
 	Start(context.Context, string) (domain.Instance, error)
 	Stop(context.Context, string) (domain.Instance, error)
 	Delete(context.Context, string) error
@@ -42,6 +49,7 @@ type App struct {
 	viewer       ViewerFunc
 	viewerTarget ViewerTargetFunc
 	refresh      CatalogRefreshFunc
+	preview      previewDownloadOptions
 	terminal     bool
 }
 
@@ -96,7 +104,7 @@ func New(
 ) *App {
 	app := &App{
 		service: service, opener: opener, stdout: stdout, stderr: stderr,
-		version: version,
+		version: version, preview: defaultPreviewDownloadOptions(),
 	}
 	for _, option := range options {
 		option(app)
@@ -132,6 +140,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		err = app.catalog(ctx, args[1:])
 	case "create":
 		err = app.create(ctx, args[1:])
+	case "duplicate", "clone":
+		err = app.duplicate(ctx, args[1:])
 	case "list", "library", "ls":
 		err = app.list(ctx, args[1:])
 	case "status":
@@ -142,6 +152,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		err = app.stop(ctx, args[1:])
 	case "open":
 		err = app.open(ctx, args[1:])
+	case "preview":
+		err = app.savePreview(ctx, args[1:])
 	case "logs":
 		err = app.logs(ctx, args[1:])
 	case "exec":
@@ -372,6 +384,37 @@ func (app *App) create(ctx context.Context, args []string) error {
 	return nil
 }
 
+func (app *App) duplicate(ctx context.Context, args []string) error {
+	flags := app.flags("duplicate", "Duplicate an agent and its persistent files.")
+	start := flags.Bool("start", false, "start the duplicate after copying")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 2 ||
+		strings.TrimSpace(flags.Arg(0)) == "" ||
+		strings.TrimSpace(flags.Arg(1)) == "" {
+		return errors.New(
+			"usage: launcher duplicate [--start] SOURCE NEW_NAME",
+		)
+	}
+	instance, err := app.service.Duplicate(ctx, flags.Arg(0), agent.DuplicateOptions{
+		Name:  flags.Arg(1),
+		Start: *start,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(app.stdout, "Duplicated %s as %s\n", flags.Arg(0), instance.Name)
+	if instance.DesiredState == domain.DesiredRunning {
+		if target, exists := displayURL(instance); exists {
+			fmt.Fprintf(app.stdout, "Open: %s\n", target)
+		}
+	} else {
+		fmt.Fprintf(app.stdout, "Start with: launcher start %q\n", instance.Name)
+	}
+	return nil
+}
+
 func (app *App) list(ctx context.Context, args []string) error {
 	flags := app.flags("list", "List installed agents.")
 	if err := flags.Parse(args); err != nil {
@@ -415,10 +458,11 @@ func (app *App) status(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	view, err := app.service.Get(ctx, reference)
+	details, err := app.service.Details(ctx, reference)
 	if err != nil {
 		return err
 	}
+	view := details.View
 	fmt.Fprintf(app.stdout, "Name:          %s\n", view.Name)
 	application := view.CatalogSlug
 	if application == "" {
@@ -426,13 +470,100 @@ func (app *App) status(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(app.stdout, "Application:   %s\n", application)
 	fmt.Fprintf(app.stdout, "State:         %s\n", view.State)
+	fmt.Fprintf(app.stdout, "Desired state: %s\n", view.DesiredState)
 	if target, exists := displayURL(view.Instance); exists {
 		fmt.Fprintf(app.stdout, "Open:          %s\n", target)
 	}
 	fmt.Fprintf(app.stdout, "Image:         %s\n", view.Image)
 	fmt.Fprintf(app.stdout, "Container:     %s\n", view.ContainerName)
 	fmt.Fprintf(app.stdout, "ID:            %s\n", view.ID)
+	fmt.Fprintf(app.stdout, "Created:       %s\n", view.CreatedAt.Format(time.RFC3339))
+	fmt.Fprintf(app.stdout, "Files:         %s\n", details.Files)
+	for _, mount := range details.Mounts {
+		source := mount.Source
+		if source == "" {
+			if mount.Storage == "volume" {
+				source = "runtime volume"
+			} else {
+				source = "unavailable"
+			}
+		}
+		fmt.Fprintf(
+			app.stdout,
+			"Mount %s: %s -> %s\n",
+			mount.Name,
+			source,
+			mount.Target,
+		)
+	}
+	interfaceIDs := make([]string, 0, len(view.Interfaces))
+	for id := range view.Interfaces {
+		interfaceIDs = append(interfaceIDs, id)
+	}
+	sort.Strings(interfaceIDs)
+	for _, id := range interfaceIDs {
+		resolved := view.Interfaces[id]
+		fmt.Fprintf(
+			app.stdout,
+			"Interface %s: %s (%s)\n",
+			id,
+			resolved.URL(),
+			resolved.Kind,
+		)
+	}
+	fmt.Fprintf(app.stdout, "Network:       %s\n", details.Network.Name)
+	fmt.Fprintf(app.stdout, "Attached:      %t\n", details.Network.Attached)
+	for _, address := range details.Network.Addresses {
+		fmt.Fprintf(app.stdout, "IP address:    %s\n", address)
+	}
+	if details.NetworkError != "" {
+		fmt.Fprintf(app.stdout, "Network error: %s\n", details.NetworkError)
+	}
+	if view.Uptime > 0 {
+		fmt.Fprintf(
+			app.stdout,
+			"Uptime:        %s\n",
+			view.Uptime.Round(time.Second),
+		)
+	}
+	if view.Metrics.CPUAvailable {
+		fmt.Fprintf(app.stdout, "CPU:           %.2f%%\n", view.Metrics.CPUPercent)
+	}
+	if view.Metrics.MemoryAvailable {
+		fmt.Fprintf(
+			app.stdout,
+			"Memory:        %.2f%%",
+			view.Metrics.MemoryPercent,
+		)
+		if view.Metrics.MemoryUsageBytes > 0 || view.Metrics.MemoryLimitBytes > 0 {
+			fmt.Fprintf(
+				app.stdout,
+				" (%s / %s)",
+				formatBytes(view.Metrics.MemoryUsageBytes),
+				formatBytes(view.Metrics.MemoryLimitBytes),
+			)
+		}
+		fmt.Fprintln(app.stdout)
+	}
+	if view.MetricsError != "" {
+		fmt.Fprintf(app.stdout, "Metrics error: %s\n", view.MetricsError)
+	}
 	return nil
+}
+
+func formatBytes(value uint64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	scaled := float64(value)
+	index := -1
+	for scaled >= unit && index < len(units)-1 {
+		scaled /= unit
+		index++
+	}
+	return fmt.Sprintf("%.1f %s", scaled, units[index])
 }
 
 func (app *App) start(ctx context.Context, args []string) error {
@@ -617,11 +748,15 @@ Commands:
   catalog             Browse available applications
   create --app SLUG NAME
                        Create and start a catalogue application
+  duplicate SOURCE NEW_NAME
+                       Copy an agent and its persistent files
   list                Show the agent library
   status NAME         Show one agent
   start NAME          Start an agent
   stop NAME           Stop an agent
   open NAME           Open its desktop or dashboard
+  preview --output PATH NAME
+                       Save its current preview image
   logs NAME           Show its logs
   exec NAME COMMAND   Execute a command inside a running agent
   delete --force NAME Permanently delete an agent
