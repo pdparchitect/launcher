@@ -232,6 +232,26 @@ func TestDockerNetworkAttachedFindsManagedNetwork(t *testing.T) {
 	}
 }
 
+func TestDockerNetworkInfoReadsManagedNetworkAddresses(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	name := ManagedNetworkName(instanceID)
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(
+		`{"` + name + `":{"IPAddress":"172.20.0.2","GlobalIPv6Address":"fd00::2"}}`,
+	)}}
+	docker := NewDocker("docker", runner, io.Discard, io.Discard)
+
+	info, err := docker.NetworkInfo(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		instanceID,
+	)
+
+	if err != nil || !info.Attached || info.Name != name ||
+		!reflect.DeepEqual(info.Addresses, []string{"172.20.0.2", "fd00::2"}) {
+		t.Fatalf("NetworkInfo() = %#v, %v", info, err)
+	}
+}
+
 func TestAppleNetworkAttachedFindsManagedNetwork(t *testing.T) {
 	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	name := ManagedNetworkName(instanceID)
@@ -251,6 +271,30 @@ func TestAppleNetworkAttachedFindsManagedNetwork(t *testing.T) {
 	)
 	if err != nil || !attached {
 		t.Fatalf("NetworkAttached() = %t, %v", attached, err)
+	}
+}
+
+func TestAppleNetworkInfoReadsManagedNetworkAddress(t *testing.T) {
+	instanceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	name := ManagedNetworkName(instanceID)
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
+  {
+    "networks": [{"network": "` + name + `", "address": "192.168.64.3/24"}],
+    "configuration": {"labels": {}},
+    "status": "running"
+  }
+]`)}}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	info, err := apple.NetworkInfo(
+		t.Context(),
+		"launcher-ghost-aaaaaaaaaaaa",
+		instanceID,
+	)
+
+	if err != nil || !info.Attached || info.Name != name ||
+		!reflect.DeepEqual(info.Addresses, []string{"192.168.64.3/24"}) {
+		t.Fatalf("NetworkInfo() = %#v, %v", info, err)
 	}
 }
 
@@ -284,6 +328,43 @@ func TestAppleCreateUsesNativeVolumeForVolumeStorage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.runArgs, want) {
 		t.Fatalf("Create() args = %#v\nwant %#v", runner.runArgs, want)
+	}
+}
+
+func TestAppleCreatePreservesUnderlyingRuntimeError(t *testing.T) {
+	runner := &fakeRunner{
+		runErr:    errExit,
+		runStderr: "invalid storage-device attachment",
+	}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	err := apple.Create(t.Context(), testCreateRequest("linux/arm64"))
+
+	if err == nil ||
+		!strings.Contains(err.Error(), "invalid storage-device attachment") ||
+		!strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("Create() error = %v", err)
+	}
+}
+
+func TestCreateArgumentsRejectsOneSourceForMultipleTargets(t *testing.T) {
+	request := testCreateRequest("linux/arm64")
+	request.Manifest.Mounts = []catalog.Mount{
+		{Name: "first", Target: "/first"},
+		{Name: "second", Target: "/second"},
+	}
+	request.Paths = map[string]string{
+		"first":  "/host/shared",
+		"second": "/host/shared",
+	}
+
+	_, err := createArguments(request, true)
+
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"cannot be attached to both",
+	) {
+		t.Fatalf("createArguments() error = %v", err)
 	}
 }
 
@@ -483,6 +564,23 @@ func TestAppleStatusReadsInspectJSON(t *testing.T) {
 	]`)}}
 	apple := NewApple("container", runner, io.Discard, io.Discard)
 	status, err := apple.Status(t.Context(), "launcher-ghost-aaaaaaaaaaaa")
+	if err != nil || status != StatusRunning {
+		t.Fatalf("Status() = %q, %v", status, err)
+	}
+}
+
+func TestAppleStatusReadsCurrentInspectJSON(t *testing.T) {
+	runner := &fakeRunner{captureResult: Result{Stdout: []byte(`[
+		{
+			"id":"launcher-ghost-aaaaaaaaaaaa",
+			"configuration":{"labels":{}},
+			"status":"running"
+		}
+	]`)}}
+	apple := NewApple("container", runner, io.Discard, io.Discard)
+
+	status, err := apple.Status(t.Context(), "launcher-ghost-aaaaaaaaaaaa")
+
 	if err != nil || status != StatusRunning {
 		t.Fatalf("Status() = %q, %v", status, err)
 	}
@@ -834,6 +932,7 @@ type fakeRunner struct {
 	runCalled      bool
 	runStdout      string
 	runStderr      string
+	runErr         error
 	runStdin       io.Reader
 }
 
@@ -867,7 +966,7 @@ func (runner *fakeRunner) Run(
 	runner.runStdin = stdin
 	_, _ = io.WriteString(stdout, runner.runStdout)
 	_, _ = io.WriteString(stderr, runner.runStderr)
-	return nil
+	return runner.runErr
 }
 
 func containsString(values []string, expected string) bool {

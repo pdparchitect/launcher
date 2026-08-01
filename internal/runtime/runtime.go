@@ -43,6 +43,12 @@ type Metrics struct {
 	StartedAt        time.Time
 }
 
+type NetworkInfo struct {
+	Name      string
+	Attached  bool
+	Addresses []string
+}
+
 type LocalImage struct {
 	ID string
 }
@@ -61,6 +67,7 @@ type Lifecycle interface {
 	EnsureNetwork(context.Context, string) error
 	DeleteNetwork(context.Context, string) error
 	NetworkAttached(context.Context, string, string) (bool, error)
+	NetworkInfo(context.Context, string, string) (NetworkInfo, error)
 	Create(context.Context, CreateRequest) error
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
@@ -94,6 +101,35 @@ type Runner interface {
 }
 
 type OSRunner struct{}
+
+func runWithCapturedError(
+	ctx context.Context,
+	runner Runner,
+	command string,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+	action string,
+) error {
+	var capturedOutput bytes.Buffer
+	var capturedError bytes.Buffer
+	err := runner.Run(
+		ctx,
+		command,
+		args,
+		stdin,
+		io.MultiWriter(stdout, &capturedOutput),
+		io.MultiWriter(stderr, &capturedError),
+	)
+	if err == nil {
+		return nil
+	}
+	return commandError(action, Result{
+		Stdout: capturedOutput.Bytes(),
+		Stderr: capturedError.Bytes(),
+	}, err)
+}
 
 func recentLogText(result Result) string {
 	stdout := string(result.Stdout)

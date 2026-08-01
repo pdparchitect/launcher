@@ -96,12 +96,14 @@ launcher desktop
 launcher serve
 launcher catalog [--refresh]
 launcher create --app SLUG_OR_ID NAME
+launcher duplicate [--start] SOURCE NEW_NAME
 launcher list
 launcher status NAME
 launcher start NAME
 launcher stop NAME
 launcher open NAME
 launcher viewer NAME
+launcher preview --output PATH [--force] NAME
 launcher logs [--follow] NAME
 launcher exec [--tty] NAME COMMAND [ARG...]
 launcher delete --force NAME
@@ -116,12 +118,21 @@ For example:
 launcher doctor
 launcher catalog
 launcher create --app pantalk-ghost Ada
+launcher duplicate Ada "Ada Copy"
 launcher list
 launcher open Ada
 launcher viewer Ada
+launcher preview --output ./ada-preview.jpg Ada
 launcher exec Ada uname -a
 launcher exec --tty Ada bash
 ```
+
+`launcher status NAME` prints the agent's stored identity and desired state,
+its live runtime state, managed file root and declared mount locations, all
+local interface URLs, its isolated network and provider-reported IP addresses,
+and CPU, memory, and uptime information when available. Network or metrics
+inspection failures are printed inline without hiding the remaining details.
+Logs remain available through the separate `launcher logs` command.
 
 `launcher guide` prints a self-contained Markdown tutorial embedded in the
 binary. It is intended for both people and automated agents that need to learn
@@ -134,8 +145,23 @@ browser.
 `launcher viewer` opens the agent in Launcher's specialized framed desktop
 window. On macOS, that window includes the native agent-management menus.
 
+`launcher preview --output PATH NAME` saves one current image from the running
+agent's declared preview interface. Launcher retries while the graphical
+session initializes, validates and bounds the image, and writes it atomically
+to the requested location. Existing destinations are preserved unless
+`--force` is supplied. Applications without a declared preview interface are
+reported as unsupported rather than using a guessed URL.
+
 `launcher catalog` includes each application's slug, name, publisher, and
 resolved container image. Use the slug with `launcher create --app`.
+
+`launcher duplicate` creates an independent agent using the source's catalogue
+application, exact image, and persistent host-mounted files. The duplicate has
+its own identity, container, network, and ports and remains stopped unless
+`--start` is supplied. Launcher briefly stops an active source while copying
+and starts it again afterward. Credentials and private data in declared mounts
+are copied too. Applications with runtime-managed volumes are rejected rather
+than partially duplicated.
 
 `launcher exec` runs the command directly without a host shell and streams its
 standard input, output, and error through the selected container provider. Use
@@ -187,6 +213,27 @@ removes tracked images that no installed agent references and that have been
 unused for at least seven days. It never runs a global runtime prune, so images
 from other applications and all runtime volumes are left untouched. Run
 `launcher cleanup` to apply the same safe cleanup policy manually.
+
+## Agent application updates and recovery
+
+Application updates from the Library use a candidate container. Launcher
+prepares the new files, interfaces, network, and runtime manifest before
+stopping the installed container. The stopped container is retained while the
+candidate is created and started. When the application declares a health
+interface, Launcher waits for that interface before committing the candidate
+and removing the previous container.
+
+If candidate creation, startup, health checking, or metadata storage fails,
+Launcher removes only the candidate and restarts the previous container. Each
+new or successfully updated instance stores the exact manifest used to create
+its runtime, so `launcher start NAME` can recreate a missing container without
+depending on a later catalogue definition. Older instances acquire this
+snapshot when they are next recovered or successfully updated.
+
+Changing an existing mount between host storage and a runtime volume requires
+an explicit data migration and is rejected before the installed container is
+stopped. Errors from Docker or Apple `container` include the provider's output
+so a failed resource is visible in the Library instead of only an exit status.
 
 ## Launcher updates
 

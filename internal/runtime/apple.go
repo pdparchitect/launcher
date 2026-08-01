@@ -26,14 +26,35 @@ type Apple struct {
 type appleContainer struct {
 	Networks []struct {
 		Network string `json:"network"`
+		Address string `json:"address"`
 	} `json:"networks"`
 	Configuration struct {
 		Labels map[string]string `json:"labels"`
 	} `json:"configuration"`
-	Status struct {
+	Status appleContainerStatus `json:"status"`
+}
+
+type appleContainerStatus struct {
+	State     string
+	StartedAt time.Time
+}
+
+func (status *appleContainerStatus) UnmarshalJSON(data []byte) error {
+	var state string
+	if err := json.Unmarshal(data, &state); err == nil {
+		status.State = state
+		return nil
+	}
+	var value struct {
 		State     string    `json:"state"`
 		StartedAt time.Time `json:"startedAt"`
-	} `json:"status"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	status.State = value.State
+	status.StartedAt = value.StartedAt
+	return nil
 }
 
 type appleNetwork struct {
@@ -285,17 +306,30 @@ func (apple *Apple) NetworkAttached(
 	containerName string,
 	instanceID string,
 ) (bool, error) {
+	info, err := apple.NetworkInfo(ctx, containerName, instanceID)
+	return info.Attached, err
+}
+
+func (apple *Apple) NetworkInfo(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (NetworkInfo, error) {
+	wanted := ManagedNetworkName(instanceID)
 	container, err := apple.inspect(ctx, containerName)
 	if err != nil {
-		return false, err
+		return NetworkInfo{Name: wanted}, err
 	}
-	wanted := ManagedNetworkName(instanceID)
 	for _, network := range container.Networks {
 		if network.Network == wanted {
-			return true, nil
+			info := NetworkInfo{Name: wanted, Attached: true}
+			if address := strings.TrimSpace(network.Address); address != "" {
+				info.Addresses = append(info.Addresses, address)
+			}
+			return info, nil
 		}
 	}
-	return false, nil
+	return NetworkInfo{Name: wanted}, nil
 }
 
 func (apple *Apple) networkOwner(
@@ -341,12 +375,16 @@ func (apple *Apple) Create(ctx context.Context, request CreateRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := apple.runner.Run(
-		ctx, apple.command, args, nil, io.Discard, apple.stderr,
-	); err != nil {
-		return fmt.Errorf("create container %q: %w", request.ContainerName, err)
-	}
-	return nil
+	return runWithCapturedError(
+		ctx,
+		apple.runner,
+		apple.command,
+		args,
+		nil,
+		io.Discard,
+		apple.stderr,
+		"create container "+request.ContainerName,
+	)
 }
 
 func (apple *Apple) Start(ctx context.Context, name string) error {
@@ -602,17 +640,16 @@ func (apple *Apple) simple(
 	action string,
 	name string,
 ) error {
-	if err := apple.runner.Run(
+	return runWithCapturedError(
 		ctx,
+		apple.runner,
 		apple.command,
 		[]string{action, name},
 		nil,
 		io.Discard,
 		apple.stderr,
-	); err != nil {
-		return fmt.Errorf("%s container %q: %w", action, name, err)
-	}
-	return nil
+		action+" container "+name,
+	)
 }
 
 var errAppleContainerMissing = errors.New("Apple container not found")

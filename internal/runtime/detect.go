@@ -283,6 +283,17 @@ func (missing *Missing) NetworkAttached(
 	}
 	return resolved.NetworkAttached(ctx, containerName, instanceID)
 }
+func (missing *Missing) NetworkInfo(
+	ctx context.Context,
+	containerName string,
+	instanceID string,
+) (NetworkInfo, error) {
+	resolved, err := missing.resolve()
+	if err != nil {
+		return NetworkInfo{Name: ManagedNetworkName(instanceID)}, err
+	}
+	return resolved.NetworkInfo(ctx, containerName, instanceID)
+}
 func (missing *Missing) Create(ctx context.Context, request CreateRequest) error {
 	resolved, err := missing.resolve()
 	if err != nil {

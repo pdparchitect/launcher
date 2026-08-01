@@ -54,7 +54,9 @@ func TestCreateStartStopAndDelete(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if instance.CatalogID != testGhostCatalogID ||
-		instance.DesiredState != domain.DesiredRunning {
+		instance.DesiredState != domain.DesiredRunning ||
+		instance.RuntimeManifest == nil ||
+		instance.RuntimeManifest.Image != instance.Image {
 		t.Fatalf("instance = %#v", instance)
 	}
 	if !containerRuntime.pullCalled || !containerRuntime.createCalled ||
@@ -108,7 +110,7 @@ func TestStartMigratesLegacyContainerToManagedNetwork(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	wantCalls := []string{
-		"inspect-network", "ensure-network", "stop", "remove", "create", "start",
+		"inspect-network", "ensure-network", "stop", "create", "start", "remove",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
@@ -117,6 +119,39 @@ func TestStartMigratesLegacyContainerToManagedNetwork(t *testing.T) {
 		containerRuntime.createRequest.Network !=
 			launchruntime.ManagedNetworkName(instance.ID) {
 		t.Fatalf("migrated instance = %#v, runtime = %#v", started, containerRuntime)
+	}
+}
+
+func TestNetworkMigrationFailureRestartsPreviousContainer(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.networkAttachedKnown = true
+	containerRuntime.networkAttached = false
+	containerRuntime.createErrors = []error{errors.New("candidate failed")}
+
+	_, err = service.Start(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "previous container restored") {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if len(containerRuntime.removeNames) != 1 ||
+		containerRuntime.removeNames[0] == instance.ContainerName ||
+		len(containerRuntime.startNames) != 1 ||
+		containerRuntime.startNames[0] != instance.ContainerName {
+		t.Fatalf(
+			"remove names = %#v, start names = %#v",
+			containerRuntime.removeNames,
+			containerRuntime.startNames,
+		)
+	}
+	stored, readErr := service.store.Get(instance.ID)
+	if readErr != nil || stored.ContainerName != instance.ContainerName {
+		t.Fatalf("stored instance = %#v, %v", stored, readErr)
 	}
 }
 
@@ -310,6 +345,183 @@ func TestCreateResolvesSlugToStableCatalogueID(t *testing.T) {
 	}
 }
 
+func TestDuplicateCopiesPersistentFilesAndRestoresRunningSource(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	ids := []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	service.options.ID = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	service.options.Ports = &sequencePortAllocator{next: 16902}
+	source, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:pinned",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	manifest, _ := service.manifest(source.CatalogID)
+	sourceWorkspace := service.store.Paths(source.ID, manifest).Mounts["workspace"]
+	privateDirectory := filepath.Join(sourceWorkspace, ".private")
+	if err := os.MkdirAll(privateDirectory, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	secretPath := filepath.Join(privateDirectory, "token")
+	if err := os.WriteFile(secretPath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(".private/token", filepath.Join(sourceWorkspace, "token-link")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	duplicate, err := service.Duplicate(t.Context(), source.ID, DuplicateOptions{
+		Name: "Ada Copy",
+	})
+
+	if err != nil {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+	if duplicate.ID != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
+		duplicate.Name != "Ada Copy" ||
+		duplicate.CatalogID != source.CatalogID ||
+		duplicate.Image != source.Image ||
+		duplicate.ContainerName == source.ContainerName ||
+		duplicate.DesiredState != domain.DesiredStopped ||
+		duplicate.Interfaces["desktop"].Port == source.Interfaces["desktop"].Port {
+		t.Fatalf("source = %#v, duplicate = %#v", source, duplicate)
+	}
+	duplicateWorkspace := service.store.Paths(duplicate.ID, manifest).Mounts["workspace"]
+	data, readErr := os.ReadFile(filepath.Join(duplicateWorkspace, ".private", "token"))
+	if readErr != nil || string(data) != "secret\n" {
+		t.Fatalf("duplicated token = %q, %v", data, readErr)
+	}
+	info, statErr := os.Stat(filepath.Join(duplicateWorkspace, ".private", "token"))
+	if statErr != nil {
+		t.Fatalf("Stat() error = %v", statErr)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("duplicated token mode = %v", info.Mode().Perm())
+	}
+	link, linkErr := os.Readlink(filepath.Join(duplicateWorkspace, "token-link"))
+	if linkErr != nil || link != ".private/token" {
+		t.Fatalf("duplicated link = %q, %v", link, linkErr)
+	}
+	wantCalls := []string{
+		"pull", "resolve-image", "ensure-network", "create", "stop", "start",
+	}
+	if !reflect.DeepEqual(containerRuntime.calls, wantCalls) {
+		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
+	}
+}
+
+func TestDuplicateRejectsRuntimeManagedVolumes(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	manifest, _ := service.manifest(testGhostCatalogID)
+	manifest.Mounts = append(manifest.Mounts, catalog.Mount{
+		Name: "private/services", Target: "/var/lib/services",
+		Storage: catalog.MountStorageVolume,
+	})
+	service.ReplaceCatalog([]catalog.Manifest{manifest})
+	if _, err := service.Create(t.Context(), testCreateOptions("Ada")); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	_, err := service.Duplicate(t.Context(), "Ada", DuplicateOptions{Name: "Ada Copy"})
+
+	if err == nil || !strings.Contains(err.Error(), `runtime-managed mount "private/services"`) {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+	instances, listErr := service.store.List()
+	if listErr != nil || len(instances) != 1 || containerRuntime.createCalled {
+		t.Fatalf(
+			"instances = %#v, list error = %v, runtime calls = %#v",
+			instances,
+			listErr,
+			containerRuntime.calls,
+		)
+	}
+}
+
+func TestDuplicateCanStartCopyOfStoppedSource(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
+	service := newTestService(t, containerRuntime)
+	ids := []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	service.options.ID = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	if _, err := service.Create(t.Context(), testCreateOptions("Ada")); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	duplicate, err := service.Duplicate(t.Context(), "Ada", DuplicateOptions{
+		Name: "Ada Copy", Start: true,
+	})
+
+	if err != nil {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+	if duplicate.DesiredState != domain.DesiredRunning ||
+		containerRuntime.stopCalled ||
+		!containerRuntime.startCalled {
+		t.Fatalf("duplicate = %#v, runtime calls = %#v", duplicate, containerRuntime.calls)
+	}
+}
+
+func TestDuplicateRollsBackCopyFailureAndRestartsSource(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	ids := []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	service.options.ID = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	service.options.CopyFiles = func(string, string) error {
+		return errors.New("copy failed")
+	}
+	if _, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID, Name: "Ada", Start: true,
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+
+	_, err := service.Duplicate(t.Context(), "Ada", DuplicateOptions{Name: "Ada Copy"})
+
+	if err == nil || !strings.Contains(err.Error(), "copy failed") {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+	instances, listErr := service.store.List()
+	if listErr != nil || len(instances) != 1 || instances[0].Name != "Ada" {
+		t.Fatalf("instances after rollback = %#v, %v", instances, listErr)
+	}
+	if !containerRuntime.stopCalled ||
+		!containerRuntime.startCalled ||
+		!containerRuntime.removeCalled ||
+		!containerRuntime.deleteNetworkCalled {
+		t.Fatalf("runtime calls = %#v", containerRuntime.calls)
+	}
+}
+
 func TestListIncludesLiveRuntimeMetrics(t *testing.T) {
 	containerRuntime := &fakeRuntime{
 		status: launchruntime.StatusRunning,
@@ -366,6 +578,35 @@ func TestGetReportsCatalogueImageUpdate(t *testing.T) {
 	}
 }
 
+func TestDetailsIncludesFilesMountsAndManagedNetwork(t *testing.T) {
+	containerRuntime := &fakeRuntime{
+		networkInfo: launchruntime.NetworkInfo{
+			Name:      launchruntime.ManagedNetworkName("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+			Attached:  true,
+			Addresses: []string{"172.20.0.2"},
+		},
+	}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), testCreateOptions("Ada"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	details, err := service.Details(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Details() error = %v", err)
+	}
+	if details.Files == "" || len(details.Mounts) != 1 ||
+		details.Mounts[0].Name != "workspace" ||
+		details.Mounts[0].Target != "/workspace" ||
+		details.Mounts[0].Source == "" ||
+		!details.Network.Attached ||
+		!reflect.DeepEqual(details.Network.Addresses, []string{"172.20.0.2"}) {
+		t.Fatalf("Details() = %#v", details)
+	}
+}
+
 func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 	containerRuntime := &fakeRuntime{}
 	service := newTestService(t, containerRuntime)
@@ -386,14 +627,14 @@ func TestUpdateRecreatesRunningAgentWithoutReplacingItsStorage(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "remove", "create", "start",
+		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "create", "start", "remove",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
 	}
 	if updated.Image != "pantalk/ghost:default" ||
 		updated.ID != instance.ID ||
-		updated.ContainerName != instance.ContainerName ||
+		updated.ContainerName == instance.ContainerName ||
 		updated.Interfaces["desktop"].Port != instance.Interfaces["desktop"].Port ||
 		updated.DesiredState != domain.DesiredRunning {
 		t.Fatalf("Update() = %#v", updated)
@@ -433,7 +674,7 @@ func TestUpdateLeavesStoppedAgentStopped(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"resolve-image", "pull", "resolve-image", "ensure-network", "remove", "create",
+		"resolve-image", "pull", "resolve-image", "ensure-network", "create", "remove",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
@@ -480,8 +721,8 @@ func TestUpdateReportsLifecycleAndPullProgress(t *testing.T) {
 		"pulling:downloading updated layer",
 		"pulling:extracting updated layer",
 		"stopping:Stopping the current agent",
-		"replacing:Replacing the runtime container",
-		"starting:Starting the updated agent",
+		"replacing:Creating the updated runtime candidate",
+		"starting:Starting and checking the updated agent",
 		"ready:Agent update is ready",
 	} {
 		found := false
@@ -536,10 +777,7 @@ func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
 		t.Fatalf("Create() error = %v", err)
 	}
 	containerRuntime.resetCalls()
-	containerRuntime.createErrors = []error{
-		errors.New("replacement failed"),
-		nil,
-	}
+	containerRuntime.createErrors = []error{errors.New("replacement failed")}
 
 	_, err = service.Update(t.Context(), instance.ID)
 
@@ -547,19 +785,246 @@ func TestUpdateRestoresPreviousContainerWhenReplacementCreationFails(
 		t.Fatalf("Update() error = %v", err)
 	}
 	wantCalls := []string{
-		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "remove", "create", "create", "start",
+		"resolve-image", "pull", "resolve-image", "ensure-network", "stop", "create", "remove", "start",
 	}
 	if strings.Join(containerRuntime.calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("runtime calls = %#v, want %#v", containerRuntime.calls, wantCalls)
 	}
-	if len(containerRuntime.createRequests) != 2 ||
+	if len(containerRuntime.createRequests) != 1 ||
 		containerRuntime.createRequests[0].Image != "pantalk/ghost:default" ||
-		containerRuntime.createRequests[1].Image != "pantalk/ghost:old" {
+		len(containerRuntime.removeNames) != 1 ||
+		containerRuntime.removeNames[0] != containerRuntime.createRequests[0].ContainerName ||
+		len(containerRuntime.startNames) != 1 ||
+		containerRuntime.startNames[0] != instance.ContainerName {
 		t.Fatalf("create requests = %#v", containerRuntime.createRequests)
 	}
 	stored, readErr := service.store.Get(instance.ID)
 	if readErr != nil || stored.Image != "pantalk/ghost:old" {
 		t.Fatalf("stored instance = %#v, %v", stored, readErr)
+	}
+}
+
+func TestUpdateStartFailureRemovesCandidateAndRestartsPreviousContainer(
+	t *testing.T,
+) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.startErrors = []error{errors.New("candidate failed"), nil}
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "previous container restored") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(containerRuntime.startNames) != 2 ||
+		containerRuntime.startNames[0] == instance.ContainerName ||
+		containerRuntime.startNames[1] != instance.ContainerName ||
+		len(containerRuntime.removeNames) != 1 ||
+		containerRuntime.removeNames[0] != containerRuntime.startNames[0] {
+		t.Fatalf(
+			"start names = %#v, remove names = %#v",
+			containerRuntime.startNames,
+			containerRuntime.removeNames,
+		)
+	}
+	stored, readErr := service.store.Get(instance.ID)
+	if readErr != nil || stored.ContainerName != instance.ContainerName ||
+		stored.Image != instance.Image {
+		t.Fatalf("stored instance = %#v, %v", stored, readErr)
+	}
+}
+
+func TestUpdateCleanupFailureRollsBackCommittedCandidate(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.removeErrors = []error{errors.New("old cleanup failed"), nil}
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "old cleanup failed") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(containerRuntime.removeNames) != 2 ||
+		containerRuntime.removeNames[0] != instance.ContainerName ||
+		containerRuntime.removeNames[1] == instance.ContainerName ||
+		containerRuntime.startNames[len(containerRuntime.startNames)-1] !=
+			instance.ContainerName {
+		t.Fatalf(
+			"remove names = %#v, start names = %#v",
+			containerRuntime.removeNames,
+			containerRuntime.startNames,
+		)
+	}
+	stored, readErr := service.store.Get(instance.ID)
+	if readErr != nil || stored.ContainerName != instance.ContainerName ||
+		stored.Image != instance.Image {
+		t.Fatalf("stored instance = %#v, %v", stored, readErr)
+	}
+}
+
+func TestUpdateHealthFailureKeepsPreviousRuntimeAndManifest(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	current, _ := service.manifest(testGhostCatalogID)
+	current.Interfaces["aaa-health"] = catalog.Interface{
+		Kind: "health", Port: 6901, Path: "/healthz",
+	}
+	current.Mounts = append(current.Mounts, catalog.Mount{
+		Name: "private/data", Target: "/home/agent/.local/share",
+		Storage: catalog.MountStorageVolume,
+	})
+	service.ReplaceCatalog([]catalog.Manifest{current})
+	var healthTarget string
+	service.options.HealthCheck = func(_ context.Context, target string) error {
+		healthTarget = target
+		return errors.New("not ready")
+	}
+	containerRuntime.resetCalls()
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "health interface") ||
+		!strings.Contains(err.Error(), "previous container restored") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if healthTarget != "http://127.0.0.1:16902/healthz" {
+		t.Fatalf("health target = %q", healthTarget)
+	}
+	if len(containerRuntime.createRequests) != 1 ||
+		len(containerRuntime.createRequests[0].Manifest.Mounts) != 2 ||
+		len(containerRuntime.removeNames) != 1 ||
+		containerRuntime.removeNames[0] == instance.ContainerName {
+		t.Fatalf("runtime candidate = %#v", containerRuntime.createRequests)
+	}
+	stored, readErr := service.store.Get(instance.ID)
+	if readErr != nil || stored.RuntimeManifest == nil ||
+		len(stored.RuntimeManifest.Mounts) != 1 ||
+		stored.ContainerName != instance.ContainerName {
+		t.Fatalf("stored instance = %#v, %v", stored, readErr)
+	}
+}
+
+func TestUpdateRejectsMountStorageChangeBeforeStoppingRuntime(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	current, _ := service.manifest(testGhostCatalogID)
+	current.Mounts[0].Storage = catalog.MountStorageVolume
+	service.ReplaceCatalog([]catalog.Manifest{current})
+	containerRuntime.resetCalls()
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "migrate its data") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(containerRuntime.calls) != 0 || containerRuntime.stopCalled ||
+		containerRuntime.removeCalled {
+		t.Fatalf("runtime calls = %#v", containerRuntime.calls)
+	}
+}
+
+func TestLegacyUpdateRejectsExistingHostDataNowDeclaredAsVolume(t *testing.T) {
+	containerRuntime := &fakeRuntime{}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+		Start:     true,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	legacy, err := service.store.Get(instance.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	legacy.RuntimeManifest = nil
+	if err := service.store.Save(legacy); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	current, _ := service.manifest(testGhostCatalogID)
+	current.Mounts[0].Storage = catalog.MountStorageVolume
+	service.ReplaceCatalog([]catalog.Manifest{current})
+	containerRuntime.resetCalls()
+
+	_, err = service.Update(t.Context(), instance.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "legacy agent has host data") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(containerRuntime.calls) != 0 {
+		t.Fatalf("runtime calls = %#v", containerRuntime.calls)
+	}
+}
+
+func TestStartRecoversMissingRuntimeFromStoredManifest(t *testing.T) {
+	containerRuntime := &fakeRuntime{status: launchruntime.StatusStopped}
+	service := newTestService(t, containerRuntime)
+	instance, err := service.Create(t.Context(), CreateOptions{
+		CatalogID: testGhostCatalogID,
+		Name:      "Ada",
+		Image:     "pantalk/ghost:old",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	containerRuntime.resetCalls()
+	containerRuntime.status = launchruntime.StatusMissing
+	service.ReplaceCatalog(nil)
+
+	recovered, err := service.Start(t.Context(), instance.ID)
+
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if strings.Join(containerRuntime.calls, ",") !=
+		"ensure-network,create,start" {
+		t.Fatalf("runtime calls = %#v", containerRuntime.calls)
+	}
+	if recovered.DesiredState != domain.DesiredRunning ||
+		containerRuntime.createRequest.Image != instance.Image ||
+		containerRuntime.createRequest.Manifest.Image != instance.Image ||
+		containerRuntime.createRequest.Paths["workspace"] == "" {
+		t.Fatalf("recovered instance = %#v", recovered)
 	}
 }
 
@@ -927,7 +1392,15 @@ type fakeRuntime struct {
 	createRequests        []launchruntime.CreateRequest
 	createErr             error
 	createErrors          []error
+	startErr              error
+	startErrors           []error
+	startNames            []string
+	stopNames             []string
+	removeNames           []string
+	removeErrors          []error
 	metrics               launchruntime.Metrics
+	networkInfo           launchruntime.NetworkInfo
+	networkInfoErr        error
 	statsErr              error
 	recentLogs            string
 	recentLogName         string
@@ -1020,6 +1493,18 @@ func (runtime *fakeRuntime) NetworkAttached(
 	}
 	return runtime.networkAttached, nil
 }
+func (runtime *fakeRuntime) NetworkInfo(
+	_ context.Context,
+	_ string,
+	instanceID string,
+) (launchruntime.NetworkInfo, error) {
+	runtime.calls = append(runtime.calls, "network-info")
+	if runtime.networkInfo.Name == "" {
+		runtime.networkInfo.Name = launchruntime.ManagedNetworkName(instanceID)
+		runtime.networkInfo.Attached = true
+	}
+	return runtime.networkInfo, runtime.networkInfoErr
+}
 func (runtime *fakeRuntime) Create(
 	_ context.Context,
 	request launchruntime.CreateRequest,
@@ -1035,22 +1520,38 @@ func (runtime *fakeRuntime) Create(
 	}
 	return runtime.createErr
 }
-func (runtime *fakeRuntime) Start(context.Context, string) error {
+func (runtime *fakeRuntime) Start(_ context.Context, name string) error {
 	runtime.startCalled = true
-	runtime.status = launchruntime.StatusRunning
+	runtime.startNames = append(runtime.startNames, name)
 	runtime.calls = append(runtime.calls, "start")
+	if len(runtime.startErrors) > 0 {
+		err := runtime.startErrors[0]
+		runtime.startErrors = runtime.startErrors[1:]
+		return err
+	}
+	if runtime.startErr != nil {
+		return runtime.startErr
+	}
+	runtime.status = launchruntime.StatusRunning
 	return nil
 }
-func (runtime *fakeRuntime) Stop(context.Context, string) error {
+func (runtime *fakeRuntime) Stop(_ context.Context, name string) error {
 	runtime.stopCalled = true
+	runtime.stopNames = append(runtime.stopNames, name)
 	runtime.status = launchruntime.StatusStopped
 	runtime.calls = append(runtime.calls, "stop")
 	return nil
 }
-func (runtime *fakeRuntime) Remove(context.Context, string, string) error {
+func (runtime *fakeRuntime) Remove(_ context.Context, name string, _ string) error {
 	runtime.removeCalled = true
-	runtime.status = launchruntime.StatusMissing
+	runtime.removeNames = append(runtime.removeNames, name)
 	runtime.calls = append(runtime.calls, "remove")
+	if len(runtime.removeErrors) > 0 {
+		err := runtime.removeErrors[0]
+		runtime.removeErrors = runtime.removeErrors[1:]
+		return err
+	}
+	runtime.status = launchruntime.StatusMissing
 	return nil
 }
 func (runtime *fakeRuntime) DeleteMountData(
@@ -1122,5 +1623,8 @@ func (runtime *fakeRuntime) resetCalls() {
 	runtime.pullImage = ""
 	runtime.pullPlatform = ""
 	runtime.createRequests = nil
+	runtime.startNames = nil
+	runtime.stopNames = nil
+	runtime.removeNames = nil
 	runtime.calls = nil
 }
