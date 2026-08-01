@@ -14,6 +14,11 @@ void LauncherNativeHostBadgeDockIcon(void);
 // Safe to call repeatedly and from any goroutine.
 bool LauncherNativeHostInstallViewerChrome(void);
 
+// Corrects KeyboardEvent.location for arrow keys, which macOS reports as
+// numeric-pad keys and WebKit passes through unchanged. Safe to call
+// repeatedly and from any goroutine.
+bool LauncherNativeHostInstallArrowKeyFix(void);
+
 // Brings another process's windows to the front. Reports whether a running
 // application with that identifier was found and activated.
 bool LauncherNativeHostActivateProcess(int pid);

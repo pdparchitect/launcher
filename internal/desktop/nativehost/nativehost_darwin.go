@@ -28,6 +28,12 @@ func InstallViewerChrome() bool {
 	return bool(C.LauncherNativeHostInstallViewerChrome())
 }
 
+// InstallArrowKeyFix corrects the numeric-pad location WebKit reports for
+// arrow keys on macOS, before the agent's interface reads it.
+func InstallArrowKeyFix() bool {
+	return bool(C.LauncherNativeHostInstallArrowKeyFix())
+}
+
 // ActivateProcess brings the windows of another process to the front, and
 // reports whether that process was still running to be activated.
 func ActivateProcess(pid int) bool {

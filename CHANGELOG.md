@@ -4,6 +4,21 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-08-01
+
+### Fixed
+
+- Deliver arrow keys to agents as cursor keys rather than as their keypad
+  twins, in viewer windows on macOS. macOS tags the arrow keys with its
+  numeric-pad modifier flag, and WebKit passes that through as a numeric-pad
+  key location where Chrome and Firefox report a standard one. Every layer
+  below then behaved correctly on a wrong value: the agent's VNC client read
+  the location and sent `KP_Up` instead of `Up`, terminals reported a keypad
+  key under the kitty keyboard protocol, and full-screen applications that
+  negotiate it - vim among them - inserted the key's raw code instead of
+  moving the cursor. The viewer window now corrects the location before the
+  agent's interface reads it.
+
 ## [0.5.0] - 2026-08-01
 
 ### Added
