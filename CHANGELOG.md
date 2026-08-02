@@ -4,6 +4,16 @@ All notable Launcher changes are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-08-02
+
+### Added
+
+- Integrate installed Launcher builds with Codex and Claude Code automatically.
+  When `~/.codex` or `~/.claude` already exists, Launcher startup maintains a
+  self-contained `pdparchitect-launcher` skill for that agent tool containing
+  the current built-in agent guide and commands bound to that build's absolute
+  executable path.
+
 ## [0.7.0] - 2026-08-01
 
 ### Added

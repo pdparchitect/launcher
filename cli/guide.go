@@ -19,3 +19,10 @@ func (app *App) guide(args []string) error {
 	_, err := fmt.Fprint(app.stdout, agentGuide)
 	return err
 }
+
+// AgentGuide returns the self-contained instructions embedded in this build.
+// Startup integrations use the same source so their guidance cannot drift
+// from `launcher guide`.
+func AgentGuide() string {
+	return agentGuide
+}
