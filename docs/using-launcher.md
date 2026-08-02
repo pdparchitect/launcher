@@ -139,6 +139,20 @@ binary. It is intended for both people and automated agents that need to learn
 the installed Launcher's discovery, creation, lifecycle, execution, and safety
 conventions without relying on external documentation.
 
+Launcher startup checks for existing Codex and Claude Code configuration
+directories. For each one present, it atomically installs or refreshes the same
+tutorial as a personal skill:
+
+- Codex: `~/.codex/skills/pdparchitect-launcher/SKILL.md`
+- Claude Code: `~/.claude/skills/pdparchitect-launcher/SKILL.md`
+
+The generated skill uses the absolute path of the running Launcher executable
+in every command, which keeps each agent tool bound to the matching application
+build even when `launcher` is not on `PATH`. Launcher does not create a tool's
+configuration directory when it is absent. Installation failures are reported
+independently and do not block Launcher startup or installation for another
+supported agent tool.
+
 `launcher open` prints the local URL when the system cannot open a desktop
 browser.
 

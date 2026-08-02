@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/pdparchitect/launcher/cli"
 	"github.com/pdparchitect/launcher/internal/agent"
+	"github.com/pdparchitect/launcher/internal/agentskill"
 	"github.com/pdparchitect/launcher/internal/catalog"
 	"github.com/pdparchitect/launcher/internal/config"
 	"github.com/pdparchitect/launcher/internal/desktop"
@@ -28,6 +29,7 @@ var (
 )
 
 func main() {
+	installAgentSkills()
 	root, err := config.DataRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: locate data folder: %v\n", err)
@@ -208,6 +210,22 @@ func main() {
 	code := app.Run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)
+}
+
+func installAgentSkills() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: locate home for agent integration: %v\n", err)
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: locate Launcher for agent integration: %v\n", err)
+		return
+	}
+	if err := agentskill.Install(home, executable, cli.AgentGuide()); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: install agent skills: %v\n", err)
+	}
 }
 
 func runRefreshLoop(

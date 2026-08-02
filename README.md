@@ -97,7 +97,10 @@ Each application controls its own experience and capabilities. Launcher
 provides the consistent local installation and management layer around it.
 
 Run `launcher guide` for the self-contained, agent-readable tutorial embedded
-in the installed binary.
+in the installed binary. When Codex or Claude Code is configured, Launcher also
+maintains that guide as a personal `pdparchitect-launcher` skill for each tool,
+with every command pinned to the absolute path of the Launcher build that
+generated it.
 
 ## Supported platforms
 
