@@ -1,0 +1,86 @@
+name: Cache GC
+
+# The Actions cache is a 10 GB quota for the whole repository. This one fills
+# with `actions/setup-go` module caches, and their keys carry the Go version and
+# the `go.sum` hash: every dependency change strands the previous key, per
+# runner platform, for the desktop matrix's Linux x64, Linux ARM64, and macOS
+# ARM64. Nothing reads a stranded entry again, but GitHub keeps it for seven
+# days regardless and only evicts under quota pressure.
+#
+# So retire cache entries on this repository's schedule rather than GitHub's.
+# The window is measured from the last read, not from creation: the key for the
+# current `go.sum` is restored by every build and stays, while the keys left
+# behind by a dependency bump age out within days.
+#
+# The image builds do not export a BuildKit cache at all - `buildx bake` writes
+# nothing here - so this workflow only ever sees the Go caches.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: Delete cache entries unread for more than this many days
+        required: false
+        default: '3'
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cache-gc
+  cancel-in-progress: false
+
+jobs:
+  trim:
+    name: Trim the Actions cache
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete cache entries past the retention window
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_AGE_DAYS: ${{ inputs.max_age_days || '3' }}
+        run: |
+          set -euo pipefail
+
+          cutoff="$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)"
+          echo "Retention window: ${MAX_AGE_DAYS} days (unread before $(date -u -d "@${cutoff}" --iso-8601=seconds))"
+
+          # The listing is collected in full before anything is deleted:
+          # deleting while paginating shifts entries between pages and silently
+          # skips them.
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+            | jq -r --argjson cutoff "$cutoff" '
+                .actions_caches[]
+                | select(
+                    (.last_accessed_at | sub("\\.[0-9]+"; "") | fromdateiso8601)
+                    < $cutoff)
+                | "\(.id)\t\(.size_in_bytes)\t\(.ref)\t\(.key)"' \
+            > /tmp/stale.tsv
+
+          if [ ! -s /tmp/stale.tsv ]; then
+            echo "Nothing is past the retention window."
+          else
+            freed=0
+            while IFS=$'\t' read -r id size ref key; do
+              echo "Deleting ${key} (${ref}, $((size / 1024 / 1024)) MB)"
+              # A cache can be evicted by GitHub, or by a concurrent run,
+              # between the listing and the delete. That is the outcome this
+              # workflow wanted, so it is not a failure.
+              if gh api --method DELETE \
+                  "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" \
+                  --silent 2>/dev/null; then
+                freed=$((freed + size))
+              else
+                echo "  already gone"
+              fi
+            done < /tmp/stale.tsv
+            echo "Freed $((freed / 1024 / 1024)) MB across $(wc -l < /tmp/stale.tsv) entries."
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/cache/usage" \
+            --jq '"Remaining: \(.active_caches_size_in_bytes / 1024 / 1024 | floor) MB in \(.active_caches_count) entries"'
